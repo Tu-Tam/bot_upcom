@@ -7,7 +7,7 @@ import time
 app = Flask('')
 @app.route('/')
 def giu_hoat_dong():
-    return "✅ Bot đang chạy ổn định - Đã tối ưu tốc độ gọi dữ liệu & luân phiên khóa thành công!"
+    return "✅ Bot đang chạy thử với 2 mã kiểm tra - hoạt động ổn định!"
 
 def chay_server():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
@@ -19,7 +19,7 @@ import telebot
 import requests
 from datetime import datetime
 
-# === 🗝️ DANH SÁCH 4 KHÓA API LUÂN PHIÊN TĂNG SỐ LƯỢT DÙNG ===
+# === 🗝️ VẪN GIỮ 4 KHÓA LUÂN PHIÊN SẴN SÀNG ===
 DANH_SACH_API_KEY = [
     "demo",
     "SYHGO5Z8DE4RAU8E",
@@ -41,16 +41,16 @@ BOT_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns"
 CHAT_ID = 7064473358
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# === DANH SÁCH MÃ THEO DÕI ===
-DANH_SACH_MA = ["SHB","HDB","TCB","VPB","MBB","SSB","EIB","VIX","MBS","VCI","SSI","ACB","BID","VCB"]
+# === ✅ CHỈ CHỌN 2 MÃ THỬ KIỂM TRA NHANH, ÍT GỌI DỮ LIỆU KHÔNG BỊ CHẶN ===
+DANH_SACH_MA = ["SHB", "VCB"]  # Sau khi chạy ổn đổi lại danh sách dài chỉ cần viết thêm vào đây
 
-# === THAM SỐ TỐI ƯU TRÁNH BỊ CHẶN ===
+# === THAM SỐ AN TOÀN ===
 EMA_NGAN, EMA_DAI, SMA_DAI = 12, 26, 50
 RSI_KY = 14
 BOLL_KY, BOLL_HE_SO = 20, 2
-NGHI_GIUA_MA = 4       # Nghỉ 4 giây/lượt gọi: tuân thủ <5 lượt/phút
-NGHI_KHI_BI_GIOI_HAN = 7 # Nghỉ thêm khi báo giới hạn
-NGHI_BAO_SONG = 120     # Báo sống mỗi 2 phút
+NGHI_GIUA_MA = 4
+NGHI_KHI_BI_GIOI_HAN = 7
+NGHI_BAO_SONG = 120
 
 # === LƯU TRỮ DỮ LIỆU ===
 trang_thai = {ma: "CHO_DOI" for ma in DANH_SACH_MA}
@@ -67,7 +67,7 @@ def kiem_tra_mang():
     except:
         return False
 
-# === Lấy dữ liệu có tự chuyển khóa & nghỉ đúng tốc độ ===
+# === Lấy dữ liệu có nghỉ & chuyển khóa tự động ===
 def lay_du_lieu(ma):
     thu = 0
     while thu < len(DANH_SACH_API_KEY):
@@ -88,10 +88,10 @@ def lay_du_lieu(ma):
         thu += 1
     return None
 
-# === Tính toán & chấm điểm thang 10 chuẩn ===
+# === Tính điểm chuẩn thang 10 ===
 def phan_tich(ma):
     dl = lay_du_lieu(ma)
-    time.sleep(NGHI_GIUA_MA) # Nghỉ bắt buộc giữa các mã
+    time.sleep(NGHI_GIUA_MA)
     if not dl: return None
 
     ds_ngay = sorted(dl["Time Series (Daily)"].keys(), reverse=True)
@@ -145,21 +145,20 @@ def phan_tich(ma):
 @bot.message_handler(func=lambda m: m.text.strip()=="Trạng thái")
 def bao_trang_thai(m):
     if m.chat.id!=CHAT_ID: return
-    bot.send_message(CHAT_ID,f"""💓 TRẠNG THÁI: ĐANG HOẠT ĐỘNG TỐT ✅
+    bot.send_message(CHAT_ID,f"""💓 TRẠNG THÁI: ĐANG THỬ HOẠT ĐỘNG ✅
 ⏰ {datetime.now().strftime('%H:%M:%S %d/%m/%Y')}
-📶 Kết nối ổn định | Tốc độ gọi dữ liệu đã điều chỉnh an toàn
-📊 Chỉ lọc gửi TOP 5 điểm cao nhất | Tổng {len(DANH_SACH_API_KEY)} khóa luân phiên
-💬 Gõ: Đánh giá mã xem danh sách ưu tiên chất lượng nhất""")
+📶 Kết nối ổn định | Chỉ theo dõi thử {len(DANH_SACH_MA)} mã nên nhanh lấy đủ dữ liệu hơn!
+💬 Gõ: **Đánh giá mã** sẽ ra ngay kết quả nhanh chóng nhé!""")
 
-# === ✅ LỆNH CHỈ LẤY TOP 5 CAO NHẤT ===
+# === LỆNH ĐÁNH GIÁ: tự lấy 2 mã rồi sắp xếp hiển thị rõ ràng ===
 @bot.message_handler(func=lambda m: m.text.strip()=="Đánh giá mã")
-def gui_top5(m):
+def gui_ketqua(m):
     if m.chat.id!=CHAT_ID: return
     if not diem_da_tinh:
-        bot.send_message(CHAT_ID,"⏳ Đang thu thập đủ dữ liệu theo tốc độ cho phép, vui lòng chờ hoàn thành chu kỳ rồi thử lại nhé 💪")
+        bot.send_message(CHAT_ID,"⏳ Đang thu thập đủ dữ liệu cho 2 mã thử, chờ ngắn lát là ra kết quả ngay 💪")
         return
-    sap_xep = sorted(diem_da_tinh.items(), key=lambda x:x[1]["diem"], reverse=True)[:5]
-    bot.send_message(CHAT_ID,"📊 **TOP 5 MÃ CÓ ĐIỂM CAO NHẤT (Thang 10)**")
+    sap_xep = sorted(diem_da_tinh.items(), key=lambda x:x[1]["diem"], reverse=True)
+    bot.send_message(CHAT_ID,"📊 **KẾT QUẢ ĐÁNH GIÁ THỬ (Thang điểm 10)**")
     nd=""
     for ma,tt in sap_xep:
         xep = "⭐ TỐT: Nhiều chỉ số đồng bộ, ưu tiên xem xét" if tt["diem"]>=7 else "🔸 TRUNG BÌNH: Có tín hiệu nhẹ, theo dõi thêm" if tt["diem"]>=5 else "🔹 YẾU: Chưa đủ tiêu chí tốt, chờ cải thiện"
@@ -171,7 +170,7 @@ def gui_top5(m):
 ——————————————\n"""
     bot.send_message(CHAT_ID,nd)
 
-# === Xử lý khi chọn mua/bán ===
+# === Xử lý tín hiệu mua/bán vẫn giữ nguyên đầy đủ ===
 @bot.message_handler(func=lambda m: m.text.strip()=="Đã mua")
 def xac_nhan_mua(m):
     if m.chat.id!=CHAT_ID: return
@@ -193,8 +192,8 @@ def xac_nhan_ban(m):
     bot.send_message(CHAT_ID,"⚠️ Chưa có mã nào đang theo dõi vị trí!")
 
 # === VÒNG CHẠY CHÍNH ===
-print("=== BOT ĐÃ SẴN SÀNG: Tốc độ an toàn + Luân phiên khóa + TOP5 ===")
-bot.send_message(CHAT_ID,"🤖✅ Đã cập nhật hoàn chỉnh!\n⏱️ Nghỉ đúng khoảng cách tránh bị chặn dữ liệu\n📊 Chỉ gửi 5 mã tốt nhất dễ xem nhanh chóng\n💬 Chờ bot chạy lấy đủ dữ liệu rồi thử lệnh Đánh giá mã nhé!")
+print("=== THỬ HOẠT ĐỘNG CHỈ VỚI 2 MÃ NHANH KIỂM TRA ===")
+bot.send_message(CHAT_ID,"🤖✅ Đã chuyển sang thử chỉ với 2 mã SHB & VCB!\n⚡ Ít mã nên lấy đủ dữ liệu nhanh hơn hẳn, dễ xem ra kết quả ngay!\n💬 Chờ ngắn lát rồi thử lệnh **Đánh giá mã** nhé!")
 
 while True:
     mang_moi = kiem_tra_mang()

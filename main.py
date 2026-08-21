@@ -14,27 +14,28 @@ def chay_server():
 
 Thread(target=chay_server).start()
 
-# === BOT TELEGRAM PHÂN TÍCH CỔ PHIẾU + NHIỀU KHÓA API LUÂN PHIÊN ===
+# === BOT TELEGRAM PHÂN TÍCH CỔ PHIẾU + LUÂN PHIÊN KHÓA + TOP 5 TỐT NHẤT ===
 import telebot
 import requests
 from datetime import datetime
 
-# === 🗝️ DANH SÁCH KHÓA API ĐÃ THÊM KHÓA MỚI BẠN VỪA LẤY ===
+# === 🗝️ DANH SÁCH ĐỦ 4 KHÓA LUÂN PHIÊN TĂNG LƯỢT DÙNG ===
 DANH_SACH_API_KEY = [
     "demo",                          # Khóa chung thử nhanh
-    "SYHGO5Z8DE4RAU8E",              # ✅ KHÓA MỚI BẠN VỪA CUNG CẤP
-    # Sau này lấy thêm khóa nữa cứ chèn tiếp vào dòng dưới đây: "KHÓA_MỚI",
+    "SYHGO5Z8DE4RAU8E",              # Khóa đã dùng trước đó
+    "52MWBOYE0RSLQE8E",              # ✅ KHÓA MỚI SỐ 1
+    "N8TO30AM8DVVGDE7",              # ✅ KHÓA MỚI SỐ 2
 ]
-chi_so_khoa_dang_dung = 0  # Bắt đầu dùng tuần tự từ khóa đầu
+chi_so_khoa_dang_dung = 0  # Tự chuyển khi đạt giới hạn
 
-# === Hàm lấy khóa hiện tại & tự chuyển khóa khi bị giới hạn ===
+# === Hàm lấy khóa hiện tại & chuyển khóa tự động ===
 def lay_khoa_hien_hanh():
     return DANH_SACH_API_KEY[chi_so_khoa_dang_dung]
 
 def chuyen_khoa_tiep_the():
     global chi_so_khoa_dang_dung
     chi_so_khoa_dang_dung = (chi_so_khoa_dang_dung + 1) % len(DANH_SACH_API_KEY)
-    print(f"🔄 Đã tự chuyển sang dùng khóa số {chi_so_khoa_dang_dung + 1} tiếp theo!")
+    print(f"🔄 Đã tự động chuyển sang dùng khóa số {chi_so_khoa_dang_dung + 1} tiếp theo!")
 
 # === THÔNG TIN BOT CỦA BẠN ===
 BOT_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns"
@@ -42,7 +43,7 @@ CHAT_ID = 7064473358
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# === DANH SÁCH MÃ UPCOM THANH KHOẢN TỐT ===
+# === DANH SÁCH MÃ THEO DÕI ===
 DANH_SACH_MA_UPCOM = ["SHB","HDB","TCB","VPB","MBB","SSB","EIB","VIX","MBS","VCI","SSI","ACB","BID","VCB"]
 
 # === THAM SỐ PHÂN TÍCH ===
@@ -68,7 +69,7 @@ def kiem_tra_ket_noi_mang():
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
         return False
 
-# === HÀM LẤY DỮ LIỆU + TỰ THỬ LẠI CHUYỂN KHÓA KHI HẾT LƯỢT ===
+# === HÀM LẤY DỮ LIỆU + TỰ CHUYỂN KHÓA KHI HẾT LƯỢT ===
 def lay_du_lieu_gia(ma):
     so_lan_thu = 0
     while so_lan_thu < len(DANH_SACH_API_KEY):
@@ -90,7 +91,7 @@ def lay_du_lieu_gia(ma):
         so_lan_thu +=1
     return None
 
-# === Phân tích tính điểm theo thang 10 đầy đủ ===
+# === Phân tích tính điểm thang 10 đầy đủ ===
 def phan_tich_tu_dong(ma):
     du_lieu = lay_du_lieu_gia(ma)
     if not du_lieu: return None
@@ -149,7 +150,7 @@ def phan_tich_tu_dong(ma):
     kl_tb20 = round(sum(khoi_luong[:20]) / 20)
     kl_hien = khoi_luong[0]
 
-    # Tính điểm thang 10 rõ ràng
+    # Tính điểm chuẩn thang 10
     diem = 0
     if ema_ngan > ema_dai and ema_dai > sma_dai: diem += 2
     if macd_line > signal_line and macd_line > 0: diem += 2
@@ -172,19 +173,24 @@ def tra_loi_trang_thai(message):
     bot.send_message(chat_id=CHAT_ID, text=f"""💓 **TRẠNG THÁI HOẠT ĐỘNG:** ĐANG CHẠY BÌNH THƯỜNG ✅
 ⏰ Thời gian: {thoi_gian_hien_tai}
 📶 Kết nối mạng: Đang ổn định
-📈 Đang theo dõi danh sách {len(DANH_SACH_MA_UPCOM)} mã UPCOM
-💬 Gõ: **Đánh giá mã** → xem điểm + giá + chốt lời + bảo vệ vốn rõ ràng!""")
+📈 Phân tích {len(DANH_SACH_MA_UPCOM)} mã → lọc gửi **TOP 5 ĐIỂM CAO NHẤT**
+🗝️ Dùng {len(DANH_SACH_API_KEY)} khóa luân phiên giảm chờ dữ liệu
+💬 Gõ: **Đánh giá mã** → xem ngay 5 lựa chọn tốt nhất rõ gọn!""")
 
-# === ✅ LỆNH ĐÁNH GIÁ CHI TIẾT ĐỦ THÔNG TIN ===
+# === ✅ LỆNH ĐÁNH GIÁ: SẮP XẾP CHỈ LẤY 5 MÃ ĐIỂM CAO NHẤT ===
 @bot.message_handler(func=lambda message: message.text.strip() == "Đánh giá mã")
 def xem_diem_tat_ca(message):
     if message.chat.id != CHAT_ID: return
     if not du_lieu_diem_gan_nhat:
-        bot.send_message(chat_id=CHAT_ID, text="⏳ Đang thu thập dữ liệu giá, vui lòng chờ ít phút hoặc thử lại sau nhé! Đang dùng nhiều khóa luân phiên tăng số lượt lấy dữ liệu tốt hơn 💪")
+        bot.send_message(chat_id=CHAT_ID, text="⏳ Đang thu thập & phân tích dữ liệu giá, vui lòng chờ ít phút nhé! 💪")
         return
-    bot.send_message(chat_id=CHAT_ID, text="📊 **BẢNG ĐÁNH GIÁ CHI TIẾT (Thang điểm 10)**\n")
+
+    # Sắp xếp từ điểm cao xuống thấp & lấy đúng 5 mã đầu tiên
+    ds_sap_xep = sorted(du_lieu_diem_gan_nhat.items(), key=lambda x: x[1]["diem"], reverse=True)[:5]
+
+    bot.send_message(chat_id=CHAT_ID, text="📊 **TOP 5 MÃ CÓ ĐIỂM CAO NHẤT (Thang điểm 10)**\n")
     noi_dung = ""
-    for ma, tt in du_lieu_diem_gan_nhat.items():
+    for ma, tt in ds_sap_xep:
         d = tt["diem"]
         if d >= 7: xep_hang = "⭐ TỐT: nhiều yếu tố đồng bộ, cơ hội tăng giá rõ rệt ưu tiên xem xét"
         elif d >= 5: xep_hang = "🔸 TRUNG BÌNH: có tín hiệu nhẹ, theo dõi thêm, cân nhắc vốn nhỏ"
@@ -198,7 +204,7 @@ def xem_diem_tat_ca(message):
 ——————————————————\n"""
     bot.send_message(chat_id=CHAT_ID, text=noi_dung)
 
-# === Xử lý Đã mua / Đã báo chạm giá đúng mức ===
+# === Xử lý Đã mua / Đã báo khi chạm giá đúng mức ===
 @bot.message_handler(func=lambda message: message.text.strip() == "Đã mua")
 def da_mua(message):
     if message.chat.id != CHAT_ID: return
@@ -225,10 +231,11 @@ def da_ban(message):
     bot.send_message(chat_id=CHAT_ID, text="⚠️ Đang theo dõi tín hiệu nhé!")
 
 # === VÒNG CHẠY CHÍNH ===
-print("=== Đã cập nhật khóa mới + tự động chuyển khóa khi hết lượt thành công ===")
+print("=== Đã cập nhật: Luân phiên 4 khóa + Gửi TOP 5 điểm cao nhất giảm tải thành công ===")
 bot.send_message(chat_id=CHAT_ID, text="""🤖✅ **SẴN SÀNG HOÀN HẢO:**
-🗝️ Đã thêm khóa API mới, tự chuyển đổi giúp gọi dữ liệu nhiều lần hơn trong ngày!
-💬 Gõ **Đánh giá mã** xem ngay điểm/thang 10 + nhận xét + giá + chốt lời + bảo vệ vốn đầy đủ!""")
+📊 Tự lọc chỉ gửi **5 mã tốt nhất điểm cao nhất** thay vì toàn danh sách → tin ngắn gọn nhanh hơn!
+🗝️ 4 khóa phối hợp luân phiên tăng số lượt lấy dữ liệu!
+💬 Gõ **Đánh giá mã** xem ngay lựa chọn ưu tiên chất lượng nhất!""")
 
 while True:
     mang_ban_dau = trang_thai_mang

@@ -13,7 +13,7 @@ def chay_server():
 
 Thread(target=chay_server).start()
 
-# === TIẾP THEO TOÀN BỘ MÃ CHÍNH ĐÃ CHỈNH THÔNG SỐ NHẠY HƠN + BÁO RÕ ĐIỂM ===
+# === TOÀN BỘ MÃ CHÍNH ĐỦ THÔNG TIN ĐIỂM + GIÁ MỤC TIÊU ===
 import telebot
 import time
 import requests
@@ -39,6 +39,7 @@ THOI_GIAN_BAO_SONG_PHUT = 120
 # === LƯU TRỮ TRẠNG THÁI ===
 trang_thai = {ma: "CHO_DOI" for ma in DANH_SACH_MA_UPCOM}
 du_lieu_vi_the = {}
+du_lieu_diem_gan_nhat = {} # Lưu đủ điểm + giá + chốt lời + cắt lỗ
 trang_thai_mang = True  
 dem_bao_song = 0        
 
@@ -50,7 +51,7 @@ def kiem_tra_ket_noi_mang():
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
         return False
 
-# === HÀM PHÂN TÍCH LỌC MÃ VỚI THAM SỐ MỚI ===
+# === HÀM PHÂN TÍCH LẤY ĐỦ THÔNG SỐ ===
 def phan_tich_tu_dong(ma):
     try:
         url = f"https://api.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={ma}&apikey=demo&outputsize=compact"
@@ -114,27 +115,28 @@ def phan_tich_tu_dong(ma):
         kl_tb20 = round(sum(khoi_luong[:20]) / 20)
         kl_hien = khoi_luong[0]
 
-        # === ĐIỀU CHỈNH TIÊU CHÍ DỄ ĐẠT HƠN ===
+        # === Tính điểm theo thang 10 ===
         diem = 0
         if ema_ngan > ema_dai and ema_dai > sma_dai: diem += 2
         if macd_line > signal_line and macd_line > 0: diem += 2
-        if rsi > 35 and rsi < 70: diem += 2 # Mở rộng khoảng RSI
-        if kl_hien > kl_tb20 * 1.03: diem += 2 # Chỉ cần cao hơn trung bình 3% là đủ
+        if rsi > 35 and rsi < 70: diem += 2
+        if kl_hien > kl_tb20 * 1.03: diem += 2
         if gia_hien_tai > ho_tro and gia_hien_tai < khang_cu and gia_hien_tai < boll_tren: diem += 2
 
-        gia_cl = round(min(khang_cu, boll_tren) * 0.995, 2)
-        gia_cat = round(min(ho_tro, boll_duoi) * 0.995, 2)
+        gia_cl = round(min(khang_cu, boll_tren) * 0.995, 2) # Giá chốt lời
+        gia_cat = round(min(ho_tro, boll_duoi) * 0.995, 2) # Giá bảo vệ vốn
 
-        return {
-            "gia": gia_hien_tai, "ema_n": ema_ngan, "ema_d": ema_dai, "sma_d": sma_dai,
-            "rsi": rsi, "diem": diem, "ho_tro": ho_tro, "khang_cu": khang_cu,
+        ket_qua = {
+            "gia": gia_hien_tai, "diem": diem, "rsi": rsi,
             "cl": gia_cl, "catl": gia_cat
         }
+        du_lieu_diem_gan_nhat[ma] = ket_qua
+        return ket_qua
     except Exception as e:
         print(f"Lỗi phân tích {ma}: {e}")
         return None
 
-# === LỆNH TRẢ LỜI KHI HỎI Trạng thái ===
+# === LỆNH TRẠNG THÁI ===
 @bot.message_handler(func=lambda message: message.text.strip() == "Trạng thái")
 def tra_loi_trang_thai(message):
     if message.chat.id != CHAT_ID: return
@@ -143,23 +145,54 @@ def tra_loi_trang_thai(message):
 ⏰ Thời gian: {thoi_gian_hien_tai}
 📶 Kết nối mạng: Đang ổn định
 📈 Đang theo dõi danh sách {len(DANH_SACH_MA_UPCOM)} mã UPCOM
-💡 Nhận tin này ngay = Bot đang hoạt động nhanh nhạy trong nền!""")
+💬 Gõ: **Đánh giá mã** → xem điểm + giá + chốt lời + bảo vệ vốn rõ ràng!""")
 
-# === XỬ LÝ Đã mua / Đã bán ===
+# === ✅ LỆNH ĐÁNH GIÁ: Điểm 10 + Nhận xét + Giá hiện tại + Chốt lời + Cắt lỗ ===
+@bot.message_handler(func=lambda message: message.text.strip() == "Đánh giá mã")
+def xem_diem_tat_ca(message):
+    if message.chat.id != CHAT_ID: return
+    if not du_lieu_diem_gan_nhat:
+        bot.send_message(chat_id=CHAT_ID, text="⏳ Đang tính dữ liệu giá, vui lòng chờ ít phút thử lại nhé!")
+        return
+    bot.send_message(chat_id=CHAT_ID, text="📊 **BẢNG ĐÁNH GIÁ CHI TIẾT (Thang điểm 10)**\n")
+    noi_dung = ""
+    for ma, tt in du_lieu_diem_gan_nhat.items():
+        d = tt["diem"]
+        # Nhận xét rõ mức
+        if d >= 7:
+            xep_hang = "⭐ TỐT: nhiều yếu tố đồng bộ, cơ hội tăng giá rõ rệt ưu tiên xem xét"
+        elif d >= 5:
+            xep_hang = "🔸 TRUNG BÌNH: có tín hiệu nhẹ, theo dõi thêm, cân nhắc vốn nhỏ"
+        else:
+            xep_hang = "🔹 YẾU: chưa đủ tiêu chí tốt, tạm theo dõi chờ cải thiện thêm"
+
+        noi_dung += f"""📌 **{ma}**: {d}/10 điểm
+💵 Giá hiện tại: {tt['gia']:,}đ
+🎯 Giá chốt lời mục tiêu: {tt['cl']:,}đ
+🛡️ Giá bảo vệ vốn an toàn: {tt['catl']:,}đ
+📝 Nhận xét: {xep_hang}
+——————————————————\n"""
+
+    bot.send_message(chat_id=CHAT_ID, text=noi_dung)
+
+# === XỬ LÝ Đã mua / Đã báo khi chạm giá đúng mức ===
 @bot.message_handler(func=lambda message: message.text.strip() == "Đã mua")
 def da_mua(message):
     if message.chat.id != CHAT_ID: return
     for ma in DANH_SACH_MA_UPCOM:
         if trang_thai[ma] == "CHO_XAC_NHAN_DAMUA":
-            du_lieu_vi_the[ma] = {"gia_vao": trang_thai[f"gia_{ma}"], "cl": trang_thai[f"cl_{ma}"], "catl": trang_thai[f"catl_{ma}"]}
+            du_lieu_vi_the[ma] = {
+                "gia_vao": trang_thai[f"gia_{ma}"],
+                "cl": trang_thai[f"cl_{ma}"],
+                "catl": trang_thai[f"catl_{ma}"]
+            }
             trang_thai[ma] = "DANG_NAM_GIU"
-            bot.send_message(chat_id=CHAT_ID, text=f"""✅ Ghi nhận tự động theo dõi: {ma}
+            bot.send_message(chat_id=CHAT_ID, text=f"""✅ Ghi nhận theo dõi: {ma}
 💵 Giá vào lệnh: {du_lieu_vi_the[ma]['gia_vao']:,}đ
-🎯 Mục tiêu thu lời: {du_lieu_vi_the[ma]['cl']:,}đ
-🛡️ Ngưỡng bảo vệ vốn: {du_lieu_vi_the[ma]['catl']:,}đ
-👉 Tự động canh chừng báo ngay khi chạm mức! Nhớ trả lời **Đã bán** khi xong nhé!""")
+🎯 Chốt lời: {du_lieu_vi_the[ma]['cl']:,}đ
+🛡️ Cắt lỗ bảo vốn: {du_lieu_vi_the[ma]['catl']:,}đ""")
             return
-    bot.send_message(chat_id=CHAT_ID, text="⚠️ Chờ tự động lọc ra cơ hội tiếp theo nhé!")
+    bot.send_message(chat_id=CHAT_ID, text="⚠️ Chờ tín hiệu cơ hội tiếp theo nhé!")
 
 @bot.message_handler(func=lambda message: message.text.strip() == "Đã bán")
 def da_ban(message):
@@ -168,49 +201,33 @@ def da_ban(message):
         if trang_thai[ma] == "DANG_NAM_GIU" and ma in du_lieu_vi_the:
             del du_lieu_vi_the[ma]
             trang_thai[ma] = "CHO_DOI"
-            bot.send_message(chat_id=CHAT_ID, text=f"""🔄✅ Đã kết thúc tự động theo dõi {ma}!
-Sẵn sàng tiếp tục quét toàn bộ danh sách tìm cơ hội chất lượng tiếp theo tự động nhé!""")
+            bot.send_message(chat_id=CHAT_ID, text=f"""🔄✅ Đã kết thúc theo dõi {ma}!""")
             return
-    bot.send_message(chat_id=CHAT_ID, text="⚠️ Đang chờ tín hiệu tự động tiếp theo nhé!")
+    bot.send_message(chat_id=CHAT_ID, text="⚠️ Đang theo dõi tín hiệu nhé!")
 
-# === VÒNG CHẠY CHÍNH: BÁO CHI TIẾT ĐIỂM SỐ RÕ RÀNG ===
-print("=== BẮT ĐẦU HOẠT ĐỘNG: NGƯỠNG 5 ĐIỂM TRỞ LÊN + BÁO CHI TIẾT TỪNG MỤC ===")
-bot.send_message(chat_id=CHAT_ID, text="""🤖✅ **Đã CẬP NHẬT THÀNH CÔNG:**
-💓 Báo sống mỗi 2 giờ
-📶 Báo ngay khi mất mạng/kết nối lại
-💬 Gửi **Trạng thái** kiểm tra bất kỳ lúc nào
-📉 Ngưỡng giảm xuống 5 điểm trở lên, báo rõ từng tiêu chí cộng điểm giúp dễ ra quyết định!""")
+# === VÒNG CHẠY CHÍNH ===
+print("=== Đã cập nhật: Đánh giá đủ điểm + nhận xét + giá chốt lời/bảo vốn ===")
+bot.send_message(chat_id=CHAT_ID, text="""🤖✅ **SẴN SÀNG HOÀN HẢO:**
+💬 Gõ **Đánh giá mã** xem ngay: ✅Điểm/10 ✅Nhận xét ✅Giá hiện tại ✅Giá chốt lời ✅Giá bảo vệ vốn đủ thông tin ra quyết định!""")
 
 while True:
     mang_ban_dau = trang_thai_mang
     trang_thai_mang = kiem_tra_ket_noi_mang()
 
     if mang_ban_dau == True and trang_thai_mang == False:
-        try:
-            bot.send_message(chat_id=CHAT_ID, text="""🚫⚠️ **THÔNG BÁO: ĐÃ MẤT KẾT NỐI MẠNG**
-⏰ Thời gian: {}
-Bot tạm dừng kiểm tra giá chờ kết nối trở lại...""".format(datetime.now().strftime("%H:%M:%S %d/%m/%Y")))
+        try: bot.send_message(chat_id=CHAT_ID, text="🚫⚠️ Mất kết nối mạng tạm thời!")
         except: pass
-
     elif mang_ban_dau == False and trang_thai_mang == True:
-        try:
-            bot.send_message(chat_id=CHAT_ID, text="""✅📶 **ĐÃ KẾT NỐI MẠNG TRỞ LẠI THÀNH CÔNG!**
-⏰ Thời gian: {}
-Tiếp tục theo dõi, quét tìm cơ hội bình thường trở lại!""".format(datetime.now().strftime("%H:%M:%S %d/%m/%Y")))
+        try: bot.send_message(chat_id=CHAT_ID, text="✅📶 Kết nối mạng trở lại, tiếp tục theo dõi bình thường!")
         except: pass
 
     if trang_thai_mang:
-        try:
-            bot.polling(none_stop=True, interval=2)
-        except Exception as e:
-            print(f"Lỗi tạm thời kết nối bot: {e}")
-            time.sleep(5)
-            continue
+        try: bot.polling(none_stop=True, interval=2)
+        except Exception as e: print(f"Lỗi kết nối: {e}"); time.sleep(5); continue
 
         dem_bao_song += 1
         if dem_bao_song >= THOI_GIAN_BAO_SONG_PHUT:
-            try:
-                bot.send_message(chat_id=CHAT_ID, text=f"💓 BÁO SỐNG: Bot vẫn đang chạy theo dõi ổn định! ⏰ {datetime.now().strftime('%H:%M %d/%m')}")
+            try: bot.send_message(chat_id=CHAT_ID, text=f"💓 BÁO SỐNG: Bot vẫn chạy ổn định! ⏰ {datetime.now().strftime('%H:%M %d/%m')}")
             except: pass
             dem_bao_song = 0
 
@@ -221,36 +238,20 @@ Tiếp tục theo dõi, quét tìm cơ hội bình thường trở lại!""".for
             if trang_thai[ma] == "DANG_NAM_GIU":
                 vt = du_lieu_vi_the[ma]
                 if kq["gia"] >= vt["cl"]:
-                    bot.send_message(chat_id=CHAT_ID, text=f"🏆✅ ĐẠT MỤC TIÊU THU LỢI: {ma}\nGiá {kq['gia']:,}đ đã đạt mức {vt['cl']:,}đ\n👉 Thực hiện bán rồi trả lời **Đã bán** nhé!")
+                    bot.send_message(chat_id=CHAT_ID, text=f"🏆✅ ĐẠT MỤC TIÊU THU LỢI: {ma}\nGiá {kq['gia']:,}đ đã đạt mức chốt lời {vt['cl']:,}đ\n👉 Trả lời **Đã bán** nhé!")
                     continue
                 if kq["gia"] <= vt["catl"]:
                     bot.send_message(chat_id=CHAT_ID, text=f"🛑⚠️ BẢO VỆ VỐN CẮT LỖ: {ma}\nGiá {kq['gia']:,}đ chạm ngưỡng an toàn {vt['catl']:,}đ\n👉 Thoát lệnh theo kế hoạch rồi trả lời **Đã bán** nhé!")
                     continue
 
-            # === ✅ ĐỔI MỚI: NGƯỠNG 5 ĐIỂM + BÁO RÕ CHI TIẾT TỪNG MỤC ===
             elif kq["diem"] >= 5 and trang_thai[ma] != "CHO_XAC_NHAN_DAMUA":
                 bot.send_message(chat_id=CHAT_ID, text=f"""📢🚀 **TÍN HIỆU CƠ HỘI: {ma}**
 💵 Giá hiện tại: {kq['gia']:,}đ
-📈 **Tổng điểm đạt được: {kq['diem']}/10 điểm**
-
-📋 Chi tiết từng tiêu chí đánh giá:
-✅ Xu hướng giá tăng rõ EMA ngắn trên EMA dài: +2 điểm
-✅ MACD dương, động lượng tăng tốt: +2 điểm
-✅ Chỉ số RSI {kq['rsi']} trong vùng khỏe: +2 điểm
-✅ Khối lượng cao hơn trung bình, có dòng tiền tham gia: +2 điểm
-✅ Giá nằm trong vùng hỗ trợ - kháng cự an toàn: +2 điểm
-
-📍 Vùng hỗ trợ: {kq['ho_tro']:,}đ | Vùng kháng cự: {kq['khang_cu']:,}đ
-🎯 Giá mục tiêu chốt lời: {kq['cl']:,}đ
-🛡️ Giá ngăn ngừa thua lỗ: {kq['catl']:,}đ
-
-💡 Lưu ý tham khảo:
-🔹5-6 điểm: có tín hiệu, xem xét thận trọng, dùng vốn nhỏ
-🔹7-8 điểm: tín hiệu tốt, đáng ưu tiên xem xét
-🔹9-10 điểm: hội tụ đủ yếu tố mạnh nhất
-*Là phân tích kỹ thuật tham khảo, kết hợp tin tức thị trường trước ra quyết định nhé!*
-
-👉 Nếu đồng ý theo dõi trả lời: **Đã mua** để Bot tự canh báo đúng giá!""")
+📈 Tổng điểm đạt được: {kq['diem']}/10 điểm
+🎯 Giá chốt lời mục tiêu: {kq['cl']:,}đ
+🛡️ Giá bảo vệ vốn an toàn: {kq['catl']:,}đ
+📝 Nhận xét: có tín hiệu tốt, đủ ngưỡng xem xét
+👉 Trả lời **Đã mua** để ghi nhận theo dõi chặt chẽ giá nhé!""")
                 trang_thai[ma] = "CHO_XAC_NHAN_DAMUA"
                 trang_thai[f"gia_{ma}"] = kq["gia"]
                 trang_thai[f"cl_{ma}"] = kq["cl"]

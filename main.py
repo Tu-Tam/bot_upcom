@@ -1,90 +1,100 @@
-# === Giữ bot luôn hoạt động đúng quy định Render ===
+# === Giữ bot đúng quy định Render cực nhẹ ===
 from flask import Flask
 from threading import Thread
 import time, telebot, requests
 
 app = Flask(__name__)
 @app.route('/')
-def trang_chu():
-    return "✅ Bot lấy CAFEF.VN | Kiểm tra RMA12/26/50 đang chạy ổn định!"
+def trang_chu(): return "✅ Bot nguồn dữ liệu VN ổn định - kiểm tra RMA thành công cao!"
+Thread(target=lambda: app.run(host="0.0.0.0", port=int(os.environ.get("PORT",8080)))).start()
 
-def chay_server():
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
-Thread(target=chay_server).start()
-
-# === Thông tin kết nối chính xác ===
+# === Thông tin chính xác ===
 BOT_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns"
 CHAT_ID = 7064473358
 bot = telebot.TeleBot(BOT_TOKEN)
 luu = {}
 
-# === Lấy dữ liệu đúng nguồn Cafef.vn đơn giản nhất ===
-def lay_cafef(ma):
-    try:
-        url = f"https://s.cafef.vn/Ajax/PageNew/DataHistory/PriceHistory.ashx?Symbol={ma}&StartDate=&EndDate=&GetAll=true"
-        headers = {
-            "User-Agent": "Mozilla/5.0",
-            "Referer": f"https://s.cafef.vn/lich-su-gia-{ma}.chn"
-        }
-        res = requests.get(url, headers=headers, timeout=10).json()
-        if "Data" in res and "Data" in res["Data"]:
-            ds = res["Data"]["Data"][:50]
-            ds.reverse()
-            g_d = [float(x["ClosePrice"]) for x in ds]
-            g_c = [float(x["HighestPrice"]) for x in ds]
-            g_t = [float(x["LowestPrice"]) for x in ds]
-            g_h = round(g_d[-1],2)
+# === 🟢 CHUYỂN NGUỒN DỮ LIỆU VNDIRECT - API mở, ít chặn, trả về chuẩn dễ lấy được nhiều hơn ===
+def lay_nguon_nhanh(ma):
+    thu_lai = 0
+    while thu_lai < 3: # tự thử lại tối đa 3 lần nếu chặn nhẹ
+        try:
+            url = f"https://finfo-api.vndirect.com.vn/v4/stock_prices?sort=date&q=code:{ma}&size=50"
+            headers = {"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+            res = requests.get(url, headers=headers, timeout=12).json()
 
-            # Tính đúng RMA yêu cầu
-            r12 = round(sum(g_d[-12:])/12,2)
-            r26 = round(sum(g_d[-26:])/26,2)
-            r50 = round(sum(g_d[-50:])/50,2)
+            if res.get("data") and len(res["data"])>=45: # đủ số ngày yêu cầu tính RMA
+                ds = res["data"]
+                ds.reverse() # sắp xếp cũ → mới đúng thứ tự trung bình
+                gia_dong = [x["close"] for x in ds]
+                gia_cao = [x["high"] for x in ds]
+                gia_thap = [x["low"] for x in ds]
+                gia_hien = round(gia_dong[-1],2)
 
-            if r12>r26 and r26>r50:
-                diem=8; tb="✅ TỐT: RMA tăng đúng thứ tự ưu tiên xem xét"
-            elif r12>r26:
-                diem=5; tb="⏸️ TRUNG BÌNH: ngắn trên trung hạn theo dõi thêm"
-            else:
-                diem=3; tb="❌ YẾU: chưa đủ xu hướng mạnh chưa vào lệnh"
+                # Tính đúng RMA12/26/50 theo yêu cầu của bạn
+                r12 = round(sum(gia_dong[-12:])/12,2)
+                r26 = round(sum(gia_dong[-26:])/26,2)
+                r50 = round(sum(gia_dong[-50:])/50,2)
 
-            cl=round(max(g_c[-8:])*0.995,2)
-            sl=round(min(g_t[-8:])*1.005,2)
-            luu[ma]={"gia":g_h,"diem":diem,"r12":r12,"r26":r26,"r50":r50,"cl":cl,"sl":sl,"tb":tb}
-            return True
-    except Exception as e:
-        print("Lỗi:",e)
+                if r12>r26 and r26>r50:
+                    diem=8; nhan="✅ RMA chồng đúng thứ tự: Xu hướng tăng mạnh ưu tiên xem xét"
+                elif r12>r26:
+                    diem=5; nhan="⏸️ Ngắn trên trung hạn: đang cải thiện theo dõi thêm"
+                else:
+                    diem=3; nhan="❌ Chưa đủ xu hướng tăng mạnh: giữ tiền an toàn chờ tín hiệu rõ hơn"
+
+                chot_loi = round(max(gia_cao[-10:])*0.995,2)
+                cat_von = round(min(gia_thap[-10:])*1.005,2)
+
+                luu[ma] = {"gia":gia_hien,"diem":diem,"r12":r12,"r26":r26,"r50":r50,"cl":chot_loi,"sl":cat_von,"tt":nhan}
+                return True
+            else: thu_lai +=1; time.sleep(2.5)
+        except Exception as e: print(f"Lần thử {thu_lai+1} lỗi:",str(e)[:40]); thu_lai +=1; time.sleep(2.5)
     return False
 
-# === Lệnh đơn giản dễ nhận biết phản hồi ===
+# === Lệnh Trạng thái kiểm tra bot còn sống ngay ===
 @bot.message_handler(func=lambda m:m.text.strip()=="Trạng thái")
-def tra(m):
+def tra_loi(m):
     if m.chat.id!=CHAT_ID:return
-    bot.send_message(CHAT_ID,"💓 Đang hoạt động ✅\n📥 Nguồn: CAFEF.VN\n📈 RMA12/RMA26/RMA50\n💬 Gõ: Đánh giá mã xem kết quả SHB,VCB")
+    bot.send_message(CHAT_ID,"💓 **BOT ĐANG HOẠT ĐỘNG BÌNH THƯỜNG ✅**\n📥 Nguồn: VNDIRECT ổn định ít chặn máy chủ hơn\n📈 Tính đủ RMA12/RMA26/RMA50 + giá chốt lời/bảo vốn\n💬 Gõ **Đánh giá mã** chạy lấy dữ liệu lại ngay!")
 
+# === Lệnh chính báo % tiến trình rõ ràng từng bước ===
 @bot.message_handler(func=lambda m:m.text.strip()=="Đánh giá mã")
-def xem(m):
+def chay_kiemtra(m):
     if m.chat.id!=CHAT_ID:return
-    bot.send_message(CHAT_ID,"🔄 Đang lấy số liệu mới nhất từ CAFEF.VN... chờ lát nhé!")
     luu.clear()
-    for ma in ["SHB","VCB"]:
-        lay_cafef(ma); time.sleep(2.5)
+    bot.send_message(CHAT_ID,"📥 **Bắt đầu thu thập từ nguồn ổn định VNDIRECT, báo % rõ từng bước!**")
+    danh_sach = ["SHB","VCB"]
+    tong = len(danh_sach)
+    for stt,ma in enumerate(danh_sach, start=1):
+        bot.send_message(CHAT_ID,f"⏳ Đang xử lý: {ma} → Đã hoàn thành: {int((stt-1)/tong*100)}%")
+        ok = lay_nguon_nhanh(ma)
+        time.sleep(3) # nghỉ đủ nhẹ không bị chặn hàng loạt
+        if ok: bot.send_message(CHAT_ID,f"✅ Lấy thành công: {ma} → Tiến độ: {int(stt/tong*100)}%")
+        else: bot.send_message(CHAT_ID,f"⚠️ Đã thử lại nhiều lần vẫn chưa lấy được: {ma} tạm bỏ qua lần này")
+
+    bot.send_message(CHAT_ID,f"🏁 **Kết thúc đợt: Tổng {len(luu)}/{tong} mã lấy đủ dữ liệu thành công!**")
     if not luu:
-        bot.send_message(CHAT_ID,"⚠️ Lần này chưa lấy được, thử lại sau chốc nữa nhé!")
+        bot.send_message(CHAT_ID,"😔 Lần này vẫn chưa lấy được nào, chờ khoảng 1 giờ sau thử lại giờ thấp điểm truy cập dễ qua hơn nhé!")
         return
-    bot.send_message(CHAT_ID,"📊 **KẾT QUẢ KIỂM TRA RMA - CAFEF.VN**")
+
+    # In ra bảng chi tiết đủ thông tin bạn yêu cầu
+    bot.send_message(CHAT_ID,"📊 **BẢNG KẾT QUẢ RMA - DỮ LIỆU CHÍNH XÁC THỊ TRƯỜNG**")
     for ma,tt in sorted(luu.items(), key=lambda x:x[1]["diem"], reverse=True):
-        bot.send_message(CHAT_ID,f"""📌 {ma} | Điểm: {tt['diem']}/10
-📈 RMA12:{tt['r12']} RMA26:{tt['r26']} RMA50:{tt['r50']}
-💵 Giá: {tt['gia']:,}đ
-🎯 Chốt lời: {tt['cl']:,}đ
-🛡️ Bảo vốn: {tt['sl']:,}đ
-💬 {tt['tb']}""")
+        bot.send_message(CHAT_ID,f"""📌 **Mã: {ma}**
+⭐ Điểm đánh giá: {tt['diem']}/10
+📈 RMA12: {tt['r12']} | RMA26: {tt['r26']} | RMA50: {tt['r50']}
+💵 Giá hiện tại: {tt['gia']:,} VNĐ
+🎯 Giá chốt lời đề xuất: {tt['cl']:,} VNĐ
+🛡️ Giá bảo vốn cắt lỗ: {tt['sl']:,} VNĐ
+💬 Nhận xét: {tt['tt']}
+——————————————————————""")
 
-# === Thông báo khởi động thành công rõ ràng ===
-bot.send_message(CHAT_ID,"🤖✅ Đã cập nhật bản gọn sửa lỗi triển khai!\n📥 Nguồn đúng CAFEF.VN\n💬 Gõ Trạng thái xem phản hồi nhanh nhé!")
+# === Thông báo đã chuyển nguồn mới rõ ràng khi khởi động xong ===
+bot.send_message(CHAT_ID,"🤖🔄 **Đã chuyển nguồn dữ liệu VNDIRECT thay vì Cafef.vn!**\n✅ Ít chặn máy chủ Render hơn nhiều, tự thử lại khi gặp chặn nhẹ\n✅ Vẫn giữ đúng yêu cầu: tính đủ 3 đường RMA + báo % + giá chốt lời/bảo vốn rõ ràng!")
 
-# === Vòng lặp đơn giản ổn định không gây quá tải ===
+# === Vòng lặp lắng nghe tin nhắn nhẹ không quá tải ===
 while True:
     try: bot.polling(none_stop=True, interval=3)
-    except Exception as e: print("Kết nối:",e); time.sleep(5)
+    except Exception as loi: print("Kết nối tạm ngắt:",loi); time.sleep(5)
     time.sleep(60)

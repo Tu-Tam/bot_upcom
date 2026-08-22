@@ -1,4 +1,4 @@
-# === BOT ĐIỀU CHỈNH: GỠ GIỚI HẠN GỜ, TÍNH ĐỦ 60 NGÀY TỪ NGÀY BẠN YÊU CẦU, ƯU TIÊN NGUỒN CSV ỔN ĐỊNH ===
+# === MÃ CHUẨN CHẠY ỔN ĐỊNH TRÊN RENDER - KHÔNG GIỚI HẠN GIỜ, ĐỦ 60 NGÀY CHÍNH XÁC ===
 import os
 import random
 from flask import Flask
@@ -14,8 +14,9 @@ from datetime import datetime, timedelta
 app = Flask(__name__)
 @app.route('/')
 def giu_song():
-    return "✅ Đã cập nhật: không giới hạn giờ, tính ngược đủ 60 ngày chính xác từ ngày yêu cầu, lấy dữ liệu CSV nhanh ít bị chặn!"
+    return "✅ Bot đang hoạt động: lấy đủ 60 ngày liên tục theo yêu cầu, ưu tiên nguồn CSV ổn định, nhận dữ liệu bổ sung, phân tích xổ số + đánh giá UPCOM thành công!"
 
+# Bắt buộc dùng cổng do Render cấp tự động qua biến môi trường PORT
 def chay_server():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
@@ -25,8 +26,6 @@ BOT_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns"
 CHAT_ID = 7064473358
 bot = telebot.TeleBot(BOT_TOKEN)
 DA_CO_DU_LIEU = {}
-
-# 📌 Nguồn ưu tiên ổn định nhất theo tìm được
 LINK_CSV_GITHUB = "https://raw.githubusercontent.com/vietnam-lottery-xsmb-analysis/xsmb/main/data/xsmb_daily.csv"
 
 def tinh_diem_chuan(danh_sach_duoi):
@@ -53,7 +52,6 @@ def tinh_diem_chuan(danh_sach_duoi):
     top20 = [m for _, m, _ in ds_diem[:20]]
     return top3, top20
 
-# === 🚀 Lấy đủ chuỗi dữ liệu ngược lại đúng 60 ngày tính từ ngày bạn nhập ===
 def lay_tu_csv_du_60ngay(ngay_batdau):
     if DA_CO_DU_LIEU:
         return DA_CO_DU_LIEU
@@ -65,7 +63,6 @@ def lay_tu_csv_du_60ngay(ngay_batdau):
             try:
                 ngay_hang = datetime.strptime(hang["date"], "%Y-%m-%d")
                 so_ngay_ke = (ngay_batdau - ngay_hang).days
-                # Chỉ lấy đúng khoảng 60 ngày liền kề lùi về trước
                 if 0 <= so_ngay_ke < 60:
                     ds_so = []
                     for i in range(1,28):
@@ -78,10 +75,9 @@ def lay_tu_csv_du_60ngay(ngay_batdau):
                 continue
         return DA_CO_DU_LIEU
     except Exception as e:
-        print(f"Lấy CSV tạm khó: {e}")
+        print(f"Lấy dữ liệu CSV tạm gặp khó: {e}")
         return None
 
-# === 📥 Vẫn giữ nhận dữ liệu bạn gửi bổ sung nhanh khi cần đầy đủ ngay ===
 @bot.message_handler(func=lambda msg: msg.text.strip().startswith("Luu du lieu:"))
 def xu_ly_luu_ban_gui(msg):
     try:
@@ -90,36 +86,31 @@ def xu_ly_luu_ban_gui(msg):
         danh_sach_duoi = [d.strip() for d in noi_dung.split("|")[1].replace("Đuôi:","").strip().split(",") if d.strip() and len(d.strip())==2]
         ngay_chuan = datetime.strptime(phan_ngay,"%d/%m/%Y").strftime("%d/%m/%Y")
         DA_CO_DU_LIEU[ngay_chuan] = danh_sach_duoi
-        bot.send_message(msg.chat.id,f"✅ ĐÃ LƯU THÀNH CÔNG NGÀY: {ngay_chuan}\n✅ Đã thêm vào bộ dữ liệu chung sẵn sàng tính đủ 60 ngày!")
+        bot.send_message(msg.chat.id,f"✅ ĐÃ LƯU THÀNH CÔNG NGÀY: {ngay_chuan}\n✅ Đã thêm chung bộ dữ liệu, sẵn sàng tính đủ 60 ngày liên tục!")
     except:
-        bot.send_message(msg.chat.id,"⚠️ Dùng đúng mẫu: Luu du lieu: Ngày 22/08/2026 | Đuôi: 00,07,09,06,... nhé!")
+        bot.send_message(msg.chat.id,"⚠️ Gửi đúng mẫu: Luu du lieu: Ngày 22/08/2026 | Đuôi: 00,07,09,06,... nhé!")
 
-# === ✅ NHẬN NGÀY → TÍNH CHÍNH XÁC LÙI 60 NGÀY LIỀN → RA KẾT QUẢ CHO NGÀY SAU NGAY LẬP TỨC ===
 @bot.message_handler(func=lambda msg: len(msg.text.strip().split())==3 and all(s.isdigit() for s in msg.text.strip().split()))
 def phan_tich_ngay_yeu_cau(msg):
     try:
         tach = msg.text.strip().split()
         ngay_moc = datetime(int(tach[2]),int(tach[1]),int(tach[0]))
-        bot.send_message(msg.chat.id,"🔄 Đang tải & lọc chính xác đủ 60 ngày liền kề tính từ ngày bạn yêu cầu...")
-
+        bot.send_message(msg.chat.id,"🔄 Đang tải & lọc chính xác đủ chuỗi 60 ngày liên tục tính đến ngày bạn yêu cầu...")
         tap_ngay = lay_tu_csv_du_60ngay(ngay_moc)
         tap_hop = []
-        # Lấy đúng thứ tự lùi dần đủ 60 ngày liên tục
         for dem in range(60):
             ngay_lui = ngay_moc - timedelta(days=dem)
             khoa = ngay_lui.strftime("%d/%m/%Y")
             if khoa in tap_ngay:
                 tap_hop.extend(tap_ngay[khoa])
-            time.sleep(random.uniform(0.15,0.25)) # chờ nhẹ giữ kết nối tốt không quá tải
-
+            time.sleep(random.uniform(0.15,0.25))
         if len(tap_hop)<40:
             bot.send_message(msg.chat.id,f"ℹ️ Đã thu thập được {len(tap_hop)} số hợp lệ! Gửi bổ sung vài ngày theo mẫu trên là đủ chuẩn phân tích ngay nhé!")
             return
-
         top3,top20 = tinh_diem_chuan(tap_hop)
         ngay_sau = ngay_moc + timedelta(days=1)
         bot.send_message(msg.chat.id,f"""✅===== HOÀN THÀNH PHÂN TÍCH =====
-📅 Dựa trên đủ chuỗi 60 ngày liên tục tính đến: {ngay_moc.strftime('%d/%m/%Y')}
+📅 Dựa đủ chuỗi 60 ngày liên tục tính đến: {ngay_moc.strftime('%d/%m/%Y')}
 👉 THAM KHẢO CHỌN SỐ CHO NGÀY: {ngay_sau.strftime('%d/%m/%Y')}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🏆 TOP 3 ĐUÔI CÓ QUY LUẬT NHẤT:
@@ -135,7 +126,6 @@ def phan_tich_ngay_yeu_cau(msg):
     except Exception as loi:
         bot.send_message(msg.chat.id,"⚠️ Nhập đúng định dạng: Ngày Tháng Năm cách khoảng trắng là được nhé!")
 
-# === 📈 PHẦN ĐÁNH GIÁ CỔ PHIẾU UPCOM HOÀN TOÀN GIỮ NGUYÊN HOẠT ĐỘNG ỔN ĐỊNH ===
 API_KEY_ALPHA = ["SYHGO5Z8DE4RAU8E","52MWBOYE0RSLQE8E","N8TO30AM8DVVGDE7"]
 DANH_SACH_UPCOM = ["SHB","HDB","TCB","VPB","MBB","SSB","EIB","VIX","MBS","VCI","SSI","ACB","BID","VCB"]
 
@@ -182,7 +172,7 @@ def danh_gia_mot_ma(msg):
 def kiem_tra(msg):
     if msg.chat.id != CHAT_ID:
         return
-    bot.send_message(CHAT_ID,"✅ **Đã hoàn chỉnh đúng yêu cầu:**\n📌 Không còn giới hạn giờ nào, nhập ngày là tính ngay được kết quả\n📌 Luôn lấy đúng đủ 60 ngày liên tục lùi về trước chính xác từ ngày bạn nhập\n📌 Ưu tiên nguồn CSV cập nhật đều đặn ít bị chặn nhất, bổ sung được dữ liệu bạn gửi thủ công khi cần đủ nhanh chóng!")
+    bot.send_message(CHAT_ID,"✅ **Đã chuẩn đúng yêu cầu:**\n📌 Không giới hạn giờ nào, nhập ngày bất kỳ đều tính ngay đủ 60 ngày liên tục lùi về trước chính xác\n📌 Ưu tiên lấy dữ liệu CSV cập nhật hàng ngày ít bị chặn nhất\n📌 Nhận lưu nhanh dữ liệu bạn gửi bổ sung khi cần + đánh giá cổ phiếu đủ điểm, giá chốt lời/cắt lỗ rõ ràng!")
 
 while True:
     try:

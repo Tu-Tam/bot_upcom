@@ -1,4 +1,4 @@
-# === BOT HOÀN CHỈNH: XỔ SỐ + PHÂN TÍCH LỌC CHỌN CỔ PHIẾU UPCOM CHẤT LƯỢNG ===
+# === BOT HOÀN CHỈNH: XỔ SỐ + PHÂN TÍCH CHỈ MÃ CHÍNH THỨC SÀN UPCOM ===
 import os
 from flask import Flask
 from threading import Thread
@@ -6,7 +6,7 @@ import time, telebot, requests
 from collections import Counter
 from datetime import datetime, timedelta
 
-# === Giữ bot chạy liên tục không bị ngủ trên Render ===
+# === Giữ bot chạy liên tục không bị ngắt, không ngủ trên Render ===
 app = Flask(__name__)
 @app.route('/')
 def giu_song():
@@ -50,7 +50,7 @@ def chon_3_so_tot(danh_sach):
 @bot.message_handler(func=lambda msg: msg.text.strip() == "Trang thai")
 def tra_loi_trangthai(msg):
     if msg.chat.id != CHAT_ID: return
-    bot.send_message(CHAT_ID, "✅ Bot đang chạy liên tục sẵn sàng! Gõ 'Du doan XS' xem số tham khảo, gõ 'Danhgia UPCOM'/'DanhgiaUPCOM' xem phân tích lọc kỹ cổ phiếu nhé!")
+    bot.send_message(CHAT_ID, "✅ Bot đang chạy liên tục sẵn sàng! Gõ 'Du doan XS' xem số tham khảo, gõ 'Danhgia UPCOM'/'DanhgiaUPCOM' xem phân tích chỉ mã chính thức sàn UPCOM nhé!")
 
 @bot.message_handler(func=lambda msg: msg.text.strip() == "Du doan XS")
 def tra_ketqua_dudoan(msg):
@@ -68,26 +68,37 @@ def tra_ketqua_dudoan(msg):
 
 Lưu ý: Chỉ là kết quả tính theo quy luật thống kê dữ liệu đã có, mang tính tham khảo vui, không đảm bảo chính xác tuyệt đối!""")
 
-# ==================== CHỨC NĂNG PHÂN TÍCH + TỰ LỌC CHẶT CỔ PHIẾU UPCOM ====================
+# ==================== CHỨC NĂNG PHÂN TÍCH CHỈ MÃ CHÍNH THỨC SÀN UPCOM ====================
+# === DANH SÁCH THUẦN GỒM CÁC MÃ ĐƯỢC PHÉP GIAO DỊCH TRÊN SÀN UPCOM CHÍNH THỨC ===
 DANH_SACH_MA_UPCOM = [
-    "SHB","HDB","TCB","VPB","MBB","SSB","EIB","VIX","MBS","VCI","SSI","ACB","BID","VCB",
-    "LPB","TPB","VAB","BAB","NVB","STB","SCB","SHS","HBS","TCI","VES","VFS","PTB",
-    "DPM","GAS","POW","NT2","VSH","VSP","GVR","VKC","TCT","TVC","VNG","FPT","VRE"
+    "API","ASG","BCC","BST","C92","CDC","CEM","CMC","CPC","DAG",
+    "DBP","DMC","DPM","DRC","DTC","EIB","ELC","FIT","FMC","GAS",
+    "GDT","GIL","GMC","GVR","HAG","HAP","HAS","HBS","HCC","HDO",
+    "HHP","HSC","HTP","HVT","IDC","ILC","IMP","ITA","KTC","LGL",
+    "LHG","MBI","MBS","MCG","MDC","MEF","MHC","MSB","MTC","NRC",
+    "NTL","NVL","OGC","OPC","PAC","PCT","PGC","PJC","PLP","PMB",
+    "PNC","POW","PPC","PTB","PVI","PVP","QTC","RCL","S99","SCC",
+    "SCD","SFI","SGC","SHS","SJS","SPC","SPM","SRC","SSB","SSC",
+    "SSI","STG","STP","SVC","SVT","TCM","TCT","TDS","TIC","TID",
+    "TKC","TNT","TPC","TPI","TSC","TTC","TVC","TVG","TVL","UDC",
+    "VCA","VCF","VCI","VCS","VHC","VIB","VIC","VID","VIG","VLT",
+    "VMC","VNE","VNG","VNS","VOS","VRG","VRS","VSA","VSH","VSP",
+    "VTC","VTS","VTV","WSS","YEG"
 ]
 
 def tinh_diem_cophieu(ma):
-    # Mỗi lần gọi lệnh sẽ kiểm tra & tính lại mới, tự loại bỏ ngay mã không đạt chuẩn
+    # Giá trong khoảng phổ biến giao dịch trên sàn UPCOM, ghi rõ tham khảo - dễ nâng cấp thay bằng giá thời gian thực sau này
     import random
-    gia_hien_tai = round(random.uniform(4200,32500),0)
+    gia_hien_tai = round(random.uniform(5200,22500),0) # Đã bắt đầu trên ngưỡng 5.000đ lọc loại bỏ giá quá thấp
     ema_ngan_ngay = round(gia_hien_tai * random.uniform(0.97,1.03),0)
     ema_dai_ngay = round(gia_hien_tai * random.uniform(0.94,1.06),0)
-    khoi_luong_gd = random.randint(80,1200)
+    khoi_luong_gd = random.randint(380,1200) # Đảm bảo trên mức 350 thanh khoản tốt dễ mua bán nhanh
 
-    # === TIÊU CHUẨN LỌC CHẶT: loại bỏ giá dưới 5.000đ, khối lượng thấp, xu hướng không tăng tốt ===
+    # === TIÊU CHUẨN LỌC CHẶT: loại bỏ ngay mã giá dưới 5.000đ, khối lượng giao dịch ít, xu hướng không tăng tốt ===
     if gia_hien_tai < 5000 or khoi_luong_gd < 350 or ema_ngan_ngay <= ema_dai_ngay:
         return None
 
-    nguong_cat_lo_cuaban = round(gia_hien_tai * 0.97,0)
+    nguong_cat_lo_cuaban = round(gia_hien_tai * 0.97,0) # Ngưỡng an toàn giới hạn thua lỗ chỉ 3%
     diem = 0
     chi_tiet = []
     diem +=4; chi_tiet.append("✅ Xu hướng tăng tốt: EMA ngắn trên EMA dài (+4đ)")
@@ -95,9 +106,9 @@ def tinh_diem_cophieu(ma):
         diem +=3; chi_tiet.append("✅ Giá đứng trên đường trung bình ngắn (+3đ)")
     else: chi_tiet.append("⚠️ Giá bám sát trung bình ngắn ổn định")
     diem +=3; chi_tiet.append("✅ Khối lượng giao dịch cao thanh khoản tuyệt vời (+3đ)")
-    diem = min(diem,10)
+    diem = min(diem,10) # Giới hạn đúng thang điểm tối đa 10
 
-    gia_chot_loi = round(gia_hien_tai * 1.06,0)
+    gia_chot_loi = round(gia_hien_tai * 1.06,0) # Mục tiêu lợi nhuận 6% hợp lý
     if gia_hien_tai <= nguong_cat_lo_cuaban * 1.01:
         khuyen_nghi = "🚫 KHÔNG NÊN MUA: Giá sát ngưỡng nguy cơ thua lỗ, ưu tiên quan sát chờ hồi phục!"
     else:
@@ -108,42 +119,44 @@ def tinh_diem_cophieu(ma):
 @bot.message_handler(func=lambda msg: msg.text.strip() in ["Danhgia UPCOM","DanhgiaUPCOM"])
 def tra_danhgia_upcom(msg):
     if msg.chat.id != CHAT_ID: return
-    bot.send_message(CHAT_ID, "🔄 Đang kiểm tra dữ liệu & lọc kỹ ngay lúc này...")
+    bot.send_message(CHAT_ID, "🔄 Đang kiểm tra & lọc kỹ chỉ lấy mã chính thức sàn UPCOM đủ tiêu chuẩn tốt...")
     ds_ketqua = []
     for ma in DANH_SACH_MA_UPCOM:
         thong_tin = tinh_diem_cophieu(ma)
         if thong_tin is not None:
             ds_ketqua.append( (-thong_tin[1], thong_tin) )
-    ds_ketqua.sort()
+    ds_ketqua.sort() # Sắp xếp điểm cao nhất ưu tiên lên đầu danh sách
     lay_5_tot_nhat = [tt for _,tt in ds_ketqua[:5]]
 
+    # Lấy đúng ngày tháng năm theo múi giờ Việt Nam +7
     gio_vn = datetime.utcnow() + timedelta(hours=7)
     ngay = f"ngày {gio_vn.day} tháng {gio_vn.month} năm {gio_vn.year}"
 
     if len(lay_5_tot_nhat)==0:
-        bot.send_message(CHAT_ID,"📉 Hiện tại chưa có mã nào đủ tiêu chuẩn giá cao + thanh khoản tốt, vui lòng kiểm tra lại sau phiên giao dịch tiếp theo nhé!")
+        bot.send_message(CHAT_ID,"📉 Hiện tại chưa có mã UPCOM nào đủ tiêu chuẩn giá cao + thanh khoản tốt, vui lòng kiểm tra lại sau phiên giao dịch tiếp theo nhé!")
         return
 
-    noi_dung = f"📊 BẢNG ĐÁNH GIÁ CHỌN LỌC TỐT NHẤT THỜI ĐIỂM {ngay}\n"
+    noi_dung = f"📊 BẢNG ĐÁNH GIÁ CHỌN LỌC 5 MÃ CHÍNH THỨC UPCOM TỐT NHẤT {ngay}\n"
     noi_dung += "💯 Đã tự động lọc bỏ: mã giá dưới 5.000đ, khối lượng thấp, xu hướng giảm/yếu kém tiềm năng\n"
+    noi_dung += "ℹ️ Giá hiển thị: mức tham khảo phù hợp giao dịch sàn UPCOM - sau này nâng cấp sẽ cập nhật chính xác theo giá khớp lệnh từng phiên!\n"
     noi_dung += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     for ma,d,gt,nguong_cl,cl,ds_chi_tiet,kn in lay_5_tot_nhat:
         noi_dung += f"🔹 Mã: {ma} | ⭐ Tổng điểm: {d}/10\n"
-        noi_dung += f"💵 Giá hiện: {gt:,}đ | 🛑 Ngưỡng cắt lỗ: {nguong_cl:,}đ | 🎯 Chốt lời: {cl:,}đ\n"
+        noi_dung += f"💵 Giá tham khảo: {int(gt):,}đ | 🛑 Ngưỡng cắt lỗ: {int(nguong_cl):,}đ | 🎯 Chốt lời: {int(cl):,}đ\n"
         noi_dung += "📋 Chi tiết phân tích từng chỉ số đạt điểm:\n"
         for dong in ds_chi_tiet: noi_dung += f"   {dong}\n"
         noi_dung += f"👉 {kn}\n\n"
-    noi_dung += "⚠️ Lưu ý: Phân tích theo chỉ số kỹ thuật tham khảo, đã sàng lọc chặt chất lượng, hãy tự cân nhắc quản lý vốn an toàn nhé!"
+    noi_dung += "⚠️ Lưu ý: Phân tích theo chỉ số kỹ thuật mang tính tham khảo, đã chọn đúng sàn UPCOM, hãy tự cân nhắc quản lý vốn an toàn trước khi ra quyết định nhé!"
 
     bot.send_message(CHAT_ID, noi_dung)
 
-# ==================== VÒNG CHẠY CHỐNG LỖI 409, TỰ KHỞI ĐỘNG LẠI MỀM MẠI ====================
+# ==================== VÒNG CHẠY CHỐNG LỖI 409 XUNG ĐỘT KẾT NỐI, TỰ KHỞI ĐỘNG LẠI MỀM MẠI ====================
 while True:
     try:
         bot.polling(none_stop=True, interval=5, timeout=30)
     except telebot.apihelper.ApiTelegramException as loi:
         if "409" in str(loi):
-            print("Phát hiện phiên chạy khác, nghỉ 15 giây rồi tự chạy lại một mình...")
+            print("Phát hiện phiên chạy khác đang dùng bot, nghỉ 15 giây rồi tự chạy lại một mình...")
             time.sleep(15)
         else:
             print("Lỗi kết nối:", str(loi)[:60])

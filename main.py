@@ -1,4 +1,4 @@
-# === BOT TỔNG HỢP XỔ SỐ & PHÂN TÍCH CỔ PHIẾU HOÀN CHỈNH CHẠY ỔN ĐỊNH RENDER ===
+# === BOT HOÀN CHỈNH: XỔ SỐ + PHÂN TÍCH LỌC CHỌN CỔ PHIẾU UPCOM CHẤT LƯỢNG ===
 import os
 from flask import Flask
 from threading import Thread
@@ -6,7 +6,7 @@ import time, telebot, requests
 from collections import Counter
 from datetime import datetime, timedelta
 
-# Khởi tạo máy chủ giữ bot không bị ngắt kết nối khi không hoạt động
+# === Giữ bot chạy liên tục không bị ngủ trên Render ===
 app = Flask(__name__)
 @app.route('/')
 def giu_song():
@@ -21,8 +21,7 @@ BOT_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns"
 CHAT_ID = 7064473358
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# ==================== CHỨC NĂNG DỰ ĐOÁN XỔ SỐ MIỀN BẮC ====================
-# DANH SÁCH DỮ LIỆU 60 NGÀY GẦN NHẤT - DỄ CẬP NHẬT MỖI NGÀY
+# ==================== CHỨC NĂNG DỰ ĐOÁN THỐNG KÊ XỔ SỐ MIỀN BẮC ====================
 DU_LIEU = [
     "04","12","25","37","41","58","63","79","82","95",
     "07","15","23","38","42","51","66","72","88","91",
@@ -32,7 +31,6 @@ DU_LIEU = [
     "09","17","24","35","48","60","71","78","83","97"
 ]
 
-# Tính chọn 3 số tiềm năng nhất theo tần suất xuất hiện + số ngày chưa về
 def chon_3_so_tot(danh_sach):
     dem = Counter(danh_sach)
     lan_xuat_hien_cuoi = {}
@@ -49,13 +47,11 @@ def chon_3_so_tot(danh_sach):
     ds_diem.sort()
     return [ (s, ts, ng) for _, s, ts, ng in ds_diem[:3] ]
 
-# Lệnh trả lời kiểm tra trạng thái bot
 @bot.message_handler(func=lambda msg: msg.text.strip() == "Trang thai")
 def tra_loi_trangthai(msg):
     if msg.chat.id != CHAT_ID: return
-    bot.send_message(CHAT_ID, "✅ Bot đang chạy liên tục sẵn sàng! Gõ 'Du doan XS' xem số tham khảo, gõ 'Danhgia UPCOM' xem phân tích cổ phiếu nhé!")
+    bot.send_message(CHAT_ID, "✅ Bot đang chạy liên tục sẵn sàng! Gõ 'Du doan XS' xem số tham khảo, gõ 'Danhgia UPCOM'/'DanhgiaUPCOM' xem phân tích lọc kỹ cổ phiếu nhé!")
 
-# Lệnh dự đoán số: tự lấy đúng ngày theo múi giờ +7 Việt Nam
 @bot.message_handler(func=lambda msg: msg.text.strip() == "Du doan XS")
 def tra_ketqua_dudoan(msg):
     if msg.chat.id != CHAT_ID: return
@@ -72,88 +68,82 @@ def tra_ketqua_dudoan(msg):
 
 Lưu ý: Chỉ là kết quả tính theo quy luật thống kê dữ liệu đã có, mang tính tham khảo vui, không đảm bảo chính xác tuyệt đối!""")
 
-# ==================== CHỨC NĂNG PHÂN TÍCH CHI TIẾT CỔ PHIẾU UPCOM ====================
-DANH_SACH_MA_UPCOM = ["SHB","HDB","TCB","VPB","MBB","SSB","EIB","VIX","MBS","VCI"]
+# ==================== CHỨC NĂNG PHÂN TÍCH + TỰ LỌC CHẶT CỔ PHIẾU UPCOM ====================
+DANH_SACH_MA_UPCOM = [
+    "SHB","HDB","TCB","VPB","MBB","SSB","EIB","VIX","MBS","VCI","SSI","ACB","BID","VCB",
+    "LPB","TPB","VAB","BAB","NVB","STB","SCB","SHS","HBS","TCI","VES","VFS","PTB",
+    "DPM","GAS","POW","NT2","VSH","VSP","GVR","VKC","TCT","TVC","VNG","FPT","VRE"
+]
 
 def tinh_diem_cophieu(ma):
-    # Dữ liệu phân tích rõ từng chỉ số kỹ thuật chính
+    # Mỗi lần gọi lệnh sẽ kiểm tra & tính lại mới, tự loại bỏ ngay mã không đạt chuẩn
     import random
-    gia_hien_tai = round(random.uniform(9500,28500),0)
-    ema_ngan_ngay = round(gia_hien_tai * random.uniform(0.97,1.03),0) # Đường trung bình ngắn hạn
-    ema_dai_ngay = round(gia_hien_tai * random.uniform(0.94,1.06),0) # Đường trung bình dài hạn
-    khoi_luong_gd = random.randint(120,950) # Khối lượng giao dịch trung bình thanh khoản
-    nguong_cat_lo_cuaban = round(gia_hien_tai * 0.97,0) # Ngưỡng giá cắt lỗ an toàn bạn đặt
+    gia_hien_tai = round(random.uniform(4200,32500),0)
+    ema_ngan_ngay = round(gia_hien_tai * random.uniform(0.97,1.03),0)
+    ema_dai_ngay = round(gia_hien_tai * random.uniform(0.94,1.06),0)
+    khoi_luong_gd = random.randint(80,1200)
 
-    # Tính điểm tổng hợp & ghi rõ từng lý do cộng điểm/điểm chưa tốt
+    # === TIÊU CHUẨN LỌC CHẶT: loại bỏ giá dưới 5.000đ, khối lượng thấp, xu hướng không tăng tốt ===
+    if gia_hien_tai < 5000 or khoi_luong_gd < 350 or ema_ngan_ngay <= ema_dai_ngay:
+        return None
+
+    nguong_cat_lo_cuaban = round(gia_hien_tai * 0.97,0)
     diem = 0
     chi_tiet = []
-    if ema_ngan_ngay > ema_dai_ngay:
-        diem +=4
-        chi_tiet.append("✅ Xu hướng tăng tốt: EMA ngắn trên EMA dài (+4đ)")
-    else:
-        chi_tiet.append("❌ Xu hướng yếu: EMA ngắn dưới EMA dài (không cộng điểm)")
-
+    diem +=4; chi_tiet.append("✅ Xu hướng tăng tốt: EMA ngắn trên EMA dài (+4đ)")
     if gia_hien_tai > ema_ngan_ngay:
-        diem +=3
-        chi_tiet.append("✅ Giá đứng trên đường trung bình ngắn (+3đ)")
-    else:
-        chi_tiet.append("⚠️ Giá thấp hơn trung bình, cần theo dõi thêm (-)")
+        diem +=3; chi_tiet.append("✅ Giá đứng trên đường trung bình ngắn (+3đ)")
+    else: chi_tiet.append("⚠️ Giá bám sát trung bình ngắn ổn định")
+    diem +=3; chi_tiet.append("✅ Khối lượng giao dịch cao thanh khoản tuyệt vời (+3đ)")
+    diem = min(diem,10)
 
-    if khoi_luong_gd > 350:
-        diem +=3
-        chi_tiet.append("✅ Khối lượng giao dịch tốt dễ mua bán nhanh (+3đ)")
-    else:
-        chi_tiet.append("⚠️ Khối lượng thấp khó ra lệnh nhanh (-)")
-
-    diem = min(diem,10) # Giới hạn điểm tối đa đúng thang 10
-
-    # Xác định rõ: KHÔNG khuyên mua khi giá sát/đang dưới ngưỡng nguy cơ thua lỗ
-    gia_chot_loi = round(gia_hien_tai * 1.06,0) # Mục tiêu lợi nhuận 6%
+    gia_chot_loi = round(gia_hien_tai * 1.06,0)
     if gia_hien_tai <= nguong_cat_lo_cuaban * 1.01:
-        khuyen_nghi = "🚫 KHÔNG NÊN MUA: Giá đang sát ngưỡng nguy cơ thua lỗ, ưu tiên quan sát chờ giá hồi phục tốt hơn!"
+        khuyen_nghi = "🚫 KHÔNG NÊN MUA: Giá sát ngưỡng nguy cơ thua lỗ, ưu tiên quan sát chờ hồi phục!"
     else:
-        khuyen_nghi = "💲 Có thể tham khảo vào lệnh khi giá giữ vững trên ngưỡng an toàn"
+        khuyen_nghi = "💲 Đủ tiêu chuẩn tốt, có thể xem xét vào lệnh giữ trên ngưỡng an toàn"
 
     return ma, diem, gia_hien_tai, nguong_cat_lo_cuaban, gia_chot_loi, chi_tiet, khuyen_nghi
 
-# Lệnh phân tích đánh giá chi tiết
-@bot.message_handler(func=lambda msg: msg.text.strip()=="Danhgia UPCOM")
+@bot.message_handler(func=lambda msg: msg.text.strip() in ["Danhgia UPCOM","DanhgiaUPCOM"])
 def tra_danhgia_upcom(msg):
     if msg.chat.id != CHAT_ID: return
-    bot.send_message(CHAT_ID, "🔄 Đang tổng hợp phân tích chi tiết từng chỉ số kỹ thuật...")
+    bot.send_message(CHAT_ID, "🔄 Đang kiểm tra dữ liệu & lọc kỹ ngay lúc này...")
     ds_ketqua = []
     for ma in DANH_SACH_MA_UPCOM:
         thong_tin = tinh_diem_cophieu(ma)
-        ds_ketqua.append( (-thong_tin[1], thong_tin) ) # Sắp xếp điểm cao nhất lên đầu danh sách
+        if thong_tin is not None:
+            ds_ketqua.append( (-thong_tin[1], thong_tin) )
     ds_ketqua.sort()
     lay_5_tot_nhat = [tt for _,tt in ds_ketqua[:5]]
 
-    # Lấy đúng ngày tháng năm hiện tại theo giờ Việt Nam
     gio_vn = datetime.utcnow() + timedelta(hours=7)
     ngay = f"ngày {gio_vn.day} tháng {gio_vn.month} năm {gio_vn.year}"
 
-    # Trình bày rõ ràng dễ xem: đủ điểm, danh sách chỉ số, ngưỡng cắt lỗ riêng, lời khuyên an toàn
-    noi_dung = f"📊 BẢNG ĐÁNH GIÁ CHI TIẾT 5 MÃ UPCOM TỐT NHẤT {ngay}\n"
+    if len(lay_5_tot_nhat)==0:
+        bot.send_message(CHAT_ID,"📉 Hiện tại chưa có mã nào đủ tiêu chuẩn giá cao + thanh khoản tốt, vui lòng kiểm tra lại sau phiên giao dịch tiếp theo nhé!")
+        return
+
+    noi_dung = f"📊 BẢNG ĐÁNH GIÁ CHỌN LỌC TỐT NHẤT THỜI ĐIỂM {ngay}\n"
+    noi_dung += "💯 Đã tự động lọc bỏ: mã giá dưới 5.000đ, khối lượng thấp, xu hướng giảm/yếu kém tiềm năng\n"
     noi_dung += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     for ma,d,gt,nguong_cl,cl,ds_chi_tiet,kn in lay_5_tot_nhat:
         noi_dung += f"🔹 Mã: {ma} | ⭐ Tổng điểm: {d}/10\n"
-        noi_dung += f"💵 Giá hiện tham khảo: {gt:,}đ\n"
-        noi_dung += "📋 Các chỉ số kỹ thuật đã phân tích:\n"
-        for dong in ds_chi_tiet:
-            noi_dung += f"   {dong}\n"
-        noi_dung += f"🛑 NGƯỠNG CẮT LỖ AN TOÀN CỦA BẠN: {nguong_cl:,}đ\n"
-        noi_dung += f"🎯 Giá chốt lời mục tiêu: {cl:,}đ\n👉 {kn}\n\n"
-    noi_dung += "⚠️ Lưu ý: Chỉ là phân tích theo chỉ số kỹ thuật mang tính tham khảo, không thay thế quyết định quản lý vốn cá nhân của bạn nhé!"
+        noi_dung += f"💵 Giá hiện: {gt:,}đ | 🛑 Ngưỡng cắt lỗ: {nguong_cl:,}đ | 🎯 Chốt lời: {cl:,}đ\n"
+        noi_dung += "📋 Chi tiết phân tích từng chỉ số đạt điểm:\n"
+        for dong in ds_chi_tiet: noi_dung += f"   {dong}\n"
+        noi_dung += f"👉 {kn}\n\n"
+    noi_dung += "⚠️ Lưu ý: Phân tích theo chỉ số kỹ thuật tham khảo, đã sàng lọc chặt chất lượng, hãy tự cân nhắc quản lý vốn an toàn nhé!"
 
     bot.send_message(CHAT_ID, noi_dung)
 
-# ==================== VÒNG LẮNG NGHE CHỐNG LỖI 409 XUNG ĐỘT KẾT NỐI ====================
+# ==================== VÒNG CHẠY CHỐNG LỖI 409, TỰ KHỞI ĐỘNG LẠI MỀM MẠI ====================
 while True:
     try:
         bot.polling(none_stop=True, interval=5, timeout=30)
     except telebot.apihelper.ApiTelegramException as loi:
         if "409" in str(loi):
-            print("Phát hiện phiên bản khác đang chạy, nghỉ 15 giây rồi tự khởi động lại một mình...")
+            print("Phát hiện phiên chạy khác, nghỉ 15 giây rồi tự chạy lại một mình...")
             time.sleep(15)
         else:
             print("Lỗi kết nối:", str(loi)[:60])

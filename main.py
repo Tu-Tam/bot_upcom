@@ -14,12 +14,12 @@ from flask import Flask
 from threading import Thread
 app = Flask(__name__)
 @app.route('/')
-def giu_song(): return "✅ Sửa lại hoàn toàn: Đọc đúng cấu trúc dữ liệu gốc, tính chuẩn khoảng nghỉ & chu kỳ đều đặn!"
+def giu_song(): return "✅ Nâng cấp ưu tiên: Đã nghỉ đúng khoảng phổ biến 4-12 ngày + đang tăng tần suất gần đây!"
 def chay_web(): app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
 TEN_TEP = "dulieu_66ngay_xsmb.json"
 
-# === DỮ LIỆU ĐÚNG ĐỊNH DẠNG BẠN ĐƯA RA ===
+# === DỮ LIỆU ĐỦ 66 NGÀY ===
 def tai_kho_du_lieu():
     if os.path.exists(TEN_TEP):
         try:
@@ -85,7 +85,7 @@ def tai_kho_du_lieu():
 def luu_lai(kho):
     with open(TEN_TEP, "w", encoding="utf-8") as f: json.dump(kho, f, ensure_ascii=False, indent=2)
 
-# === HÀM TÍNH HOÀN TOÀN CHUẨN: Đọc đúng đuôi, tính đúng khoảng nghỉ & độ đều ===
+# === HÀM TÍNH ƯU TIÊN ĐANG SẮP QUAY LẠI + TĂNG GẦN ĐÂY ===
 def tinh_doi_chieu_ngay(ngay_can_kiem_tra):
     kho = tai_kho_du_lieu()
     ds_ngay = sorted(kho.keys(), key=lambda x: datetime.strptime(x,"%d/%m"))
@@ -95,13 +95,11 @@ def tinh_doi_chieu_ngay(ngay_can_kiem_tra):
     if vi_tri<30: return 0,"❌ Cần đủ ít nhất 30 ngày trước mới kiểm tra được!"
 
     du_lieu_truoc = ds_ngay[:vi_tri]
-    # Lấy đúng danh sách đuôi thực tế ngày đó
     tap_duoi_thuc_te = set()
     for phan in kho[ngay_can_kiem_tra[:5]].split(";"):
         _,dau_so = phan.split(":")
         tap_duoi_thuc_te.add(dau_so.strip())
 
-    # Ghi lại chính xác số thứ tự ngày xuất hiện từng đuôi
     lich_su = defaultdict(list)
     for thu_tu,ngay in enumerate(du_lieu_truoc):
         for phan in kho[ngay].split(";"):
@@ -111,23 +109,22 @@ def tinh_doi_chieu_ngay(ngay_can_kiem_tra):
     bang_diem = {}
     for dau_so,ngay_xuat in lich_su.items():
         sl = len(ngay_xuat)
-        if sl < 3: continue # bỏ đuôi quá ít lần chưa thấy quy luật
+        if sl <3: continue
 
-        # Tính khoảng nghỉ giữa các lần liên tiếp & độ lệch nhỏ = đều đặn tốt
         khoang_nghi = [ngay_xuat[i+1]-ngay_xuat[i]-1 for i in range(sl-1)]
         tb_nghi = sum(khoang_nghi)/len(khoang_nghi)
         do_lech_tb = sum(abs(x-tb_nghi) for x in khoang_nghi)/len(khoang_nghi)
-
-        # Đếm thêm xuất hiện gần đây 15 ngày cuối tăng điểm hỗ trợ
-        lan_gan = sum(1 for vt in ngay_xuat if vt >= len(du_lieu_truoc)-15)
         so_ngay_nghi_cuoi = len(du_lieu_truoc)-ngay_xuat[-1]-1
 
-        # ✅ TRỌNG SỐ ĐƯỢC ĐIỀU CHỈNH THẬN TRỌNG, ĐÚNG Ý NGHĨA ĐỘ LỆCH NHỎ = ĐỀU ĐẶN CAO ĐIỂM NHẤT
-        diem_deu_nhat = max(0, 40 - round(do_lech_tb)*8) # càng lệch ít điểm càng cao
-        diem_tan = sl * 4
-        diem_gan = lan_gan * 6
-        diem_khoang_hop = 25 if 4 <= so_ngay_nghi_cuoi <= 20 else 5
-        bang_diem[dau_so] = round(diem_deu_nhat + diem_tan + diem_gan + diem_khoang_hop)
+        # ✅ TRỌNG SỐ CHÍNH: Đang nghỉ đúng khoảng phổ biến nhất được nâng điểm cao nhất
+        diem_sap_quay = 45 if 4 <= so_ngay_nghi_cuoi <=12 else (20 if 13<=so_ngay_nghi_cuoi<=22 else 0)
+        # Hỗ trợ mạnh: xuất hiện nhiều trong 15 ngày cuối đang có xu hướng tăng
+        lan_gan = sum(1 for vt in ngay_xuat if vt >= len(du_lieu_truoc)-15)
+        diem_tang_gan = lan_gan *7
+        # Giảm bớt điểm chu kỳ đều đặn làm tiêu chí phân hạng phụ
+        diem_deu_phu = max(0, 25 - round(do_lech_tb)*5)
+
+        bang_diem[dau_so] = diem_sap_quay + diem_tang_gan + diem_deu_phu
 
     top3 = sorted(bang_diem.items(), key=lambda x:x[1], reverse=True)[:3]
     dem_trung = sum(1 for d,_ in top3 if d in tap_duoi_thuc_te)
@@ -136,28 +133,28 @@ def tinh_doi_chieu_ngay(ngay_can_kiem_tra):
     noi += f"🏆 Top3 tính: {', '.join(f'{d}({diem}đ)' for d,diem in top3)}\n✅ Thực tế có: {', '.join(sorted(tap_duoi_thuc_te))}\n👉 Kết quả: {dem_trung}/3 đuôi TRÙNG KHỚP\n"
     return dem_trung,noi
 
-# === LỆNH TỰ CHẠY KIỂM TRA LẠI ===
+# === LỆNH TỰ CHẠY KIỂM TRA ===
 @bot.message_handler(func=lambda m: m.text and "Tự kiểm tra giai đoạn" in m.text)
 def tu_chay_kiemtra(message):
-    bot.send_message(message.chat.id,"🔄 Đã sửa cấu trúc đọc dữ liệu chuẩn: Ưu tiên đuôi có chu kỳ đều đặn nhất, hỗ trợ thêm gần đây & khoảng nghỉ hợp lý...")
-    tong_cong = 0
-    noi_chung = "📋 KẾT QUẢ SAU KHI SỬA ĐÚNG CẤU TRÚC:\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    bot.send_message(message.chat.id,"🔄 Ưu tiên mạnh đuôi đang nghỉ đúng khoảng 4-12 ngày sắp quay lại + tăng tần suất gần đây...")
+    tong_cong =0
+    noi_chung = "📋 KẾT QUẢ ƯU TIÊN SẮP QUAY LẠI:\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     danh_sach_ngay = ["10/08/2026","11/08/2026","12/08/2026","13/08/2026","14/08/2026","15/08/2026","16/08/2026","17/08/2026","18/08/2026","19/08/2026","20/08/2026","21/08/2026","22/08/2026","23/08/2026"]
     for ngay in danh_sach_ngay:
         so_trung,noi = tinh_doi_chieu_ngay(ngay)
-        tong_cong += so_trung
+        tong_cong +=so_trung
         noi_chung += noi + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     trung_binh = round(tong_cong/len(danh_sach_ngay),2)
-    noi_chung +=f"\n📊 TRUNG BÌNH HIỆN TẠI: {trung_binh}/3 đuôi trùng mỗi ngày!\n💯 Đã khắc phục lỗi đọc sai vị trí đuôi trước đây, ưu tiên cốt lõi chu kỳ lặp đều đặn tự nhiên nhất!"
+    noi_chung +=f"\n📊 TRUNG BÌNH: {trung_binh}/3 đuôi trùng mỗi ngày!\n💯 Tập trung đuôi vào ngưỡng nghỉ phổ biến nhất đang đếm ngược quay lại, hỗ trợ thêm tăng gần đây!"
     bot.send_message(message.chat.id,noi_chung)
 
-# === LỆNH DỰ ĐOÁN ===
+# === DỰ ĐOÁN ===
 @bot.message_handler(func=lambda m: m.text and "Ngày" in m.text and "dự đoán" in m.text)
 def xu_ly_du_doan(message):
     lay = re.search(r"Ngày\s+(\d{1,2}/\d{1,2}/\d{4})",message.text)
     if not lay: bot.send_message(message.chat.id,"❌ Viết đúng mẫu: Ngày 24/08/2026 dự đoán");return
     _,tb = tinh_doi_chieu_ngay(lay.group(1))
-    tb = tb.replace("📅 Ngày","🔮 DỰ ĐOÁN: Ưu tiên đuôi lặp chu kỳ đều đặn nhất đã kiểm chứng")
+    tb = tb.replace("📅 Ngày","🔮 DỰ ĐOÁN: Ưu tiên đang nghỉ đúng khoảng thường gặp nhất sắp quay lại")
     bot.send_message(message.chat.id,tb)
 
 # === CHẠY ỔN ĐỊNH ===

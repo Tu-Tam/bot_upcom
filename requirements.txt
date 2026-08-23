@@ -2,5 +2,6 @@ pyTelegramBotAPI==4.14.0
 requests==2.31.0
 beautifulsoup4==4.12.3
 flask==2.3.3
-lxml==5.2.1
 gunicorn==22.0.0
+lxml==5.2.1
+urllib3==2.7.0

@@ -2,5 +2,5 @@ flask==2.3.3
 pyTelegramBotAPI==4.15.0
 requests==2.31.0
 pytesseract==0.3.10
-# Thay Pillow 10.1.0 gây lỗi bằng phiên bản ổn định tương thích cao, hỗ trợ sẵn gói nhanh
-Pillow==10.2.0
+# Buộc lấy gói nhị phân đã xây dựng sẵn, không biên dịch lại từ mã nguồn gây lỗi
+Pillow==10.4.0 --only-binary :all:

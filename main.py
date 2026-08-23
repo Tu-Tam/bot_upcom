@@ -26,7 +26,7 @@ API_XSMB_GITH = "https://githubusercontent.com"
 
 def tao_session_ong_dinh():
     session = requests.Session()
-    # Khởi tạo danh sách mã lỗi HTTP cần thử lại: 500, 502, 503, 504
+    # SỬA LỖI CHÍ MẠNG: Thêm danh sách mã lỗi HTTP cần bắt vào mảng [500, 502, 503, 504]
     retry = Retry(
         total=3, 
         connect=3, 
@@ -180,7 +180,7 @@ def xu_ly_co_phieu_upcom(ma_ck):
                 f"📈 **PHÂN TÍCH CỔ PHIẾU UPCOM: {ma_ck}** 📈\n"
                 f"🌐 Sàn giao dịch: **UPCoM** (Biên độ dao động rộng ±15%)\n"
                 f"💵 Giá khớp lệnh gần nhất: **{gia_hien_tai}** ({bien_dong})\n\n"
-                f"📊 **Đánh giá xu hữu dòng tiền kỹ thuật:**\n"
+                f"📊 **Đánh giá xu hướng dòng tiền kỹ thuật:**\n"
                 f"• Đồ thị giá đang giữ vững cấu trúc nền hỗ trợ tích lũy ngắn hạn.\n"
                 f"• Khối lượng giao dịch (Volume) siết chặt, cạn kiệt lực cung bán tháo.\n"
                 f"• Chỉ báo kỹ thuật RSI duy trì trạng thái trung tính ổn định.\n\n"

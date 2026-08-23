@@ -2,4 +2,3 @@ flask==2.3.3
 pyTelegramBotAPI==4.15.5
 requests==2.31.0
 beautifulsoup4==4.12.3
-pytesseract==0.3.11

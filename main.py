@@ -56,7 +56,6 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
     so_ngay_quet_thanh_cong = 0
     loai_nguon = "DỰ PHÒNG TỔNG HỢP"
 
-    # Lớp 1: Thử lấy dữ liệu gói JSON từ GitHub
     try:
         res = requests.get(API_XSMB_GITH, headers=headers, timeout=12)
         if res.status_code == 200:
@@ -73,7 +72,6 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
     except Exception as e:
         print(f"⚠️ Nguồn GitHub lỗi, chuyển sang cấu trúc lớp 2 cào HTML: {e}")
 
-    # Lớp 2: Cơ chế dự phòng cào HTML cấu trúc từ xoso.me bằng BeautifulSoup
     if so_ngay_quet_thanh_cong < 15:
         try:
             loai_nguon = "XOSOME_HTML"
@@ -133,7 +131,6 @@ def xu_ly_co_phieu_upcom(ma_ck):
             "Accept": "application/json"
         }
         
-        # Gọi trực tiếp bảng điện điện tử sàn UPCoM từ iBoard SSI
         api_ssi = "https://ssi.com.vn"
         res = requests.get(api_ssi, headers=headers, timeout=15)
         
@@ -175,7 +172,7 @@ def xu_ly_co_phieu_upcom(ma_ck):
     except Exception as e:
         return f"❌ Lỗi hệ thống dữ liệu chứng khoán mã {ma_ck}: {str(e)[:60]}"
 
-# --- [PHẦN 3] ĐIỀU PHỐI ĐỌC TIN NHẮN TỰ ĐỘNG CHỐNG XUNG ĐỘT LỖI ---
+# --- [PHẦN 3] ĐIỀU PHỐI ĐỌC TIN NHẮN TỰ ĐỘNG ---
 @bot.message_handler(func=lambda msg: True)
 def xu_ly_tin_nhan_tong_hop(msg):
     van_ban = msg.text.strip()
@@ -225,10 +222,12 @@ def xu_ly_tin_nhan_tong_hop(msg):
     )
     bot.reply_to(msg, huong_dan, parse_mode="Markdown")
 
-# --- KÍCH HOẠT TIẾN TRÌNH BOT CHẠY NGẦM ĐỘC LẬP VỚI GUNICORN ---
-import threading
-def chay_bot_ngam():
+# --- ÉP LUỒNG KHỞI CHẠY TRỰC TIẾP TRỐNG XUNG ĐỘT GUNICORN ---
+if __name__ == "__main__":
+    # Xóa bỏ các Webhook cũ tích tụ trên máy chủ Telegram
     bot.remove_webhook()
     time.sleep(0.5)
+    
+    # Khởi chạy tiểu trình lắng nghe tin nhắn độc lập ở luồng chính
+    print("🚀 Hệ thống bắt đầu lắng nghe lệnh trực tiếp từ Telegram...")
     bot.infinity_polling(skip_pending=True)
-

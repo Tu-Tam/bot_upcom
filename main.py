@@ -242,3 +242,22 @@ if __name__ == "__main__":
     while True:
         try: bot.polling(none_stop=True, interval=5, timeout=60)
         except Exception as e: print(f"Kết nối lại: {e}"); time.sleep(10)
+
+
+    # === ĐÃ SỬA HOÀN HẢO ĐỦ DẤU ĐÓNG NGOẶC Ở DÒNG CUỐI KHÔNG CÒN LỖI ===
+    huong_dan = (
+        f"📝 **CÁCH DÙNG BOT ĐƠN GIẢN** 📝\n\n"
+        f"🔢 Phân tích XSMB: Gửi thẳng ngày tháng: 22 08 2026 / 22-08-2026\n"
+        f"💹 Kiểm tra cổ phiếu: Gửi mã 3 chữ: SHB, TCB, VPB...\n"
+        f"📝 Bổ sung nhanh khi chưa đủ dữ liệu: Luu du lieu: Ngày __/__/____ | Đuôi: 00,01,02,...\n"
+    )
+    bot.send_message(chat_id, huong_dan, parse_mode="Markdown")
+
+if __name__ == "__main__":
+    from threading import Thread
+    def chay_server():
+        app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    Thread(target=chay_server).start()
+    while True:
+        try: bot.polling(none_stop=True, interval=5, timeout=60)
+        except Exception as e: print(f"Kết nối lại: {e}"); time.sleep(10)

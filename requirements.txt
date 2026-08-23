@@ -1,7 +1,12 @@
+# Thư viện cốt lõi chạy bot Telegram + giữ kết nối ổn định
 pyTelegramBotAPI==4.14.0
-requests==2.31.0
-beautifulsoup4==4.12.3
 flask==2.3.3
 gunicorn==22.0.0
+
+# Xử lý kết nối mạng đồng bộ, tránh xung đột phiên bản urllib3
+requests==2.31.0
+urllib3==1.26.19
+
+# Đọc phân tích mã nguồn trang web
+beautifulsoup4==4.12.3
 lxml==5.2.1
-urllib3==2.7.0

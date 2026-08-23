@@ -1,6 +1,6 @@
 flask==2.3.3
-# Thay số cũ không còn có sẵn → chọn phiên bản có sẵn ổn định, hoạt động giống hệt chức năng cũ
 pyTelegramBotAPI==4.15.5
 requests==2.31.0
 pytesseract==0.3.10
-Pillow==10.4.0 --only-binary :all:
+# Thay bằng phiên bản được liệt kê rõ có sẵn, hỗ trợ đầy đủ chức năng xử lý ảnh cắt chữ như cũ
+Pillow==11.3.0 --only-binary :all:

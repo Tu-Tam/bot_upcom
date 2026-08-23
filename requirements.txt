@@ -1,6 +1,6 @@
 flask==2.3.3
 pyTelegramBotAPI==4.15.5
 requests==2.31.0
-pytesseract==0.3.10
-# Thay bằng phiên bản được liệt kê rõ có sẵn, hỗ trợ đầy đủ chức năng xử lý ảnh cắt chữ như cũ
+# Nâng lên phiên bản mới sửa lỗi gọi hàm đã xóa trong Python3.14
+pytesseract>=0.3.13
 Pillow==11.3.0 --only-binary :all:

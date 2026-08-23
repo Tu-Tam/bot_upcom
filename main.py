@@ -146,3 +146,10 @@ def phan_tich_thong_ke(message):
 if __name__ == "__main__":
     print("🤖 Bot đang chạy: Kiểm tra trùng ngày + báo rõ đã tồn tại/thêm mới thành công!")
     bot.polling(none_stop=True)
+from flask import Flask
+import threading
+app = Flask(__name__)
+@app.route('/')
+def keep_alive(): return "Bot hoạt động"
+def run_app(): app.run(host="0.0.0.0", port=10000)
+threading.Thread(target=run_app).start()

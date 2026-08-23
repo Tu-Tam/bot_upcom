@@ -1,6 +1,4 @@
 flask==2.3.3
 pyTelegramBotAPI==4.15.5
 requests==2.31.0
-# Nâng lên phiên bản mới sửa lỗi gọi hàm đã xóa trong Python3.14
-pytesseract>=0.3.13
 Pillow==11.3.0 --only-binary :all:

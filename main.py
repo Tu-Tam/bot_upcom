@@ -26,8 +26,14 @@ API_XSMB_GITH = "https://githubusercontent.com"
 
 def tao_session_ong_dinh():
     session = requests.Session()
-    # Tự động thử lại 3 lần nếu kết nối mạng bị chập chờn (Đã vá lỗi status_forcelist)
-    retry = Retry(total=3, connect=3, read=3, backoff_factor=0.3, status_forcelist=[500, 502, 503, 504])
+    # Khởi tạo danh sách mã lỗi HTTP cần thử lại: 500, 502, 503, 504
+    retry = Retry(
+        total=3, 
+        connect=3, 
+        read=3, 
+        backoff_factor=0.3, 
+        status_forcelist=[500, 502, 503, 504]
+    )
     adapter = HTTPAdapter(max_retries=retry)
     session.mount('http://', adapter)
     session.mount('https://', adapter)
@@ -143,7 +149,7 @@ def xu_ly_co_phieu_upcom(ma_ck):
             "Accept": "application/json"
         }
         
-        # Gọi trực tiếp API iBoard SSI toàn diện sàn UPCoM
+        # Gọi trực tiếp bảng điện điện tử sàn UPCoM từ iBoard SSI
         api_ssi = "https://ssi.com.vn"
         res = session.get(api_ssi, headers=headers, timeout=15)
         
@@ -154,9 +160,9 @@ def xu_ly_co_phieu_upcom(ma_ck):
         if res.status_code == 200:
             danh_sach_cp = res.json().get('data', [])
             for cp in danh_sach_cp:
-                if cp.get('ss') == ma_ck: 
+                if cp.get('ss') == ma_ck:
                     tim_thay = True
-                    gia_raw = cp.get('l', cp.get('o', 0)) 
+                    gia_raw = cp.get('l', cp.get('o', 0))
                     if isinstance(gia_raw, (int, float)) and gia_raw > 0:
                         gia_hien_tai = str(gia_raw)
                     else:
@@ -174,7 +180,7 @@ def xu_ly_co_phieu_upcom(ma_ck):
                 f"📈 **PHÂN TÍCH CỔ PHIẾU UPCOM: {ma_ck}** 📈\n"
                 f"🌐 Sàn giao dịch: **UPCoM** (Biên độ dao động rộng ±15%)\n"
                 f"💵 Giá khớp lệnh gần nhất: **{gia_hien_tai}** ({bien_dong})\n\n"
-                f"📊 **Đánh giá xu hướng dòng tiền kỹ thuật:**\n"
+                f"📊 **Đánh giá xu hữu dòng tiền kỹ thuật:**\n"
                 f"• Đồ thị giá đang giữ vững cấu trúc nền hỗ trợ tích lũy ngắn hạn.\n"
                 f"• Khối lượng giao dịch (Volume) siết chặt, cạn kiệt lực cung bán tháo.\n"
                 f"• Chỉ báo kỹ thuật RSI duy trì trạng thái trung tính ổn định.\n\n"
@@ -229,4 +235,3 @@ def xu_ly_tin_nhan_tong_hop(msg):
         f"🔢 **1. Phân tích kết quả XSMB (Tự động quét lùi 60 ngày):**\n"
         f"Gửi thẳng nội dung tin nhắn ngày tháng cần xem.\n"
         f"👉 Ví dụ: `22 08 2026` hoặc `22/08/2026`\n\n"
-        f"📈 **2. Tra cứu & Phân tích cổ phiếu sàn UPCoM:**\n"

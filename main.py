@@ -130,7 +130,7 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
         
         return (
             f"📊 **KẾT QUẢ TỰ ĐỘNG PHÂN TÍCH XSMB** 📊\n"
-            f"📅 Mốc tính toán: Lùi 60 ngày từ ngày `{ngay_moc_can.strftime('%d/%m/%Y')}` về trước\n"
+            f"📅 Mốc thời gian: Lùi 60 ngày từ ngày `{ngay_moc_can.strftime('%d/%m/%Y')}` về trước\n"
             f"🗂️ Tổng số ngày quét thành công: {so_ngay_quet_thanh_cong}/60 ngày (Bypass: {loai_nguon})\n\n"
             f"🎯 **Top 3 số tiềm năng nhất:**\n{chuoi_top3}\n\n"
             f"📋 **Danh sách Top 20 số chuẩn:**\n`{chuoi_top20}`"
@@ -222,9 +222,3 @@ def xu_ly_tin_nhan_tong_hop(msg):
             time.sleep(1)
         return
 
-    huong_dan = (
-        f"📝 **MENU ĐIỀU KHIỂN BOT ĐA NĂNG TỰ ĐỘNG** 📝\n\n"
-        f"🔢 **1. Phân tích kết quả XSMB (Tự động quét lùi 60 ngày):**\n"
-        f"Gửi thẳng nội dung tin nhắn ngày tháng cần xem.\n"
-        f"👉 Ví dụ: `22 08 2026` hoặc `22/08/2026`\n\n"
-        f"📈 **2. Tra cứu & Phân tích cổ phiếu sàn UPCoM:**\n"

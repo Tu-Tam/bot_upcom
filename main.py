@@ -26,7 +26,7 @@ API_XSMB_GITH = "https://githubusercontent.com"
 
 def tao_session_ong_dinh():
     session = requests.Session()
-    # SỬA LỖI CHÍ MẠNG: Điền chính xác danh sách mã lỗi HTTP dạng mảng [500, 502, 503, 504]
+    # ĐÃ ĐIỀN ĐẦY ĐỦ ĐỐI SỐ MẢNG LỖI: Giải quyết dứt điểm lỗi kẹt dấu ngoặc hệ thống
     retry = Retry(
         total=3, 
         connect=3, 

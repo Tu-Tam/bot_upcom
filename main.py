@@ -62,7 +62,7 @@ def tinh_diem_chuan(danh_sach_duoi):
 
 def xu_ly_xsmb_tu_dong(ngay_moc_can):
     session = tao_session_ong_dinh()
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
     
     tong_hop_so_duoi = []
     so_ngay_quet_thanh_cong = 0
@@ -85,11 +85,11 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
     except Exception as e:
         print(f"⚠️ Nguồn GitHub lỗi, chuyển sang cấu trúc lớp 2 cào HTML: {e}")
 
-    # LỚP 2: Cơ chế dự phòng cào HTML cấu trúc bằng BeautifulSoup (Bypass lỗi JSON trống)
+    # LỚP 2: Cơ chế dự phòng cào HTML cấu trúc bằng BeautifulSoup
     if so_ngay_quet_thanh_cong < 15:
         try:
             loai_nguon = "XOSOME_HTML"
-            tong_hop_so_duoi = [] # Làm sạch mảng
+            tong_hop_so_duoi = [] 
             so_ngay_quet_thanh_cong = 0
             
             for i in range(60):
@@ -100,7 +100,6 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
                 res_web = session.get(url_web, headers=headers, timeout=6)
                 if res_web.status_code == 200 and len(res_web.text) > 2000:
                     soup = BeautifulSoup(res_web.text, "html.parser")
-                    # Quét qua tất cả các lớp chứa số lô tô đầu đuôi kết quả
                     so_tags = soup.select("span.giai_so, td.giai_so, span.v-giai")
                     
                     ds_so = []
@@ -116,7 +115,7 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
                 
                 if so_ngay_quet_thanh_cong >= 45: 
                     break
-                time.sleep(0.1) # Độ trễ nhẹ bảo vệ luồng IP trên Render
+                time.sleep(0.1)
         except Exception as e:
             print(f"❌ Thất bại luồng cào HTML dự phòng: {e}")
 
@@ -144,7 +143,6 @@ def xu_ly_co_phieu_upcom(ma_ck):
             "Accept": "application/json"
         }
         
-        # SỬA LỖI ĐƯỜNG TRUYỀN URL VÀ NỐI CHUỖI: Gọi trực tiếp API iBoard SSI toàn diện sàn UPCoM
         api_ssi = "https://ssi.com.vn"
         res = session.get(api_ssi, headers=headers, timeout=15)
         
@@ -155,9 +153,9 @@ def xu_ly_co_phieu_upcom(ma_ck):
         if res.status_code == 200:
             danh_sach_cp = res.json().get('data', [])
             for cp in danh_sach_cp:
-                if cp.get('ss') == ma_ck: # 'ss' là key định danh mã CK viết hoa của SSI
+                if cp.get('ss') == ma_ck:
                     tim_thay = True
-                    gia_raw = cp.get('l', cp.get('o', 0)) # Ưu tiên lấy giá khớp lệnh 'l' hoặc giá mở cửa 'o'
+                    gia_raw = cp.get('l', cp.get('o', 0))
                     if isinstance(gia_raw, (int, float)) and gia_raw > 0:
                         gia_hien_tai = str(gia_raw)
                     else:
@@ -165,7 +163,6 @@ def xu_ly_co_phieu_upcom(ma_ck):
                     bien_dong = f"{cp.get('pc', 0)}%"
                     break
 
-        # Cơ chế dữ phòng nền cứng phòng trường hợp hệ thống API SSI bảo trì ban đêm
         if not tim_thay and ma_ck in ["BSR", "AAS", "C4G", "VGI"]:
             tim_thay = True
             gia_hien_tai = "Vùng tích lũy"
@@ -204,11 +201,12 @@ def xu_ly_tin_nhan_tong_hop(msg):
             
     if ngay_hop_le:
         bot.reply_to(msg, f"🔄 Nhận lệnh XSMB! Đang kích hoạt cơ chế đồng bộ dự phòng 2 lớp để quét tự động 60 ngày dữ liệu lùi về từ `{ngay_hop_le.strftime('%d/%m/%Y')}`...")
+        # SỬA LỖI ĐIỀU PHỐI: Gọi chính xác hàm xử lý XSMB hiện có
         thong_bao_kq = xu_ly_xsmb_tu_dong(ngay_hop_le)
         bot.send_message(msg.chat.id, thong_bao_kq, parse_mode="Markdown")
         return
 
-    # 2. KIỂM TRA ĐỊNH DẠNG MÃ CỔ PHIẾU (Tách chuỗi xử lý gửi nhiều mã cùng dòng)
+    # 2. KIỂM TRA ĐỊNH DẠNG MÃ CỔ PHIẾU
     cac_tu = van_ban.replace(",", " ").split()
     la_danh_sach_ma = True
     
@@ -225,4 +223,10 @@ def xu_ly_tin_nhan_tong_hop(msg):
             time.sleep(1)
         return
 
-    # 3. TIN NHẮN SAI ĐỊNH DẠNG -> TRẢ VỀ MENU HƯỚNG DẪN CÚ PHÁP
+    # 3. TIN NHẮN SAI ĐỊNH DẠNG -> MENU HƯỚNG DẪN CÚ PHÁP
+    huong_dan = (
+        f"📝 **MENU ĐIỀU KHIỂN BOT ĐA NĂNG TỰ ĐỘNG** 📝\n\n"
+        f"🔢 **1. Phân tích kết quả XSMB (Tự động quét lùi 60 ngày):**\n"
+        f"Gửi thẳng nội dung tin nhắn ngày tháng cần xem.\n"
+        f"👉 Ví dụ: `22 08 2026` hoặc `22/08/2026`\n\n"
+        f"📈 **2. Tra cứu & Phân tích cổ phiếu sàn UPCoM:**\n"

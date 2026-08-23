@@ -212,4 +212,6 @@ Thread(target=chay_web, daemon=True).start()
 Thread(target=chay_bot_ben, daemon=True).start()
 
 if __name__=="__main__":
-    print("🚀 Đã chỉnh đúng yêu cầu: top3=giai đoạn 10-23/03 tổng hợp tốt nhất | db=chỉ Giải Đặc Biệt dự đoán ngày sau + tỷ lệ chuẩn!");while True:time.sleep(3600)
+    print("🚀 Đã chỉnh đúng yêu cầu: top3=giai đoạn 10-23/03 tổng hợp tốt nhất | db=chỉ Giải Đặc Biệt dự đoán ngày sau + tỷ lệ chuẩn!")
+    while True:
+        time.sleep(3600)

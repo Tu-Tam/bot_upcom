@@ -12,151 +12,122 @@ import os
 # === Giữ bot không ngủ trên Render ===
 app = Flask('')
 @app.route('/')
-def giu_chay(): return "✅ Bot lấy ĐỦ TẤT CẢ GIẢI XSMB đang hoạt động!"
+def giu_chay(): return "✅ Bot sửa lại lấy đủ đúng số lượng từng giải XSMB đang chạy!"
 def chay_server(): app.run(host="0.0.0.0", port=int(os.environ.get("PORT",8080)))
 Thread(target=chay_server).start()
 
-# === THÔNG TIN ĐÃ LƯU SẴN CỦA BẠN ===
+# === THÔNG TIN CỦA BẠN ĐỂ NGUYÊN ===
 BOT_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns"
 CHAT_ID = 7064473358
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# === Đổi ngẫu nhiên nhận diện trình duyệt giảm bị chặn ===
+# === Nhiều bộ nhận diện trình duyệt ngẫu nhiên giảm bị chặn ===
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edge/129.0.0.0"
 ]
-
 def lay_header_ngau_nhien():
     return {
         "User-Agent": random.choice(USER_AGENTS),
-        "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language":"vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Accept-Encoding":"gzip, deflate, br",
-        "Referer":"https://www.google.com/search?q=ketqua+xsmb+day+du+tat+ca+giai",
-        "Connection":"keep-alive",
-        "Upgrade-Insecure-Requests":"1"
+        "Referer":"https://www.google.com/"
     }
 
-# === Phiên kết nối giữ cookie, tự thử lại khi mạng chập chờn ===
 session = requests.Session()
 retry_cfg = Retry(total=2, backoff_factor=1.2, status_forcelist=[429,500,502,503,504])
 session.mount("https://", HTTPAdapter(max_retries=retry_cfg))
 
-# === Danh sách nguồn ưu tiên lấy đủ danh sách các giải rõ ràng ===
+# === Nguồn ưu tiên, thêm thử chọn theo cấu trúc bảng chung ===
 DANH_SACH_NGUON = [
-    {"ten":"Minh Ngọc - Đủ giải chuẩn", "link_mau":"https://www.minhngoc.net/kqxs/mien-bac-ngay-{ngay_dinh_dang}.html"},
-    {"ten":"Xoso.Com.Vn - Bảng đầy đủ", "link_mau":"https://xoso.com.vn/xsmb-ngay-{ngay_dinh_dang}.html"},
-    {"ten":"KQXS VN - Liệt kê rõ từng giải", "link_mau":"https://www.kqxs.vn/mien-bac-ngay-{ngay_dinh_dang}"},
-    {"ten":"Xổ Số Dĩ Phát", "link_mau":"https://xosodaiphat.com/ngay-{ngay_dinh_dang}.html"},
+    {"ten":"Minh Ngọc", "link_mau":"https://www.minhngoc.net/kqxs/mien-bac-ngay-{ngay_dinh_dang}.html"},
+    {"ten":"Xoso.Com.Vn", "link_mau":"https://xoso.com.vn/xsmb-ngay-{ngay_dinh_dang}.html"},
+    {"ten":"KQXS.VN", "link_mau":"https://www.kqxs.vn/mien-bac-ngay-{ngay_dinh_dang}"},
+    {"ten":"Xổ số Dĩ Phát", "link_mau":"https://xosodaiphat.com/ngay-{ngay_dinh_dang}.html"},
     {"ten":"Kết Quả VN", "link_mau":"https://ketqua.vn/ngay-{ngay_dinh_dang}"}
 ]
 
 def dinh_dang_ngay(ngay_str):
-    try:
-        dt = datetime.strptime(ngay_str.strip(), "%d %m %Y")
-        return dt.strftime("%d-%m-%Y")
+    try: return datetime.strptime(ngay_str.strip(),"%d %m %Y").strftime("%d-%m-%Y")
     except: return None
 
 def lay_ketqua_day_du(ngay_can):
     ngay_dinh = dinh_dang_ngay(ngay_can)
-    if not ngay_dinh:
-        return {"thanh_cong":False, "thong_bao":"❌ Sai định dạng!\n👉 Gửi: ngày tháng năm\nVí dụ: 20 08 2026"}
+    if not ngay_dinh: return {"thanh_cong":False,"thong_bao":"❌ Sai định dạng! Gửi: ví dụ 17 08 2026"}
 
     for stt, nguon in enumerate(DANH_SACH_NGUON,1):
-        link = nguon["link_mau"].replace("{ngay_dinh_dang}", ngay_dinh)
+        link = nguon["link_mau"].replace("{ngay_dinh_dang}",ngay_dinh)
         try:
-            print(f"🔹 {stt}. Đang lấy ĐỦ TẤT CẢ GIẢI từ: {nguon['ten']} -> {link}")
+            print(f"🔹 {stt}. Kiểm tra: {nguon['ten']} -> {link}")
             resp = session.get(link, headers=lay_header_ngau_nhien(), timeout=18)
             resp.raise_for_status()
-            time.sleep(random.uniform(3.2,5.5))
+            time.sleep(random.uniform(3,5))
+            soup = BeautifulSoup(resp.text,"lxml")
 
-            soup = BeautifulSoup(resp.text, "lxml")
+            # === CẢI TIẾM QUAN TRỌNG: thử chọn bảng kết quả chung trước, lấy theo hàng <tr> thay vì tên lớp riêng lẻ dễ đổi ===
+            bang_chinh = None
+            for bo_chon_bang in ["table.bang-kq", "table.table-kq", "table.kqxs", "div.bang-kq table", "table"]:
+                bang_chinh = soup.select_one(bo_chon_bang)
+                if bang_chinh: break
+            if not bang_chinh:
+                print(f"⚠️ {nguon['ten']} không tìm thấy bảng kết quả rõ → chuyển tiếp")
+                continue
 
-            # === TRÍCH XUẤT ĐỦ 7 GIẢI CHÍNH THEO CẤU TRÚC CHUẨN ===
-            bang_ketqua = {}
-            # Giải Đặc biệt
-            db = soup.select_one("td.giai-dac-biet, .gdb, .dacbiet, td.kqdb")
-            bang_ketqua["Đặc biệt"] = re.sub(r"\D","", db.get_text(strip=True)) if db else ""
+            cac_hang = bang_chinh.find_all("tr")
+            du_lieu = {}
+            # Đọc từng hàng lọc đúng tên giải & lấy số chỉ giữ lại chữ số
+            for hang in cac_hang:
+                nd_hang = hang.get_text(" ",strip=True)
+                so_ds = [re.sub(r"\D","",td.get_text(strip=True)) for td in hang.find_all("td") if re.sub(r"\D","",td.get_text(strip=True))]
+                if "đặc biệt" in nd_hang.lower() and len(so_ds)>=1 and len(so_ds[0])==5: du_lieu["Đặc biệt"]=so_ds[0]
+                elif "nhất" in nd_hang.lower() and len(so_ds)>=1 and len(so_ds[0])==5: du_lieu["Giải Nhất"]=so_ds[0]
+                elif "nhì" in nd_hang.lower() and len(so_ds)>=2: du_lieu["Giải Nhì"]=so_ds[:2]
+                elif "ba" in nd_hang.lower() and len(so_ds)>=6: du_lieu["Giải Ba"]=so_ds[:6]
+                elif "tư" in nd_hang.lower() and len(so_ds)>=4: du_lieu["Giải Tư"]=so_ds[:4]
+                elif "năm" in nd_hang.lower() and len(so_ds)>=6: du_lieu["Giải Năm"]=so_ds[:6]
+                elif "sáu" in nd_hang.lower() and len(so_ds)>=3: du_lieu["Giải Sáu"]=so_ds[:3]
+                elif "bảy" in nd_hang.lower() and len(so_ds)>=4: du_lieu["Giải Bảy"]=so_ds[:4]
 
-            # Giải Nhất
-            nhat = soup.select_one("td.giai-nhat, .giai1, td:nth-child(2).giai")
-            bang_ketqua["Giải Nhất"] = re.sub(r"\D","", nhat.get_text(strip=True)) if nhat else ""
-
-            # Giải Nhì: có 2 số
-            danh_sach_nhi = soup.select("td.giai-nhi span, .giai2 span")
-            bang_ketqua["Giải Nhì"] = [re.sub(r"\D","",s.get_text(strip=True)) for s in danh_sach_nhi if re.sub(r"\D","",s.get_text(strip=True))]
-
-            # Giải Ba: có 6 số
-            danh_sach_ba = soup.select("td.giai-ba span, .giai3 span")
-            bang_ketqua["Giải Ba"] = [re.sub(r"\D","",s.get_text(strip=True)) for s in danh_sach_ba if re.sub(r"\D","",s.get_text(strip=True))]
-
-            # Giải Tư: có 4 số
-            danh_sach_tu = soup.select("td.giai-tu span, .giai4 span")
-            bang_ketqua["Giải Tư"] = [re.sub(r"\D","",s.get_text(strip=True)) for s in danh_sach_tu if re.sub(r"\D","",s.get_text(strip=True))]
-
-            # Giải Năm: có 6 số
-            danh_sach_nam = soup.select("td.giai-nam span, .giai5 span")
-            bang_ketqua["Giải Năm"] = [re.sub(r"\D","",s.get_text(strip=True)) for s in danh_sach_nam if re.sub(r"\D","",s.get_text(strip=True))]
-
-            # Giải Sáu: có 3 số
-            danh_sach_sau = soup.select("td.giai-sau span, .giai6 span")
-            bang_ketqua["Giải Sáu"] = [re.sub(r"\D","",s.get_text(strip=True)) for s in danh_sach_sau if re.sub(r"\D","",s.get_text(strip=True))]
-
-            # Giải Bảy: có 4 số
-            danh_sach_bay = soup.select("td.giai-bay span, .giai7 span")
-            bang_ketqua["Giải Bảy"] = [re.sub(r"\D","",s.get_text(strip=True)) for s in danh_sach_bay if re.sub(r"\D","",s.get_text(strip=True))]
-
-            # Ngày hiển thị rõ
-            van_ban_ngay = ""
-            for bo_chon_ngay in ["h1", "h2.tieude", ".ngay", "span.title-date", ".date"]:
-                tim_n = soup.select_one(bo_chon_ngay)
-                if tim_n: van_ban_ngay = tim_n.get_text(strip=True); break
-
-            # Kiểm tra đủ điều kiện có Giải đặc biệt 5 số là chuẩn
-            if len(bang_ketqua.get("Đặc biệt","")) ==5:
-                return {
-                    "thanh_cong":True,
-                    "nguon":nguon["ten"],
-                    "link_dung":link,
-                    "ngay":van_ban_ngay or ngay_dinh,
-                    "danh_sach_giai":bang_ketqua
-                }
+            # === KIỂM TRA CHÍNH XÁC ĐỦ ĐÚNG SỐ LƯỢNG QUY ĐỊNH mới trả về thành công ===
+            if all(k in du_lieu for k in ["Đặc biệt","Giải Nhất","Giải Nhì","Giải Ba","Giải Tư","Giải Năm","Giải Sáu","Giải Bảy"]):
+                van_ngay = soup.select_one("h1,h2.tieude,.ngay,span.title-date")
+                van_ngay = van_ngay.get_text(strip=True) if van_ngay else ngay_dinh
+                print(f"✅ Đủ chuẩn từ {nguon['ten']}")
+                return {"thanh_cong":True,"nguon":nguon["ten"],"link_dung":link,"ngay":van_ngay,"ds":du_lieu}
             else:
-                print(f"⚠️ {nguon['ten']} chưa lấy đủ số giải đặc biệt chuẩn → chuyển thử trang tiếp theo")
+                print(f"⚠️ {nguon['ten']} lấy được nhưng chưa đủ đủ tất cả các giải theo số lượng quy định → thử tiếp trang khác")
 
         except Exception as e:
-            print(f"⚠️ Lỗi tại {nguon['ten']}: {str(e)[:65]}... chuyển nguồn tiếp theo")
+            print(f"⚠️ Lỗi tại {nguon['ten']}: {str(e)[:60]}... chuyển nguồn tiếp theo")
         continue
 
-    return {"thanh_cong":False, "thong_bao":"❌ Đã thử hết danh sách, hôm nay chưa lấy được đủ bảng đầy đủ tất cả các giải, thử lại sau giờ cập nhật chính xác nhé!"}
+    return {"thanh_cong":False,"thong_bao":"❌ Đã thử hết danh sách. Mẹo: thử lại vào giờ sau 18h30 khi kết quả cập nhật đầy đủ nhất, hoặc tôi có thể bổ sung thêm trang mới khi bạn chia sẻ trang xem ổn định thường dùng nhé!"}
 
-# === Trả về tin nhắn ĐỊNH DẠNG RÕ RÀNG dễ xem, lưu dữ liệu & phân tích sau này ===
-@bot.message_handler(func=lambda m: True)
+# === Trả lời trình bày rõ ràng đúng cấu trúc ===
+@bot.message_handler(func=lambda m:True)
 def xu_ly(msg):
-    bot.send_message(msg.chat.id, f"🔄 Đang thu thập BẢNG ĐẦY ĐỦ TẤT CẢ GIẢI: {msg.text}... vui chờ chút nhé!")
-    kq = lay_ketqua_day_du(msg.text)
+    bot.send_message(msg.chat.id,f"🔄 Thu thập kiểm tra đủ số lượng từng giải: {msg.text}... chờ chút nhé!")
+    kq=lay_ketqua_day_du(msg.text)
     if kq["thanh_cong"]:
-        nd = f"""✅ THÀNH CÔNG LẤY ĐỦ TOÀN BỘ KẾT QUẢ 📋
+        nd=f"""✅ THÀNH CÔNG LẤY ĐỦ CHÍNH XÁC TẤT CẢ GIẢI 📋
 📅 Ngày: {kq['ngay']}
 📌 Nguồn: {kq['nguon']}
 🔗 {kq['link_dung']}
 ━━━━━━━━━━━━━━━━━━━━
-🏆 Giải Đặc biệt: {kq['danh_sach_giai']['Đặc biệt']}
-🥇 Giải Nhất: {kq['danh_sach_giai']['Giải Nhất']}
-🥈 Giải Nhì: {' | '.join(kq['danh_sach_giai']['Giải Nhì'])}
-🥉 Giải Ba: {' | '.join(kq['danh_sach_giai']['Giải Ba'])}
-🎖️ Giải Tư: {' | '.join(kq['danh_sach_giai']['Giải Tư'])}
-🎖️ Giải Năm: {' | '.join(kq['danh_sach_giai']['Giải Năm'])}
-🎖️ Giải Sáu: {' | '.join(kq['danh_sach_giai']['Giải Sáu'])}
-🎖️ Giải Bảy: {' | '.join(kq['danh_sach_giai']['Giải Bảy'])}
+🏆 Giải Đặc biệt(5 số): {kq['ds']['Đặc biệt']}
+🥇 Giải Nhất(5 số): {kq['ds']['Giải Nhất']}
+🥈 Giải Nhì(2 số): {' | '.join(kq['ds']['Giải Nhì'])}
+🥉 Giải Ba(6 số): {' | '.join(kq['ds']['Giải Ba'])}
+🎖️ Giải Tư(4 số): {' | '.join(kq['ds']['Giải Tư'])}
+🎖️ Giải Năm(6 số): {' | '.join(kq['ds']['Giải Năm'])}
+🎖️ Giải Sáu(3 số): {' | '.join(kq['ds']['Giải Sáu'])}
+🎖️ Giải Bảy(4 số): {' | '.join(kq['ds']['Giải Bảy'])}
 ━━━━━━━━━━━━━━━━━━━━
-💾 Đã có đủ toàn bộ số rồi: lưu lại dễ tính tần suất, đuôi xuất hiện, xây dựng danh sách ưu tiên theo yêu cầu tiếp theo hoàn hảo hơn!"""
-        bot.send_message(msg.chat.id, nd)
-    else:
-        bot.send_message(msg.chat.id, kq["thong_bao"])
+💾 Đủ chuẩn quy định rồi, lưu bảng này tính tần suất đuôi, khoảng nghỉ xuất hiện xây dựng danh sách ưu tiên theo yêu cầu tiếp theo được rồi!"""
+        bot.send_message(msg.chat.id,nd)
+    else: bot.send_message(msg.chat.id,kq["thong_bao"])
 
-print("🚀 Bot nâng cấp lấy ĐỦ TẤT CẢ CÁC GIẢI đã khởi động!")
+print("🚀 Bot nâng cấp chọn theo bảng & kiểm tra đủ số lượng đã khởi động!")
 bot.polling()

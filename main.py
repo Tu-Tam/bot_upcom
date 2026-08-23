@@ -3,7 +3,7 @@ import re
 import json
 import os
 from collections import defaultdict, Counter
-from datetime import datetime, timedelta
+from datetime import datetime
 from flask import Flask
 from threading import Thread
 
@@ -15,20 +15,18 @@ bot = telebot.TeleBot(BOT_TOKEN)
 # === GIỮ KẾT NỐI TRÊN RENDER KHÔNG BỊ TẮT ===
 app = Flask(__name__)
 @app.route('/')
-def giu_song(): return "✅ Bot XSMB đang hoạt động & phân tích quy luật!"
-def chay_web(): app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
-Thread(target=chay_web).start()
+def giu_song(): return "✅ Bot đang hoạt động tốt! Đã kết nối giữ sống thành công."
+def chay_web(): app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
 # === TÊN TỆP LƯU DỮ LIỆU AN TOÀN ===
 TEN_TEP = "dulieu_66ngay_xsmb.json"
 
-# === TẢI DỮ LIỆU: nếu chưa có tệp nạp sẵn đủ 66 ngày đến 23/08/2026 ===
+# === TẢI SẴN ĐỦ 66 NGÀY ĐẾN 23/08/2026 ===
 def tai_kho_du_lieu():
     if os.path.exists(TEN_TEP):
         try:
             with open(TEN_TEP, "r", encoding="utf-8") as f: return json.load(f)
         except: pass
-    # 📅 ĐỦ CHÍNH XÁC 66 NGÀY TỪ 19/06 → ĐẾN 23/08/2026
     return {
     "23/08": "0:35;1:12;2:23;3:31;4:40;5:55;6:68;7:78;8:84;9:98",
     "22/08": "0:00;1:11;2:27;3:32;4:43;5:50;6:68;7:76;8:89;9:97",
@@ -101,12 +99,10 @@ def tai_kho_du_lieu():
 def luu_lai(kho):
     with open(TEN_TEP, "w", encoding="utf-8") as f: json.dump(kho, f, ensure_ascii=False, indent=2)
 
-# === HÀM CHÍNH: TÍNH TOP 3 ĐUÔI DỰA TRÊN QUY LUẬT TẦN SUẤT + CHU KỲ NGHỈ ĐỀU ĐẶN ===
+# === TÍNH TOP 3 ĐUÔI THEO TẦN SUẤT + CHU KỲ NGHỈ ĐỀU ĐẶN ===
 def tinh_top3_ngay_tiep_theo(ngay_can_doa):
     kho = tai_kho_du_lieu()
-    if len(kho)<30: return None, "⚠️ Cần đủ ít nhất 30 ngày dữ liệu để phân tích quy luật rõ ràng hơn!"
-    # Tính: tần suất xuất hiện + ưu tiên những đuôi đều đặn, đã nghỉ hợp lý chưa ra lâu
-    dem_so_ngay = Counter()
+    if len(kho)<30: return None, "⚠️ Cần đủ ít nhất 30 ngày dữ liệu để phân tích quy luật rõ hơn!"
     dem_lan_xuat = Counter()
     ngay_xuat_cuoi = {}
     danh_sach_thoi_gian = sorted(kho.keys(), key=lambda x: datetime.strptime(x,"%d/%m"))
@@ -115,39 +111,31 @@ def tinh_top3_ngay_tiep_theo(ngay_can_doa):
             dau,ds = phan.split(":")
             for d in ds.split(","):
                 dem_lan_xuat[d] +=1
-                dem_so_ngay[d] += vt+1
                 ngay_xuat_cuoi[d] = vt+1
     tong_ngay = len(danh_sach_thoi_gian)
-    # Công thức điểm: nhiều lần xuất hiện + đều đặn + đã nghỉ đủ ngày hợp lý không quá lâu cũng không vừa ra liền
     bang_diem = {}
     for d,sl in dem_lan_xuat.items():
         so_ngay_nghi = tong_ngay - ngay_xuat_cuoi[d]
-        diem = sl * 10
-        if 7 <= so_ngay_nghi <=25: diem += 25 # Ưu tiên nghỉ vừa đủ theo chu kỳ thường lặp
-        elif 3 <= so_ngay_nghi <=6: diem +=12
-        elif so_ngay_nghi>25: diem +=5
+        diem = sl * 12
+        if 8 <= so_ngay_nghi <=22: diem +=30
+        elif 4 <= so_ngay_nghi <=7: diem +=15
+        elif so_ngay_nghi>22: diem +=8
         bang_diem[d] = diem
     top3 = sorted(bang_diem.items(), key=lambda x:x[1], reverse=True)[:3]
-    noi = f"📊 DỰ ĐOÁN 3 ĐUÔI XÁC SUẤT CAO NHẤT CHO NGÀY: {ngay_can_doa}\n"
-    noi += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    noi = f"📊 DỰ ĐOÁN 3 ĐUÔI XÁC SUẤT CAO NHẤT CHO NGÀY: {ngay_can_doa}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     for hang,(diem_so,d) in enumerate(top3,1): noi +=f"🏆 Thứ {hang}: Đuôi {diem_so} | Điểm quy luật: {d}/100\n"
-    noi += "\n💡 Giải thích: chọn những đuôi xuất hiện nhiều lần trong 66 ngày & theo chu kỳ nghỉ đều đặn nhất!\n⚠️ Chỉ phân tích quy luật lịch sử đã mở thưởng, tham khảo vui chơi giải trí không chắc chắn trúng nhé!"
+    noi += "\n💡 Ưu tiên chọn: xuất hiện nhiều lần & nghỉ đủ chu kỳ đều đặn trong 66 ngày qua!\n⚠️ Chỉ phân tích quy luật lịch sử, tham khảo vui chơi giải trí nhé!"
     return top3, noi
 
-# === NHẬN NGÀY YÊU CẦU DỰ ĐOÁN ===
+# === NHẬN YÊU CẦU DỰ ĐOÁN ===
 @bot.message_handler(func=lambda m: m.text and "Ngày" in m.text and "dự đoán" in m.text)
 def xu_ly_du_doan(message):
     lay = re.search(r"Ngày\s+(\d{1,2}/\d{1,2}/\d{4})",message.text)
     if not lay: bot.send_message(message.chat.id,"❌ Ghi đúng mẫu: Ngày 24/08/2026 dự đoán");return
-    ngay = lay.group(1)
-    _,tb = tinh_top3_ngay_tiep_theo(ngay)
+    _,tb = tinh_top3_ngay_tiep_theo(lay.group(1))
     bot.send_message(message.chat.id,tb)
 
-# === NHẬN ẢNH + NGÀY BẠN GỬI: CẬP NHẬT THÊM VÀO KHO, LÀM GIÀU QUY LUẬT ===
-@bot.message_handler(content_types=['photo'])
-def xu_ly_anh_capnhat(message):
-    bot.send_message(message.chat.id,"📸 Đã nhận ảnh! Vui lòng ghi kèm dòng: Ngày DD/MM/YYYY | Số: danh sách tất cả số hai chữ số kết quả ngày đó để lưu chính xác & nâng cao độ chuẩn đoán sau này nhé!")
-
+# === NHẬN CẬP NHẬT KẾT QUẢ MỚI LƯU VÀO KHO ===
 @bot.message_handler(func=lambda m: m.text and "Ngày" in m.text and "Số:" in m.text)
 def luu_ngay_moi(message):
     kho = tai_kho_du_lieu()
@@ -162,9 +150,11 @@ def luu_ngay_moi(message):
         if khoa in kho:
             if kho[khoa]==chuoi_moi: bot.send_message(message.chat.id,f"📌 Ngày {lay_ngay} ĐÃ CÓ & DỮ LIỆU TRÙNG HOÀN TOÀN ✅")
             else: bot.send_message(message.chat.id,f"⚠️ Đã cập nhật thay thế số liệu mới nhất ngày {lay_ngay} thành công!");kho[khoa]=chuoi_moi;luu_lai(kho)
-        else: kho[khoa]=chuoi_moi;luu_lai(kho);bot.send_message(message.chat.id,f"✅ THÊM THÀNH CÔNG NGÀY MỚI: {lay_ngay} vào kho dữ liệu!\n📊 Tổng số ngày đang có: {len(kho)} ngày → càng nhiều dữ liệu sẽ phân tích quy luật càng chính xác hơn!")
-    except: bot.send_message(message.chat.id,"❌ Ghi đúng mẫu: Ngày 24/08/2026 | Số:05,12,27,33,... tất cả các đuôi kết quả nhé!")
+        else: kho[khoa]=chuoi_moi;luu_lai(kho);bot.send_message(message.chat.id,f"✅ THÊM THÀNH CÔNG NGÀY MỚI: {lay_ngay} vào kho dữ liệu!\n📊 Tổng số ngày đang có: {len(kho)} ngày → càng nhiều sẽ phân tích chính xác hơn!")
+    except: bot.send_message(message.chat.id,"❌ Ghi đúng mẫu: Ngày 24/08/2026 | Số:05,12,27,33,... tất cả các đuôi nhé!")
 
+# === ĐOẠN CUỐI ĐÃ SỬA CHÍNH XÁC: CHẠY DUY NHẤT KHÔNG XUNG ĐỘT ===
 if __name__ == "__main__":
-    print("🤖 Bot XSMB ĐANG CHẠY: Tích lũy dữ liệu & tìm ra TOP 3 đuôi theo chu kỳ đều đặn nhất!")
-    bot.polling(none_stop=True)
+    print("🤖 Bot XSMB ĐANG CHẠY DUY NHẤT: Tích lũy dữ liệu & tìm ra TOP 3 đuôi theo chu kỳ đều đặn nhất!")
+    Thread(target=chay_web, daemon=True).start()
+    bot.polling(none_stop=True, interval=5, timeout=120)

@@ -1,6 +1,6 @@
 import os
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
+TELEGRAM_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns", "")
 
 DATABASE_PATH = "data/xsmb.db"
 

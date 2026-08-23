@@ -12,7 +12,7 @@ from urllib3.util import Retry
 import csv
 from io import StringIO
 
-# --- KHỞI TẠO WEB SERVER GIỮ HOẠT ĐỘNG ỔN ĐỊNH TRÊN RENDER ---
+# --- KHỞI TẠO WEB SERVER GIỮ HOẠT ĐỘNG KHÔNG BỊ TẮT TRÊN RENDER ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -23,7 +23,7 @@ def giu_song():
 BOT_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns"
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# ✅ SỬA CHÍNH XÁC ĐƯỜNG LINK THÔ TỆP CSV GITHUB HOẠT ĐỘNG ĐƯỢC
+# Nguồn CSV chuẩn GitHub ưu tiên lấy trước nhất
 API_XSMB_GITH = "https://raw.githubusercontent.com/vietnam-lottery-xsmb-analysis/xsmb/main/data/xsmb_daily.csv"
 
 def tao_session_ong_dinh():
@@ -40,7 +40,7 @@ def tao_session_ong_dinh():
     session.mount('https://', adapter)
     return session
 
-# --- [PHẦN 1] THUẬT TOÁN TÍNH ĐIỂM CHUẨN ĐÁNH GIÁ ĐUÔI SỐ ---
+# --- TÍNH ĐIỂM CHUẨN ĐÁNH GIÁ ĐUÔI SỐ THEO TẦN SUẤT + ĐỀU ĐẶN KHOẢNG CÁCH ---
 def tinh_diem_chuan(danh_sach_duoi):
     dem_so_lan = Counter(danh_sach_duoi)
     vi_tri_tung_lan = {}
@@ -67,8 +67,8 @@ def tinh_diem_chuan(danh_sach_duoi):
     top20 = [m for _, m, _ in ds_diem[:20]]
     return top3, top20
 
-# --- [PHẦN CHÍNH] ƯU TIÊN ĐỌC CSV GITHUB → CHUYỂN XOSO.ME BỔ SUNG KHI CHƯA ĐỦ ---
-def xu_ly_xsmb_tu_dong(ngay_moc_can):
+# --- LẤY DỮ LIỆU: ƯU TIÊN GITHUB → TỰ CHUYỂN XOSO.ME BỔ SUNG → HƯỚNG DẪN LƯU THỦ CÔNG ---
+def xu_ly_xsmb_tu_dong(ngay_moc_can, chat_id_nguoi):
     session = tao_session_ong_dinh()
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
     
@@ -76,9 +76,9 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
     so_ngay_quet_thanh_cong = 0
     loai_nguon = "CHƯA XÁC ĐỊNH"
 
-    # ✅ LỚP 1: Đọc đúng cấu trúc tệp CSV chuẩn, không gọi sai định dạng JSON gây lỗi ngay từ đầu
+    # Lấy nguồn chuẩn CSV GitHub trước
     try:
-        bot.send_message(bot.get_updates()[-1].message.chat.id, "🔹 Đang ưu tiên lấy dữ liệu chuẩn từ nguồn GitHub...")
+        bot.send_message(chat_id_nguoi, "🔹 Đang ưu tiên lấy dữ liệu chuẩn từ nguồn GitHub...")
         res = session.get(API_XSMB_GITH, headers=headers, timeout=12)
         res.raise_for_status()
         loai_nguon = "GITHUB_CSV_CHUAN"
@@ -96,14 +96,14 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
                         tong_hop_so_duoi.extend(ds_so)
                         so_ngay_quet_thanh_cong +=1
             except: continue
-        bot.send_message(bot.get_updates()[-1].message.chat.id, f"✅ Nguồn GitHub thu thập được {so_ngay_quet_thanh_cong} ngày hợp lệ!")
+        bot.send_message(chat_id_nguoi, f"✅ Nguồn GitHub thu thập được {so_ngay_quet_thanh_cong} ngày hợp lệ!")
     except Exception as e:
-        bot.send_message(bot.get_updates()[-1].message.chat.id, f"⚠️ Nguồn GitHub tạm chưa lấy được: {str(e)[:55]} → chuyển thử nguồn dự phòng xoso.me...")
+        bot.send_message(chat_id_nguoi, f"⚠️ Nguồn GitHub tạm chưa lấy được: {str(e)[:55]} → chuyển thử nguồn dự phòng xoso.me...")
 
-    # ✅ LỚP 2: NẾU CHƯA ĐỦ THÌ TỰ TRUY CẬP XOSO.ME, MỞ RỘNG THÊM NHIỀU LỚP CHỌN THẺ SỐ KHÁC NHAU
+    # Bổ sung lấy từ trang xoso.me nếu chưa đủ 45 ngày chuẩn
     if so_ngay_quet_thanh_cong < 45:
         try:
-            bot.send_message(bot.get_updates()[-1].message.chat.id, "🔹 Đang truy cập bổ sung từ trang xoso.me...")
+            bot.send_message(chat_id_nguoi, "🔹 Đang truy cập bổ sung từ trang xoso.me...")
             loai_nguon = "KẾT HỢP GITHUB + XOSOME"
             for i in range(60):
                 ngay_hop = ngay_moc_can - timedelta(days=i)
@@ -113,7 +113,6 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
                 res_web = session.get(url_web, headers=headers, timeout=7)
                 if res_web.status_code == 200 and len(res_web.text) > 2000:
                     soup = BeautifulSoup(res_web.text, "html.parser")
-                    # Mở rộng thêm nhiều tên lớp thẻ số thường gặp trên trang để tăng tìm thấy kết quả
                     so_tags = soup.select("span.giai_so, td.giai_so, span.number, span.prize-number, span.v-giai")
                     ds_so = []
                     for tag in so_tags:
@@ -126,9 +125,9 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
                 if so_ngay_quet_thanh_cong >=45: break
                 time.sleep(0.25)
         except Exception as e:
-            bot.send_message(bot.get_updates()[-1].message.chat.id, f"ℹ️ Trang bổ sung cũng gặp khó truy cập: {str(e)[:50]}")
+            bot.send_message(chat_id_nguoi, f"ℹ️ Trang bổ sung cũng gặp khó truy cập: {str(e)[:50]}")
 
-    # --- TRẢ KẾT QUẢ PHÂN TÍCH ĐỦ ĐIỀU KIỆN HOẶC HƯỚNG DẪN BỔ SUNG THÊM ÍT NGÀY ---
+    # Trả kết quả đủ chuẩn hoặc hướng dẫn bổ sung nhanh
     if so_ngay_quet_thanh_cong >=45:
         top3, top20 = tinh_diem_chuan(tong_hop_so_duoi)
         chuoi_top3 = "\n".join([f"🥇 Đuôi {ma} – xuất hiện {sl} lần | Tần suất cao, chu kỳ đều ổn định nhất" for i, (ma, sl) in enumerate(top3)])
@@ -145,7 +144,7 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
     else:
         return f"❌ Hiện tại chưa thu thập đủ mức chuẩn 45 ngày! Hiện có: {so_ngay_quet_thanh_cong} ngày.\n💡 Vui lòng gửi bổ sung nhanh theo mẫu: Luu du lieu: Ngày __/__/____ | Đuôi: 00,07,09,... để nhanh đạt đủ chuẩn phân tích nhé!"
 
-# --- [PHẦN 2] PHÂN TÍCH CỔ PHIẾU UPCoM TỪ NGUỒN SSI, XỬ LÝ MỀM KHI KHÔNG GỌI ĐƯỢC JSON ---
+# --- PHÂN TÍCH CỔ PHIẾU UPCoM LẤY THÔNG TIN TỪ NGUỒN SSI ---
 def xu_ly_co_phieu_upcom(ma_ck):
     try:
         session = tao_session_ong_dinh()
@@ -169,27 +168,26 @@ def xu_ly_co_phieu_upcom(ma_ck):
                             gia_hien_tai = f"{gia_raw:,} đồng"
                         bien_dong = f"{cp.get('pc', 0)}%"
                         break
-            except: pass # Tránh báo lỗi dài khi trang trả không đúng định dạng JSON
+            except: pass
 
-        # Thông tin tham khảo hữu ích khi chưa lấy được giá thời gian thực
         if tim_thay:
             return (
                 f"📈 **PHÂN TÍCH CỔ PHIẾU UPCoM: {ma_ck}** 📈\n"
                 f"💵 Giá gần nhất: **{gia_hien_tai}** | Biến động: {bien_dong}\n"
-                f"📊 Đánh giá kỹ thuật: Kiểm tra khớp lệnh liên tục, theo dõi đường trung bình ngắn hạn, đặt rõ vùng giá hỗ trợ, chốt lời & cắt lỗ an toàn quản trị tốt rủi ro nhé!"
+                f"📊 Đánh giá kỹ thuật: Theo dõi đường trung bình ngắn hạn, đặt rõ vùng hỗ trợ, chốt lời & cắt lỗ chặt chẽ quản lý tốt rủi ro nhé!"
             )
         else:
-            return f"⚠️ Tạm chưa lấy được dữ liệu thời gian thực cho mã: {ma_ck}, vui lòng thử lại sau giờ giao dịch hoặc chốc lát nữa nhé!"
+            return f"⚠️ Tạm chưa lấy được dữ liệu thời gian thực cho mã: {ma_ck}, vui lòng thử lại sau giờ giao dịch nhé!"
     except Exception as e:
         return f"❌ Lỗi truy cập dữ liệu chứng khoán {ma_ck}: {str(e)[:60]}"
 
-# --- [PHẦN 3] THÊM LỆNH NHẬN DỮ LIỆU BỔ SUNG THỦ CÔNG HOÀN CHỈNH + HƯỚNG DẪN SỬ DỤNG RÕ RÀNG ---
+# --- XỬ LÝ TẤT CẢ LỆNH NHẬN TỪ NGƯỜI DÙNG & ĐÃ SỬA ĐỦ ĐÓNG NGOẶC HOÀN CHỈNH KHÔNG BÁO LỖI DÒNG 233 ---
 @bot.message_handler(func=lambda msg: True)
 def xu_ly_tin_nhan_tong_hop(msg):
     van_ban = msg.text.strip()
     chat_id = msg.chat.id
 
-    # Nhận & phân tích ngày tháng đúng nhiều định dạng
+    # Phân tích ngày tháng nhiều định dạng
     ngay_hop_le = None
     cac_dinh_dang = ["%d %m %Y", "%d/%m/%Y", "%d-%m-%Y"]
     for dinh_dang in cac_dinh_dang:
@@ -200,10 +198,10 @@ def xu_ly_tin_nhan_tong_hop(msg):
             
     if ngay_hop_le:
         bot.reply_to(msg, f"🔄 Đang xử lý yêu cầu phân tích lấy lùi 60 ngày đến {ngay_hop_le.strftime('%d/%m/%Y')}...")
-        bot.send_message(chat_id, xu_ly_xsmb_tu_dong(ngay_hop_le))
+        bot.send_message(chat_id, xu_ly_xsmb_tu_dong(ngay_hop_le, chat_id), parse_mode="Markdown")
         return
 
-    # Nhận danh sách mã cổ phiếu 3 chữ in hoa
+    # Nhận danh sách mã chứng khoán 3 chữ in hoa
     cac_tu = van_ban.replace(",", " ").split()
     la_danh_sach_ma = True
     for tu in cac_tu:
@@ -216,7 +214,7 @@ def xu_ly_tin_nhan_tong_hop(msg):
             time.sleep(1.2)
         return
 
-    # ✅ Lệnh lưu bổ sung dữ liệu từng ngày khi chưa đủ số ngày tự lấy được
+    # Lệnh lưu dữ liệu từng ngày bổ sung thủ công
     if van_ban.startswith("Luu du lieu:"):
         try:
             tach = van_ban.replace("Luu du lieu:","").strip().split("|")
@@ -227,12 +225,14 @@ def xu_ly_tin_nhan_tong_hop(msg):
             bot.send_message(chat_id,"⚠️ Dùng đúng mẫu: Luu du lieu: Ngày 22/08/2026 | Đuôi: 00,07,09,06,...")
         return
 
-    # Hướng dẫn sử dụng ngắn gọn dễ nhớ
-    bot.send_message(chat_id, """📝 **CÁCH DÙNG BOT ĐƠN GIẢN** 📝
-🔢 Phân tích XSMB: Gửi thẳng ngày tháng: 22 08 2026 / 22-08-2026
-💹 Kiểm tra cổ phiếu: Gửi mã 3 chữ: SHB, TCB, VPB...
-📝 Bổ sung nhanh khi chưa đủ dữ liệu: Luu du lieu: Ngày __/__/____ | Đuôi: 00,01,02,...
-""")
+    # === ĐÃ SỬA HOÀN HẢO ĐỦ DẤU ĐÓNG NGOẶC Ở DÒNG CUỐI KHÔNG CÒN LỖI ===
+    huong_dan = (
+        f"📝 **CÁCH DÙNG BOT ĐƠN GIẢN** 📝\n\n"
+        f"🔢 Phân tích XSMB: Gửi thẳng ngày tháng: 22 08 2026 / 22-08-2026\n"
+        f"💹 Kiểm tra cổ phiếu: Gửi mã 3 chữ: SHB, TCB, VPB...\n"
+        f"📝 Bổ sung nhanh khi chưa đủ dữ liệu: Luu du lieu: Ngày __/__/____ | Đuôi: 00,01,02,...\n"
+    )
+    bot.send_message(chat_id, huong_dan, parse_mode="Markdown")
 
 if __name__ == "__main__":
     from threading import Thread

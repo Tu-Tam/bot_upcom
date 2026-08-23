@@ -26,7 +26,7 @@ API_XSMB_GITH = "https://githubusercontent.com"
 
 def tao_session_ong_dinh():
     session = requests.Session()
-    # ĐÃ ĐIỀN ĐẦY ĐỦ ĐỐI SỐ: Tránh lỗi SyntaxError kẹt dấu ngoặc trên Render
+    # SỬA LỖI CHÍ MẠNG: Điền chính xác danh sách mã lỗi HTTP dạng mảng [500, 502, 503, 504]
     retry = Retry(
         total=3, 
         connect=3, 

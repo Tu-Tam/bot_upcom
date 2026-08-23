@@ -1,18 +1,35 @@
 import telebot
 import re
+import json
+import os
 from collections import defaultdict, Counter
-from datetime import datetime
+from datetime import datetime, timedelta
+from flask import Flask
+from threading import Thread
 
-# === THÔNG TIN CÁ NHÂN CỦA BẠN - ĐIỀN ĐÚNG THÔNG TIN LẤY TỪ TELEGRAM ===
-# Thay chuỗi mã Token bạn nhận được từ @BotFather vào giữa dấu ngoặc kép
+# === THÔNG TIN ĐÃ ĐIỀN SẴN CỦA BẠN ===
 BOT_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns"
-# Thay số Chat ID cá nhân lấy từ @getidsbot vào đây (chỉ ghi số thôi)
 CHAT_ID = 7064473358
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# === LƯU SẴN BỘ 66 NGÀY ĐÃ XÂY DỰNG TRƯỚC ĐÓ ===
-# Dạng lưu: khóa=ngày "DD/MM", giá trị=chuỗi nhóm Đầu:đuôi
-kho_du_lieu = {
+# === GIỮ KẾT NỐI TRÊN RENDER KHÔNG BỊ TẮT ===
+app = Flask(__name__)
+@app.route('/')
+def giu_song(): return "✅ Bot XSMB đang hoạt động & phân tích quy luật!"
+def chay_web(): app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+Thread(target=chay_web).start()
+
+# === TÊN TỆP LƯU DỮ LIỆU AN TOÀN ===
+TEN_TEP = "dulieu_66ngay_xsmb.json"
+
+# === TẢI DỮ LIỆU: nếu chưa có tệp nạp sẵn đủ 66 ngày đến 23/08/2026 ===
+def tai_kho_du_lieu():
+    if os.path.exists(TEN_TEP):
+        try:
+            with open(TEN_TEP, "r", encoding="utf-8") as f: return json.load(f)
+        except: pass
+    # 📅 ĐỦ CHÍNH XÁC 66 NGÀY TỪ 19/06 → ĐẾN 23/08/2026
+    return {
     "23/08": "0:35;1:12;2:23;3:31;4:40;5:55;6:68;7:78;8:84;9:98",
     "22/08": "0:00;1:11;2:27;3:32;4:43;5:50;6:68;7:76;8:89;9:97",
     "21/08": "0:09;1:19;2:27,21;3:33,39,38,34,30,32,35;4:40;5:54,53;6:64,60,61,68,67;7:75;8:88;9:99,90,94,95",
@@ -79,77 +96,75 @@ kho_du_lieu = {
     "21/06": "0:03;1:15;2:21;3:23;4:49;5:54;6:60;7:75;8:83;9:94",
     "20/06": "0:00;1:13;2:29;3:36;4:45;5:60;6:67;7:79;8:86;9:92",
     "19/06": "0:01;1:11;2:28;3:31;4:47;5:53;6:65;7:74;8:84;9:97"
-}
+    }
 
-# === HÀM TRÍCH XUẤT ĐÚNG ĐỊNH DẠNG ===
-def trich_xuat_tao_chuoi_ngay(ngay_str, danh_sach_so):
-    nhom_dau = defaultdict(list)
-    for s in danh_sach_so:
-        if len(s)==2 and s.isdigit():
-            d = s[0]
-            nhom_dau[d].append(s)
-    sap_xep = []
-    for so_dau in sorted(nhom_dau.keys()):
-        sap_xep.append(f"{so_dau}:{','.join(nhom_dau[so_dau])}")
-    return f"{ngay_str[:5]}:{';'.join(sap_xep)}"
+def luu_lai(kho):
+    with open(TEN_TEP, "w", encoding="utf-8") as f: json.dump(kho, f, ensure_ascii=False, indent=2)
 
-# === XỬ LÝ THÊM/KIỂM TRA TRÙNG NGÀY ===
+# === HÀM CHÍNH: TÍNH TOP 3 ĐUÔI DỰA TRÊN QUY LUẬT TẦN SUẤT + CHU KỲ NGHỈ ĐỀU ĐẶN ===
+def tinh_top3_ngay_tiep_theo(ngay_can_doa):
+    kho = tai_kho_du_lieu()
+    if len(kho)<30: return None, "⚠️ Cần đủ ít nhất 30 ngày dữ liệu để phân tích quy luật rõ ràng hơn!"
+    # Tính: tần suất xuất hiện + ưu tiên những đuôi đều đặn, đã nghỉ hợp lý chưa ra lâu
+    dem_so_ngay = Counter()
+    dem_lan_xuat = Counter()
+    ngay_xuat_cuoi = {}
+    danh_sach_thoi_gian = sorted(kho.keys(), key=lambda x: datetime.strptime(x,"%d/%m"))
+    for vt,ngay in enumerate(danh_sach_thoi_gian):
+        for phan in kho[ngay].split(";"):
+            dau,ds = phan.split(":")
+            for d in ds.split(","):
+                dem_lan_xuat[d] +=1
+                dem_so_ngay[d] += vt+1
+                ngay_xuat_cuoi[d] = vt+1
+    tong_ngay = len(danh_sach_thoi_gian)
+    # Công thức điểm: nhiều lần xuất hiện + đều đặn + đã nghỉ đủ ngày hợp lý không quá lâu cũng không vừa ra liền
+    bang_diem = {}
+    for d,sl in dem_lan_xuat.items():
+        so_ngay_nghi = tong_ngay - ngay_xuat_cuoi[d]
+        diem = sl * 10
+        if 7 <= so_ngay_nghi <=25: diem += 25 # Ưu tiên nghỉ vừa đủ theo chu kỳ thường lặp
+        elif 3 <= so_ngay_nghi <=6: diem +=12
+        elif so_ngay_nghi>25: diem +=5
+        bang_diem[d] = diem
+    top3 = sorted(bang_diem.items(), key=lambda x:x[1], reverse=True)[:3]
+    noi = f"📊 DỰ ĐOÁN 3 ĐUÔI XÁC SUẤT CAO NHẤT CHO NGÀY: {ngay_can_doa}\n"
+    noi += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    for hang,(diem_so,d) in enumerate(top3,1): noi +=f"🏆 Thứ {hang}: Đuôi {diem_so} | Điểm quy luật: {d}/100\n"
+    noi += "\n💡 Giải thích: chọn những đuôi xuất hiện nhiều lần trong 66 ngày & theo chu kỳ nghỉ đều đặn nhất!\n⚠️ Chỉ phân tích quy luật lịch sử đã mở thưởng, tham khảo vui chơi giải trí không chắc chắn trúng nhé!"
+    return top3, noi
+
+# === NHẬN NGÀY YÊU CẦU DỰ ĐOÁN ===
+@bot.message_handler(func=lambda m: m.text and "Ngày" in m.text and "dự đoán" in m.text)
+def xu_ly_du_doan(message):
+    lay = re.search(r"Ngày\s+(\d{1,2}/\d{1,2}/\d{4})",message.text)
+    if not lay: bot.send_message(message.chat.id,"❌ Ghi đúng mẫu: Ngày 24/08/2026 dự đoán");return
+    ngay = lay.group(1)
+    _,tb = tinh_top3_ngay_tiep_theo(ngay)
+    bot.send_message(message.chat.id,tb)
+
+# === NHẬN ẢNH + NGÀY BẠN GỬI: CẬP NHẬT THÊM VÀO KHO, LÀM GIÀU QUY LUẬT ===
+@bot.message_handler(content_types=['photo'])
+def xu_ly_anh_capnhat(message):
+    bot.send_message(message.chat.id,"📸 Đã nhận ảnh! Vui lòng ghi kèm dòng: Ngày DD/MM/YYYY | Số: danh sách tất cả số hai chữ số kết quả ngày đó để lưu chính xác & nâng cao độ chuẩn đoán sau này nhé!")
+
 @bot.message_handler(func=lambda m: m.text and "Ngày" in m.text and "Số:" in m.text)
-def xu_ly_ngay_moi(message):
+def luu_ngay_moi(message):
+    kho = tai_kho_du_lieu()
     try:
-        tach_ngay = re.search(r"Ngày\s+(\d{1,2}/\d{1,2}/\d{4})", message.text).group(1)
-        kiem_tra_ngay = tach_ngay[:5]
-        tach_so = re.search(r"Số:\s*(.+)$", message.text).group(1).replace(" ","").split(",")
-        tach_so = [s.strip()[-2:] for s in tach_so if s.strip().isdigit() and len(s.strip())>=2]
+        lay_ngay = re.search(r"Ngày\s+(\d{1,2}/\d{1,2}/\d{4})",message.text).group(1)
+        khoa = lay_ngay[:5]
+        ds_so = re.search(r"Số:\s*(.+)$",message.text).group(1).replace(" ","").split(",")
+        ds_2so = [s.strip()[-2:] for s in ds_so if len(s.strip())>=2 and s.strip().isdigit()]
+        nhom = defaultdict(list)
+        for s in ds_2so: nhom[s[0]].append(s)
+        chuoi_moi = ";".join(f"{k}:{','.join(sorted(set(v)))}" for k,v in sorted(nhom.items()))
+        if khoa in kho:
+            if kho[khoa]==chuoi_moi: bot.send_message(message.chat.id,f"📌 Ngày {lay_ngay} ĐÃ CÓ & DỮ LIỆU TRÙNG HOÀN TOÀN ✅")
+            else: bot.send_message(message.chat.id,f"⚠️ Đã cập nhật thay thế số liệu mới nhất ngày {lay_ngay} thành công!");kho[khoa]=chuoi_moi;luu_lai(kho)
+        else: kho[khoa]=chuoi_moi;luu_lai(kho);bot.send_message(message.chat.id,f"✅ THÊM THÀNH CÔNG NGÀY MỚI: {lay_ngay} vào kho dữ liệu!\n📊 Tổng số ngày đang có: {len(kho)} ngày → càng nhiều dữ liệu sẽ phân tích quy luật càng chính xác hơn!")
+    except: bot.send_message(message.chat.id,"❌ Ghi đúng mẫu: Ngày 24/08/2026 | Số:05,12,27,33,... tất cả các đuôi kết quả nhé!")
 
-        chuoi_moi = trich_xuat_tao_chuoi_ngay(tach_ngay, tach_so)
-        gia_tri_moi = chuoi_moi.split(":",1)[1]
-
-        if kiem_tra_ngay in kho_du_lieu:
-            gia_tri_cu = kho_du_lieu[kiem_tra_ngay]
-            if gia_tri_cu == gia_tri_moi:
-                bot.send_message(message.chat.id,f"📌 Ngày {tach_ngay} **đã có trong kho & dữ liệu HOÀN TOÀN TRÙNG KHỚP** không thay đổi gì!")
-            else:
-                bot.send_message(message.chat.id,f"⚠️ Ngày {tach_ngay} **đã tồn tại nhưng dữ liệu KHÁC BIỆT:**\n📋 Cũ: {gia_tri_cu}\n📥 Mới: {gia_tri_moi}\n→ Đã cập nhật thay thế bản mới nhất!")
-                kho_du_lieu[kiem_tra_ngay] = gia_tri_moi
-        else:
-            kho_du_lieu[kiem_tra_ngay] = gia_tri_moi
-            bot.send_message(message.chat.id,f"✅ **THÀNH CÔNG THÊM MỚI:** Ngày {tach_ngay} đã được lưu vào bộ dữ liệu!\n📊 Tổng số ngày hiện có: {len(kho_du_lieu)} ngày liên tục.")
-
-    except Exception as e:
-        bot.send_message(message.chat.id,f"❌ Đọc chưa hiểu! Ghi đúng mẫu: **Ngày 21/08/2026 | Số:94533,87299,40109,41819,... tất cả các giải** nhé!")
-
-# === LỆNH /phantich xem thống kê ===
-@bot.message_handler(commands=['phantich'])
-def phan_tich_thong_ke(message):
-    if len(kho_du_lieu)<30:
-        bot.reply_to(message,"⚠️ Cần đủ ít nhất 30 ngày trở lên để phân tích có cơ sở thống kê rõ ràng hơn!")
-        return
-    dem_dau = Counter()
-    dem_duoi = Counter()
-    for gt in kho_du_lieu.values():
-        for nhom in gt.split(";"):
-            d,ds = nhom.split(":")
-            dem_dau[d] +=1
-            for duoi in ds.split(","):
-                dem_duoi[duoi] +=1
-    top_dau = dem_dau.most_common(5)
-    top_duoi = dem_duoi.most_common(10)
-    noi = "📊 **KẾT QUẢ THỐNG KÊ TỪ BỘ DỮ LIỆU ĐÃ LƯU:**\n━━━━━━━━━━━━━━━━━━━━━━\n🏆 5 Nhóm Đầu xuất hiện nhiều đều nhất:\n"
-    for i,(d,sl) in enumerate(top_dau,1): noi +=f"{i}. Đầu {d}: xuất hiện {sl} lần\n"
-    noi += "\n💎 10 Đuôi xuất hiện tần suất cao nhất:\n"
-    for i,(d,sl) in enumerate(top_duoi,1): noi +=f"{i}. Đuôi {d}: {sl} lần\n"
-    noi += "\n⚠️ Chỉ dựa lịch sử đã mở thưởng, tham khảo vui chơi giải trí thôi nhé!"
-    bot.send_message(message.chat.id,noi,parse_mode="Markdown")
-
-# === CHẠY BOT ===
 if __name__ == "__main__":
-    print("🤖 Bot đang chạy: Kiểm tra trùng ngày + báo rõ đã tồn tại/thêm mới thành công!")
+    print("🤖 Bot XSMB ĐANG CHẠY: Tích lũy dữ liệu & tìm ra TOP 3 đuôi theo chu kỳ đều đặn nhất!")
     bot.polling(none_stop=True)
-from flask import Flask
-import threading
-app = Flask(__name__)
-@app.route('/')
-def keep_alive(): return "Bot hoạt động"
-def run_app(): app.run(host="0.0.0.0", port=10000)
-threading.Thread(target=run_app).start()

@@ -1,2 +1,6 @@
 pyTelegramBotAPI
 flask
+pytesseract
+Pillow
+requests
+python-dateutil

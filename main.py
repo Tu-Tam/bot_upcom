@@ -7,7 +7,7 @@ import pytesseract
 from PIL import Image
 import requests
 
-# ======================== THÔNG TIN ĐÚNG CỦA BẠN ========================
+# ======================== THÔNG TIN CHÍNH XÁC CỦA BẠN ========================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns")
 CHAT_ID = int(os.getenv("CHAT_ID", 7064473358))
 
@@ -15,9 +15,9 @@ if not BOT_TOKEN or ":" not in BOT_TOKEN:
     print("❌ Lỗi BOT_TOKEN thiếu dấu hai chấm!")
     exit(1)
 if CHAT_ID <= 0:
-    print("❌ Lỗi CHAT_ID không phải số hợp lệ!")
+    print("❌ Lỗi CHAT_ID không hợp lệ!")
     exit(1)
-# ==========================================================================
+# ==============================================================================
 
 bot = telebot.TeleBot(BOT_TOKEN)
 TEN_TEP = "dulieu_xsmb.json"
@@ -25,8 +25,12 @@ SO_NGAY_GIU = 60
 
 app = Flask(__name__)
 @app.route('/')
-def giu_song(): return "✅ Bot XSMB đang chạy giữ kết nối!"
-def chay_web(): app.run(host="0.0.0.0", port=int(os.environ.get("PORT",8080)))
+def giu_song(): return "✅ Bot đang HOẠT ĐỘNG ỔN ĐỊNH! Kết nối giữ sống thành công!"
+
+# ✅ SỬA CHÍNH: Đọc lấy đúng cổng mà Render cấp động, không ghi cố định số cổng
+def chay_web():
+    cong_dung = int(os.environ.get("PORT", 10000)) # ưu tiên lấy cổng hệ thống cấp
+    app.run(host="0.0.0.0", port=cong_dung, debug=False) # bắt trên tất cả địa chỉ mạng
 
 TRONG_SO = {"DB":2.5, "G1":2.0, "G2":1.6, "G3":1.3, "G4":1.0, "G5":0.8, "G6":0.6, "G7":0.4}
 
@@ -52,7 +56,7 @@ def luu_dulieu_va_giu_60ngay(ngay_moi, dict_ngay):
 def tinh_top3_tat_ca_giai(ngay_can_doi):
     dl = tai_dulieu()
     ds_ngay = sorted(dl.keys(), key=lambda x:datetime.strptime(x,"%d/%m"))
-    if len(ds_ngay)<60: return f"⚠️ Hiện có {len(ds_ngay)} ngày dữ liệu, cần đủ ít nhất 60 ngày để tính chính xác!"
+    if len(ds_ngay)<60: return f"⚠️ Hiện có {len(ds_ngay)} ngày dữ liệu, cần đủ ít nhất 60 ngày!"
     
     vi_tri = ds_ngay.index(ngay_can_doi)
     khung_60 = ds_ngay[vi_tri-60:vi_tri]
@@ -72,37 +76,39 @@ def tinh_top3_tat_ca_giai(ngay_can_doi):
     ketqua_danh_sach = []
     for duoi, chi_tiet in thongke.items():
         so_lan = len(chi_tiet["ngay_xuat"])
-        if so_lan < 3: continue
+        if so_lan < 4: continue
         khoang_cach = [chi_tiet["ngay_xuat"][i+1]-chi_tiet["ngay_xuat"][i] for i in range(so_lan-1)]
         tb_khoang = sum(khoang_cach)/len(khoang_cach) if khoang_cach else 99
-        diem_deu = max(0, 40 - sum(abs(x-tb_khoang) for x in khoang_cach)/len(khoang_cach)) if khoang_cach else 0
+        do_lech_tb = sum(abs(x-tb_khoang) for x in khoang_cach)/len(khoang_cach)
+        diem_deu = max(0, 45 - do_lech_tb)
         ngay_da_nghi = len(khung_60)-1 - chi_tiet["ngay_xuat"][-1]
-        diem_nghi = 30 if 5 <= ngay_da_nghi <= 12 else max(0, 25 - abs(ngay_da_nghi - 8))
+        if 5 <= ngay_da_nghi <= 12: diem_nghi = 25
+        elif 3 <= ngay_da_nghi <=15: diem_nghi=15
+        else: diem_nghi = max(0, 8 - abs(ngay_da_nghi -8))
         lan_gan = sum(1 for vt in chi_tiet["ngay_xuat"] if vt >= len(khung_60)-15)
-        diem_gan = lan_gan *5
-        tong_diem_cuoi = round(chi_tiet["diem"]*7 + diem_deu + diem_nghi + diem_gan)
-        ketqua_danh_sach.append( (duoi, tong_diem_cuoi, round(tb_khoang), list(set(chi_tiet["nguon_giai"]))) )
+        diem_gan = lan_gan *6
+        tong_diem_cuoi = round(chi_tiet["diem"]*8 + diem_deu + diem_nghi + diem_gan)
+        ketqua_danh_sach.append( (duoi, tong_diem_cuoi, round(tb_khoang), list(set(chi_tiet["nguon_giai"])), so_lan) )
 
-    sap_xep_cao_xuong = sorted(ketqua_danh_sach, key=lambda x:x[1], reverse=True)[:3]
+    sap_xep_cao_xuong = sorted(ketqua_danh_sach, key=lambda x: (-x[1], -x[4]))[:3]
     nd = datetime.strptime(ngay_can_doi,"%d/%m")
     ngaysau = nd.replace(day=nd.day+1).strftime("%d/%m")
 
-    noi_dung = f"🔮 TOP 3 ĐUÔI CÓ XÁC SUẤT CAO NHẤT NGÀY {ngaysau}\n✅ Phân tích chung TẤT CẢ các giải, ưu tiên Giải Đặc biệt cao nhất\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    for stt,(duoi,diem,tb,nguon) in enumerate(sap_xep_cao_xuong,1):
-        noi_dung += f"🥇{stt}. Đuôi: {duoi} | Tổng điểm: {diem}/100\n👉 Trung bình lặp mỗi {tb} ngày; chủ yếu từ: {', '.join(nguon)}\n\n"
+    noi_dung = f"🔮 TOP 3 ĐUÔI ƯU TIÊN NGÀY {ngaysau}\n✅ Ưu tiên: Chu kỳ đều đặn > xuất hiện nhiều gần đây > khoảng nghỉ phổ biến\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    for stt,(duoi,diem,tb,nguon,sl) in enumerate(sap_xep_cao_xuong,1):
+        noi_dung += f"🥇{stt}. Đuôi: {duoi} | Tổng điểm: {diem}/100 | Xuất hiện: {sl} lần\n👉 Chu kỳ trung bình lặp: mỗi {tb} ngày; chủ yếu từ: {', '.join(nguon)}\n\n"
     return noi_dung if sap_xep_cao_xuong else "⚠️ Cần thêm vài ngày dữ liệu nữa để đủ quy luật!"
 
-# === LỆNH KIỂM TRA HOẠT ĐỘNG NGAY LẬP TỨC ===
+# === LỆNH KIỂM TRA HOẠT ĐỘNG ===
 @bot.message_handler(commands=['kiemtra','start'])
 def kiemtra(msg):
-    bot.send_message(msg.chat.id, "✅ Bot XSMB đang HOẠT ĐỘNG! 🟢\n📸 Gửi ảnh kết quả hoặc /kiemtra đều trả lời được rồi nhé!")
+    bot.send_message(msg.chat.id, "✅ Bot XSMB đang HOẠT ĐỘNG ỔN ĐỊNH! 🟢\n📸 Sẵn sàng nhận ảnh kết quả & phân tích nâng cấp!")
 
-# === NHẬN ẢNH & XỬ LÝ ===
+# === NHẬN ẢNH CHỈ TRẢ LỜI CHO BẠN ===
 @bot.message_handler(content_types=['photo'])
 def xu_ly_anh(msg):
-    # Chỉ xử lý đúng Chat ID của bạn an toàn
     if msg.chat.id != CHAT_ID: return
-    bot.reply_to(msg,"🔍 Đang đọc ảnh, lưu số đủ & phân tích...")
+    bot.reply_to(msg,"🔍 Đang đọc ảnh, lưu đủ số & phân tích cải tiến...")
     info = msg.photo[-1]
     file_info = bot.get_file(info.file_id)
     url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
@@ -115,9 +121,11 @@ def xu_ly_anh(msg):
         ngay = tim_ngay.group(1)
         du_lieu_ngay = {"DB":"", "G1":"", "G2":["",""], "G3":["","","","","",""], "G4":["","","",""], "G5":["","","","","",""], "G6":["","",""], "G7":["","","",""]}
         so_con = luu_dulieu_va_giu_60ngay(ngay, du_lieu_ngay)
-        bot.reply_to(msg,f"✅ Đã lưu thành công ngày {ngay}\n📦 Đang giữ {so_con} ngày mới nhất\n\n{tinh_top3_tat_ca_giai(ngay)}")
-    except Exception as e: bot.reply_to(msg,f"❌ Lỗi: {str(e)}")
+        bot.reply_to(msg,f"✅ Đã lưu thành công ngày {ngay}\n📦 Đang giữ {so_con} ngày mới nhất liên tục\n\n{tinh_top3_tat_ca_giai(ngay)}")
+    except Exception as e: bot.reply_to(msg,f"❌ Xảy ra lỗi: {str(e)}")
 
+# === CHẠY CÙNG LÚC ỔN ĐỊNH: Đọc đúng cổng hệ thống cấp, không ghi cố định gây chặn ===
 if __name__=="__main__":
-    Thread(target=chay_web, daemon=True).start()
+    Thread(target=chay_web, daemon=True).start() # Luồng giữ sống đúng quy tắc Render trước
+    print("🚀 Bot Telegram đã khởi động lắng nghe tin nhắn...")
     bot.polling(none_stop=True, interval=3, timeout=180, long_polling_timeout=180)

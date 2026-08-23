@@ -15,7 +15,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def giu_song():
-    return "✅ Hệ thống Bot Đa Năng XSMB & UPCoM Stock đang chạy ổn định!"
+    return "✅ Hệ thống Bot Đa Năng XSMB & UPCoM Stock đang hoạt động ổn định trên Render!"
 
 # --- CẤU HÌNH TÀI KHOẢN BOT TELEGRAM ---
 BOT_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns"
@@ -26,7 +26,7 @@ API_XSMB_GITH = "https://githubusercontent.com"
 
 def tao_session_ong_dinh():
     session = requests.Session()
-    # Tự động thử lại 3 lần nếu kết nối mạng bị chập chờn
+    # Tự động thử lại 3 lần nếu kết nối mạng bị chập chờn (Đã vá lỗi status_forcelist)
     retry = Retry(total=3, connect=3, read=3, backoff_factor=0.3, status_forcelist=[500, 502, 503, 504])
     adapter = HTTPAdapter(max_retries=retry)
     session.mount('http://', adapter)
@@ -85,7 +85,7 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
     except Exception as e:
         print(f"⚠️ Nguồn GitHub lỗi, chuyển sang cấu trúc lớp 2 cào HTML: {e}")
 
-    # LỚP 2: Cơ chế dự phòng cào HTML cấu trúc bằng BeautifulSoup (Đã vá lỗi cú pháp list.strip)
+    # LỚP 2: Cơ chế dự phòng cào HTML cấu trúc bằng BeautifulSoup
     if so_ngay_quet_thanh_cong < 15:
         try:
             loai_nguon = "XOSOME_HTML"
@@ -132,7 +132,7 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
             f"📋 **Danh sách Top 20 số chuẩn:**\n`{chuoi_top20}`"
         )
     else:
-        return f"❌ Trục trặc hệ thống mạng: Các máy chủ dữ liệu đều chặn IP từ nước ngoài. Vui lòng gửi lại ngày sau vài phút!"
+        return f"❌ Trục trặc hệ thống mạng: Các máy chủ cung cấp dữ liệu đều trả về trang trống hoặc chặn IP. Vui lòng gửi lại ngày sau vài phút!"
 
 # --- [PHẦN 2] TRÍCH XUẤT VÀ PHÂN TÍCH CỔ PHIẾU SÀN UPCOM ---
 def xu_ly_co_phieu_upcom(ma_ck):
@@ -143,7 +143,7 @@ def xu_ly_co_phieu_upcom(ma_ck):
             "Accept": "application/json"
         }
         
-        # Sử dụng API tổng hợp sàn UPCoM chính thống từ iBoard SSI
+        # Gọi trực tiếp API iBoard SSI toàn diện sàn UPCoM
         api_ssi = "https://ssi.com.vn"
         res = session.get(api_ssi, headers=headers, timeout=15)
         
@@ -154,9 +154,9 @@ def xu_ly_co_phieu_upcom(ma_ck):
         if res.status_code == 200:
             danh_sach_cp = res.json().get('data', [])
             for cp in danh_sach_cp:
-                if cp.get('ss') == ma_ck:
+                if cp.get('ss') == ma_ck: 
                     tim_thay = True
-                    gia_raw = cp.get('l', cp.get('o', 0))
+                    gia_raw = cp.get('l', cp.get('o', 0)) 
                     if isinstance(gia_raw, (int, float)) and gia_raw > 0:
                         gia_hien_tai = str(gia_raw)
                     else:
@@ -202,7 +202,6 @@ def xu_ly_tin_nhan_tong_hop(msg):
             
     if ngay_hop_le:
         bot.reply_to(msg, f"🔄 Nhận lệnh XSMB! Đang kích hoạt cơ chế đồng bộ dự phòng 2 lớp để quét tự động 60 ngày dữ liệu lùi về từ `{ngay_hop_le.strftime('%d/%m/%Y')}`...")
-        # SỬA TÊN HÀM ĐIỀU PHỐI CHUẨN XÁC:
         thong_bao_kq = xu_ly_xsmb_tu_dong(ngay_hop_le)
         bot.send_message(msg.chat.id, thong_bao_kq, parse_mode="Markdown")
         return
@@ -224,9 +223,10 @@ def xu_ly_tin_nhan_tong_hop(msg):
             time.sleep(1)
         return
 
-    # 3. TIN NHẮN SAI ĐỊNH DẠNG -> MENU HƯỚNG DẪN CÚ PHÁP
+    # 3. TIN NHẮN SAI ĐỊNH DẠNG -> TRẢ VỀ MENU HƯỚNG DẪN CÚ PHÁP
     huong_dan = (
         f"📝 **MENU ĐIỀU KHIỂN BOT ĐA NĂNG TỰ ĐỘNG** 📝\n\n"
         f"🔢 **1. Phân tích kết quả XSMB (Tự động quét lùi 60 ngày):**\n"
         f"Gửi thẳng nội dung tin nhắn ngày tháng cần xem.\n"
         f"👉 Ví dụ: `22 08 2026` hoặc `22/08/2026`\n\n"
+        f"📈 **2. Tra cứu & Phân tích cổ phiếu sàn UPCoM:**\n"

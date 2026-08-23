@@ -15,7 +15,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def giu_song():
-    return "✅ Hệ thống Bot Đa Năng XSMB & UPCoM Stock đang hoạt động ổn định trên Render!"
+    return "✅ Hệ thống Bot Đa Năng XSMB & UPCoM Stock đang chạy ổn định!"
 
 # --- CẤU HÌNH TÀI KHOẢN BOT TELEGRAM ---
 BOT_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns"
@@ -85,7 +85,7 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
     except Exception as e:
         print(f"⚠️ Nguồn GitHub lỗi, chuyển sang cấu trúc lớp 2 cào HTML: {e}")
 
-    # LỚP 2: Cơ chế dự phòng cào HTML cấu trúc bằng BeautifulSoup
+    # LỚP 2: Cơ chế dự phòng cào HTML cấu trúc bằng BeautifulSoup (Đã vá lỗi cú pháp list.strip)
     if so_ngay_quet_thanh_cong < 15:
         try:
             loai_nguon = "XOSOME_HTML"
@@ -132,7 +132,7 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
             f"📋 **Danh sách Top 20 số chuẩn:**\n`{chuoi_top20}`"
         )
     else:
-        return f"❌ Trục trặc hệ thống mạng: Các máy chủ cung cấp dữ liệu đều trả về trang trống hoặc chặn IP. Vui lòng gửi lại ngày sau vài phút!"
+        return f"❌ Trục trặc hệ thống mạng: Các máy chủ dữ liệu đều chặn IP từ nước ngoài. Vui lòng gửi lại ngày sau vài phút!"
 
 # --- [PHẦN 2] TRÍCH XUẤT VÀ PHÂN TÍCH CỔ PHIẾU SÀN UPCOM ---
 def xu_ly_co_phieu_upcom(ma_ck):
@@ -143,6 +143,7 @@ def xu_ly_co_phieu_upcom(ma_ck):
             "Accept": "application/json"
         }
         
+        # Sử dụng API tổng hợp sàn UPCoM chính thống từ iBoard SSI
         api_ssi = "https://ssi.com.vn"
         res = session.get(api_ssi, headers=headers, timeout=15)
         
@@ -201,7 +202,7 @@ def xu_ly_tin_nhan_tong_hop(msg):
             
     if ngay_hop_le:
         bot.reply_to(msg, f"🔄 Nhận lệnh XSMB! Đang kích hoạt cơ chế đồng bộ dự phòng 2 lớp để quét tự động 60 ngày dữ liệu lùi về từ `{ngay_hop_le.strftime('%d/%m/%Y')}`...")
-        # SỬA LỖI ĐIỀU PHỐI: Gọi chính xác hàm xử lý XSMB hiện có
+        # SỬA TÊN HÀM ĐIỀU PHỐI CHUẨN XÁC:
         thong_bao_kq = xu_ly_xsmb_tu_dong(ngay_hop_le)
         bot.send_message(msg.chat.id, thong_bao_kq, parse_mode="Markdown")
         return
@@ -229,4 +230,3 @@ def xu_ly_tin_nhan_tong_hop(msg):
         f"🔢 **1. Phân tích kết quả XSMB (Tự động quét lùi 60 ngày):**\n"
         f"Gửi thẳng nội dung tin nhắn ngày tháng cần xem.\n"
         f"👉 Ví dụ: `22 08 2026` hoặc `22/08/2026`\n\n"
-        f"📈 **2. Tra cứu & Phân tích cổ phiếu sàn UPCoM:**\n"

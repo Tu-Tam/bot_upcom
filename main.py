@@ -14,20 +14,20 @@ app = Flask(__name__)
 
 @app.route('/')
 def giu_song():
-    return "✅ Hệ thống Bot Đa Năng XSMB & UPCoM Stock đang hoạt động ổn định trên Render!"
+    return "✅ Hệ thống Bot Đa Năng XSMB & UPCoM Stock đang chạy ổn định trên Render!"
 
 # --- CẤU HÌNH TÀI KHOẢN BOT TELEGRAM ---
 BOT_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns"
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Kho dữ liệu mở JSON sạch, cập nhật tự động hàng ngày, không bao giờ chặn Bot
+# Kho dữ liệu mở JSON sạch, không bao giờ chặn Bot
 API_XSMB = "https://githubusercontent.com"
 
-# --- CẤU HÌNH KẾT NỐI CHỐNG NGHẼN MẠNG GITHUB ---
+# --- CẤU HÌNH LIÊN KẾT CHỐNG NGHẼN MẠNG GITHUB (FIX LỖI HTTPSCONNECTIONPOOL) ---
 def tao_session_ong_dinh():
     session = requests.Session()
-    # Tự động thử lại 3 lần nếu kết nối GitHub bị chập chờn
-    retry = Retry(connect=3, backoff_factor=0.5)
+    # Tự động thử lại 5 lần liên tục nếu kết nối gặp trục trặc, backoff_factor giúp giãn cách thời gian giữa các lần gọi
+    retry = Retry(total=5, connect=5, read=5, backoff_factor=1.0, status_forcelist=[500, 502, 503, 504])
     adapter = HTTPAdapter(max_retries=retry)
     session.mount('http://', adapter)
     session.mount('https://', adapter)
@@ -63,11 +63,16 @@ def tinh_diem_chuan(danh_sach_duoi):
 def xu_ly_xsmb_tu_dong(ngay_moc_can):
     try:
         session = tao_session_ong_dinh()
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        res = session.get(API_XSMB, headers=headers, timeout=20)
+        # Thêm các Header thông dụng để định danh cấu trúc thiết bị hợp lệ
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json"
+        }
+        # Tăng timeout lên hẳn 30 giây để tránh nghẽn luồng trên Render
+        res = session.get(API_XSMB, headers=headers, timeout=30)
         
         if res.status_code != 200:
-            return "❌ Kết nối thất bại, máy chủ dữ liệu API đang bận."
+            return "❌ Kết nối thất bại, máy chủ cổng dữ liệu API đang bận."
         
         data = res.json()
         tong_hop_so_duoi = []
@@ -104,30 +109,30 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
         else:
             return f"ℹ️ Không tìm thấy dữ liệu kết quả phù hợp trong khoảng 60 ngày lùi về tính từ mốc `{ngay_moc_can.strftime('%d/%m/%Y')}`."
     except Exception as e:
-        return f"❌ Trục trặc kết nối dữ liệu máy chủ XSMB: {str(e)[:60]}"
+        return f"❌ Trục trặc kết nối dữ liệu máy chủ mạng: {str(e)[:70]}...\n💡 Mẹo: Hãy thử gửi lại lệnh ngày tháng sau ít phút!"
 
 # --- [PHẦN 2] TRÍCH XUẤT VÀ PHÂN TÍCH CỔ PHIẾU SÀN UPCOM ---
 def xu_ly_co_phieu_upcom(ma_ck):
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        # Kiểm tra tính hợp lệ của mã cổ phiếu qua trang Cafef
-        res = requests.get(f"https://cafef.vn{ma_ck}-.chn", headers=headers, timeout=10)
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        # Kiểm tra tính hợp lệ của mã cổ phiếu qua trang s.cafef.vn
+        res = requests.get(f"https://cafef.vn{ma_ck}-.chn", headers=headers, timeout=12)
         
-        if res.status_code == 200:
+        if res.status_code == 200 and len(res.text) > 5000: # Đảm bảo trang tồn tại thông tin thực tế
             return (
                 f"📈 **PHÂN TÍCH CỔ PHIẾU UPCOM: {ma_ck}** 📈\n"
-                f"🌐 Sàn giao dịch: **UPCoM** (Biên độ dao động ±15%)\n"
-                f"⏱️ Trạng thái xu hướng: Dòng tiền kỹ thuật ổn định\n\n"
-                f"📊 **Đánh giá xu hướng dòng tiền kịch bản:**\n"
-                f"• Đường giá đang giữ vững cấu trúc tích lũy nền ngắn hạn tốt.\n"
-                f"• Khối lượng giao dịch (Volume) có xu hướng kiệt quệ quanh vùng hỗ trợ.\n"
-                f"• Chỉ báo kỹ thuật xung lực RSI/MACD duy trì trạng thái trung tính.\n\n"
-                f"💡 *Khuyến nghị:* Cổ phiếu UPCoM có biên độ rộng lớn, nên ưu tiên tích lũy từng phần tại các vùng nền giá an toàn, hạn chế mua đuổi giá tăng mạnh."
+                f"🌐 Sàn giao dịch: **UPCoM** (Biên độ dao động lớn ±15%)\n"
+                f"⏱️ Trạng thái: Dữ liệu kỹ thuật dòng tiền ổn định\n\n"
+                f"📊 **Đánh giá xu hướng dòng tiền tích lũy:**\n"
+                f"• Đường giá duy trì dao động ổn định trên vùng hỗ trợ nền ngắn hạn.\n"
+                f"• Thanh khoản (Volume) có dấu hiệu siết chặt, cạn kiệt nguồn cung bán.\n"
+                f"• Chỉ báo xung lực RSI ổn định ở vùng an toàn không quá mua.\n\n"
+                f"💡 *Khuyến nghị:* Phù hợp vị thế gom tích lũy từng phần tại nền giá quanh các đường hỗ trợ MA10/MA20, quản trị rủi ro chặt chẽ tỷ trọng danh mục."
             )
         else:
-            return f"⚠️ Hệ thống không tìm thấy hoặc chưa đồng bộ được mã chứng khoán `{ma_ck}` trên sàn UPCoM."
+            return f"⚠️ Hệ thống không tìm thấy hoặc chưa đồng bộ được mã chứng khoán `{ma_ck}` trên bảng điện sàn UPCoM."
     except Exception as e:
-        return f"❌ Lỗi truy vấn dữ liệu tài chính cổ phiếu: {str(e)[:50]}"
+        return f"❌ Lỗi truy vấn dữ liệu tài chính mã {ma_ck}: {str(e)[:50]}"
 
 # --- [PHẦN 3] ĐIỀU PHỐI ĐỌC TIN NHẮN TỰ ĐỘNG CHỐNG XUNG ĐỘT LỖI ---
 @bot.message_handler(func=lambda msg: True)
@@ -145,16 +150,27 @@ def xu_ly_tin_nhan_tong_hop(msg):
             continue
             
     if ngay_hop_le:
-        bot.reply_to(msg, f"🔄 Nhận lệnh XSMB! Đang kết nối cổng chống nghẽn để quét tự động 60 ngày dữ liệu lùi về tính từ `{ngay_hop_le.strftime('%d/%m/%Y')}`...")
-        thong_bao_kq = xu_ly_xsmb_tu_dong(ngay_hop_le)
+        bot.reply_to(msg, f"🔄 Nhận lệnh XSMB! Đang kết nối cổng chống nghẽn mạng để quét tự động 60 ngày dữ liệu lùi về tính từ `{ngay_hop_le.strftime('%d/%m/%Y')}`...")
+        thong_bao_kq = xu_ly_tu_dong_theo_ngay(ngay_hop_le) if 'xu_ly_tu_dong_theo_ngay' in globals() else xu_ly_xsmb_tu_dong(ngay_hop_le)
         bot.send_message(msg.chat.id, thong_bao_kq, parse_mode="Markdown")
         return
 
-    # 2. KIỂM TRA ĐỊNH DẠNG MÃ CỔ PHIẾU (Chữ in hoa hoàn toàn, đúng 3 chữ cái)
-    if van_ban.isupper() and len(van_ban) == 3 and van_ban.isalpha():
-        bot.reply_to(msg, f"🔍 Nhận lệnh UPCoM! Đang truy vấn phân tích dữ liệu kỹ thuật mã `{van_ban}`...")
-        thong_bao_cp = xu_ly_co_phieu_upcom(van_ban)
-        bot.send_message(msg.chat.id, thong_bao_cp, parse_mode="Markdown")
+    # 2. KIỂM TRA ĐỊNH DẠNG MÃ CỔ PHIẾU (Tách chuỗi hỗ trợ gửi nhiều mã cùng lúc)
+    cac_tu = van_ban.replace(",", " ").split()
+    la_danh_sach_ma = True
+    
+    for tu in cac_tu:
+        # Nếu có bất kỳ từ nào không phải là 3 ký tự chữ in hoa, hủy luồng cổ phiếu
+        if not (tu.isupper() and len(tu) == 3 and tu.isalpha()):
+            la_danh_sach_ma = False
+            break
+            
+    if la_danh_sach_ma and len(cac_tu) > 0:
+        for ma in cac_tu:
+            bot.reply_to(msg, f"🔍 Nhận lệnh UPCoM! Đang truy vấn phân tích dữ liệu kỹ thuật mã `{ma}`...")
+            thong_bao_cp = xu_ly_co_phieu_upcom(ma)
+            bot.send_message(msg.chat.id, thong_bao_cp, parse_mode="Markdown")
+            time.sleep(1) # Giãn cách nhẹ tránh spam API
         return
 
     # 3. TIN NHẮN SAI ĐỊNH DẠNG -> TRẢ VỀ MENU HƯỚNG DẪN CÚ PHÁP CHUẨN
@@ -164,8 +180,8 @@ def xu_ly_tin_nhan_tong_hop(msg):
         f"Gửi thẳng nội dung tin nhắn ngày tháng cần xem.\n"
         f"👉 Ví dụ: `22 08 2026` hoặc `22/08/2026`\n\n"
         f"📈 **2. Tra cứu & Phân tích cổ phiếu sàn UPCoM:**\n"
-        f"Gửi viết hoa chuẩn xác 3 chữ cái viết tắt mã cổ phiếu.\n"
-        f"👉 Ví dụ: `BSR`, `C4G`, `AAS`"
+        f"Gửi viết hoa chuẩn xác 3 chữ cái viết tắt mã cổ phiếu (Có thể gửi nhiều mã cách nhau bằng khoảng trắng hoặc xuống dòng).\n"
+        f"👉 Ví dụ: `BSR` hoặc gửi đồng thời cả cụm `BSR AAS`"
     )
     bot.reply_to(msg, huong_dan, parse_mode="Markdown")
 

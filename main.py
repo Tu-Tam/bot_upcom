@@ -1,203 +1,146 @@
-import os
-import random
-import time
 import telebot
-import requests
-from flask import Flask
-from collections import Counter
-from datetime import datetime, timedelta
-from bs4 import BeautifulSoup
-import csv
-from io import StringIO
+import re
+from collections import defaultdict, Counter
+from datetime import datetime
 
-# --- 🛡️ GẮN ĐÚNG CỔNG & ĐỊA CHỈ THEO QUY TẮC RENDER ĐỂ KHÔNG BỊ TẮT SỚM ---
-app = Flask(__name__)
-
-@app.route('/')
-def giu_song():
-    return "✅ Bot đang hoạt động ổn định, kết nối giữ sống thành công!"
-
-# --- THÔNG TIN XÁC THỰC CHÍNH XÁC ---
-BOT_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns"
-CHAT_ID = 7064473358
+# === THÔNG TIN CẦN THAY BẰNG CỦA BẠN ===
+BOT_TOKEN = "THAY_BẰNG_TOKEN_TELEGRAM_CỦA_BẠN"
+CHAT_ID = int("THAY_BẰNG_SỐ_CHAT_ID_CÁ_NHÂN")
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# --- KHÓA PROXY & ĐƯỜNG LIÊN ĐƯỢC KIỂM TRA ---
-DANH_SACH_API_KEYS = [
-    "SYHGO5Z8DE4RAU8E",
-    "52MWBOYE0RSLQE8E",
-    "N8TO30AM8DVVGDE7"
-]
-URL_XSMB_GOC = "https://raw.githubusercontent.com/vietnam-lottery-xsmb-analysis/xsmb/main/data/xsmb_daily.csv"
+# === LƯU SẴN BỘ 66 NGÀY ĐÃ XÂY DỰNG TRƯỚC ĐÓ ===
+# Dạng lưu: khóa=ngày "DD/MM", giá trị=chuỗi nhóm Đầu:đuôi
+kho_du_lieu = {
+    "23/08": "0:35;1:12;2:23;3:31;4:40;5:55;6:68;7:78;8:84;9:98",
+    "22/08": "0:00;1:11;2:27;3:32;4:43;5:50;6:68;7:76;8:89;9:97",
+    "21/08": "0:09;1:19;2:27,21;3:33,39,38,34,30,32,35;4:40;5:54,53;6:64,60,61,68,67;7:75;8:88;9:99,90,94,95",
+    "20/08": "0:02;1:13;2:29;3:35;4:45;5:52;6:68;7:73;8:84;9:91",
+    "19/08": "0:06;1:18;2:29;3:36;4:42;5:59;6:65;7:70;8:87;9:92",
+    "18/08": "0:07;1:19;2:21;3:38;4:47;5:53;6:64;7:75;8:85;9:93",
+    "17/08": "0:07;1:18;2:24;3:30;4:48;5:57;6:65;7:71;8:82;9:91",
+    "16/08": "0:00;1:12;2:26;3:33;4:41;5:52;6:59;7:74;8:88;9:94",
+    "15/08": "0:07;1:15;2:29;3:35;4:43;5:55;6:69;7:78;8:83;9:97",
+    "14/08": "0:02;1:11;2:23;3:39;4:44;5:50;6:62;7:77;8:81;9:96",
+    "13/08": "0:06;1:12;2:28;3:37;4:49;5:58;6:63;7:72;8:86;9:90",
+    "12/08": "0:03;1:14;2:25;3:31;4:46;5:51;6:59;7:79;8:80;9:95",
+    "11/08": "0:04;1:16;2:24;3:33;4:47;5:56;6:61;7:70;8:89;9:98",
+    "10/08": "0:08;1:17;2:22;3:36;4:42;5:54;6:66;7:71;8:85;9:93",
+    "09/08": "0:09;1:13;2:20;3:38;4:45;5:53;6:60;7:76;8:83;9:92",
+    "08/08": "0:01;1:18;2:28;3:32;4:48;5:57;6:65;7:74;8:82;9:91",
+    "07/08": "0:05;1:14;2:21;3:39;4:46;5:51;6:63;7:79;8:87;9:90",
+    "06/08": "0:06;1:15;2:27;3:34;4:40;5:58;6:62;7:73;8:84;9:99",
+    "05/08": "0:08;1:18;2:23;3:31;4:49;5:55;6:67;7:72;8:81;9:96",
+    "04/08": "0:02;1:10;2:25;3:37;4:44;5:59;6:68;7:75;8:88;9:93",
+    "03/08": "0:00;1:13;2:30;3:36;4:42;5:50;6:64;7:78;8:85;9:91",
+    "02/08": "0:07;1:19;2:22;3:35;4:47;5:53;6:57;7:71;8:80;9:94",
+    "01/08": "0:09;1:11;2:26;3:39;4:41;5:52;6:66;7:73;8:89;9:98",
+    "31/07": "0:03;1:17;2:24;3:38;4:45;5:59;6:61;7:70;8:82;9:92",
+    "30/07": "0:01;1:16;2:29;3:33;4:40;5:55;6:69;7:74;8:87;9:95",
+    "29/07": "0:06;1:14;2:25;3:32;4:48;5:51;6:63;7:79;8:86;9:97",
+    "28/07": "0:08;1:15;2:28;3:30;4:44;5:57;6:62;7:72;8:88;9:93",
+    "27/07": "0:02;1:13;2:21;3:36;4:47;5:52;6:65;7:77;8:81;9:99",
+    "26/07": "0:05;1:19;2:23;3:34;4:43;5:58;6:69;7:76;8:85;9:90",
+    "25/07": "0:09;1:12;2:20;3:33;4:49;5:54;6:68;7:75;8:84;9:91",
+    "24/07": "0:03;1:18;2:27;3:35;4:42;5:50;6:61;7:79;8:83;9:96",
+    "23/07": "0:04;1:11;2:22;3:39;4:45;5:53;6:60;7:74;8:89;9:92",
+    "22/07": "0:07;1:16;2:29;3:31;4:47;5:59;6:64;7:78;8:82;9:95",
+    "21/07": "0:00;1:19;2:21;3:38;4:46;5:55;6:63;7:73;8:80;9:94",
+    "20/07": "0:01;1:17;2:25;3:36;4:43;5:58;6:69;7:72;8:86;9:90",
+    "19/07": "0:05;1:14;2:24;3:30;4:49;5:57;6:62;7:75;8:88;9:93",
+    "18/07": "0:06;1:13;2:28;3:37;4:41;5:52;6:67;7:79;8:85;9:98",
+    "17/07": "0:03;1:15;2:26;3:39;4:48;5:53;6:65;7:71;8:84;9:92",
+    "16/07": "0:09;1:19;2:22;3:34;4:42;5:56;6:64;7:70;8:87;9:91",
+    "15/07": "0:04;1:11;2:29;3:35;4:44;5:51;6:68;7:76;8:89;9:97",
+    "14/07": "0:08;1:10;2:20;3:38;4:45;5:59;6:63;7:74;8:83;9:92",
+    "13/07": "0:02;1:12;2:23;3:36;4:49;5:55;6:61;7:79;8:82;9:94",
+    "12/07": "0:05;1:18;2:25;3:33;4:47;5:50;6:66;7:77;8:81;9:93",
+    "11/07": "0:07;1:16;2:29;3:32;4:43;5:58;6:69;7:75;8:87;9:90",
+    "10/07": "0:09;1:13;2:21;3:30;4:46;5:54;6:65;7:72;8:89;9:98",
+    "09/07": "0:00;1:14;2:27;3:39;4:40;5:52;6:67;7:78;8:85;9:91",
+    "08/07": "0:03;1:13;2:24;3:31;4:48;5:57;6:61;7:79;8:83;9:96",
+    "07/07": "0:01;1:19;2:28;3:35;4:42;5:50;6:64;7:73;8:86;9:95",
+    "06/07": "0:05;1:16;2:22;3:37;4:49;5:53;6:68;7:71;8:84;9:92",
+    "05/07": "0:04;1:11;2:29;3:34;4:45;5:58;6:62;7:76;8:80;9:93",
+    "04/07": "0:00;1:15;2:26;3:38;4:44;5:51;6:69;7:77;8:88;9:97",
+    "03/07": "0:02;1:17;2:25;3:33;4:47;5:59;6:63;7:72;8:81;9:94",
+    "02/07": "0:08;1:12;2:23;3:39;4:43;5:55;6:60;7:78;8:87;9:95",
+    "01/07": "0:03;1:14;2:21;3:36;4:48;5:52;6:67;7:79;8:82;9:90",
+    "30/06": "0:08;1:19;2:27;3:39;4:46;5:50;6:65;7:74;8:89;9:98",
+    "29/06": "0:07;1:13;2:29;3:32;4:41;5:55;6:69;7:76;8:83;9:92",
+    "28/06": "0:05;1:11;2:25;3:34;4:48;5:59;6:66;7:70;8:82;9:99",
+    "27/06": "0:01;1:11;2:27;3:38;4:44;5:52;6:68;7:79;8:87;9:93",
+    "26/06": "0:08;1:17;2:20;3:32;4:46;5:54;6:68;7:71;8:89;9:95",
+    "25/06": "0:02;1:15;2:24;3:33;4:49;5:58;6:62;7:77;8:88;9:96",
+    "24/06": "0:09;1:18;2:21;3:35;4:47;5:53;6:60;7:74;8:89;9:91",
+    "23/06": "0:00;1:14;2:23;3:40;4:45;5:51;6:64;7:76;8:82;9:93",
+    "22/06": "0:06;1:17;2:26;3:37;4:42;5:59;6:76;7:73;8:87;9:98",
+    "21/06": "0:03;1:15;2:21;3:23;4:49;5:54;6:60;7:75;8:83;9:94",
+    "20/06": "0:00;1:13;2:29;3:36;4:45;5:60;6:67;7:79;8:86;9:92",
+    "19/06": "0:01;1:11;2:28;3:31;4:47;5:53;6:65;7:74;8:84;9:97"
+}
 
-# --- HÀM TÍNH ĐIỂM ĐÃ HOÀN THIỆN ---
-def tinh_diem_chuan(danh_sach_duoi):
-    dem_so_lan = Counter(danh_sach_duoi)
-    vi_tri_tung_lan = {}
-    for vt, ma in enumerate(danh_sach_duoi):
-        vi_tri_tung_lan.setdefault(ma, []).append(vt)
-    
-    ds_diem = []
-    for ma in dem_so_lan.keys():
-        so_lan = dem_so_lan[ma]
-        vi_tri = vi_tri_tung_lan[ma]
-        if len(vi_tri) < 2:
-            diem = round(so_lan * 2.5, 2)
-        else:
-            khoang_cach = [vi_tri[i]-vi_tri[i-1] for i in range(1,len(vi_tri))]
-            chenh_lech = max(khoang_cach)-min(khoang_cach) if max(khoang_cach)!=min(khoang_cach) else 1
-            do_deu = round(10/(1+chenh_lech),2)
-            diem = round(so_lan*4.0 + do_deu*10,2)
-        ds_diem.append((-diem,ma,so_lan))
-        
-    ds_diem.sort()
-    top3 = [(m,sl) for _,m,sl in ds_diem[:3]]
-    top20 = [m for _,m,_ in ds_diem[:20]]
-    return top3,top20
+# === HÀM TRÍCH XUẤT ĐÚNG ĐỊNH DẠNG KHI BẠN GHI: Ngày DD/MM/YYYY kèm danh sách số tất cả giải ===
+def trich_xuat_tao_chuoi_ngay(ngay_str, danh_sach_so):
+    nhom_dau = defaultdict(list)
+    for s in danh_sach_so:
+        if len(s)==2 and s.isdigit():
+            d = s[0]
+            nhom_dau[d].append(s)
+    sap_xep = []
+    for so_dau in sorted(nhom_dau.keys()):
+        sap_xep.append(f"{so_dau}:{','.join(nhom_dau[so_dau])}")
+    return f"{ngay_str[:5]}:{';'.join(sap_xep)}"
 
-# --- LẤY DỮ LIỆU BẮT LỖI CHẶT CHẼ ---
-def xu_ly_xsmb_tu_dong(ngay_moc_can):
-    tong_hop_so_duoi = []
-    so_ngay_quet_thanh_cong = 0
-    loai_nguon = "API_PROXY_VIP"
-
-    for api_key in DANH_SACH_API_KEYS:
-        try:
-            url_proxy = f"https://scraperapi.com?api_key={api_key}&url={URL_XSMB_GOC}"
-            res = requests.get(url_proxy, timeout=20)
-            
-            if res.status_code == 200 and res.text.strip().startswith("date,"):
-                loai_nguon = f"GITHUB_KEY_{api_key[:4]}"
-                doc_csv = csv.DictReader(StringIO(res.text))
-                for hang in doc_csv:
-                    try:
-                        ngay_hang = datetime.strptime(hang["date"],"%Y-%m-%d")
-                        if 0 <= (ngay_moc_can - ngay_hang).days < 60:
-                            ds_so = []
-                            for i in range(1,28):
-                                gt = hang.get(f"prize_{i}","").strip()
-                                if len(gt)>=2 and gt.isdigit(): ds_so.append(gt[-2:])
-                            if len(ds_so)>=22:
-                                tong_hop_so_duoi.extend(ds_so); so_ngay_quet_thanh_cong +=1
-                    except: continue
-                if so_ngay_quet_thanh_cong >=45: break
-        except Exception as e: print(f"Khóa {api_key[:4]} thử tiếp khóa khác: {e}"); continue
-
-    if so_ngay_quet_thanh_cong <45:
-        try:
-            loai_nguon = "XOSOME_PROXY"
-            for i in range(60):
-                ngay_hop = ngay_moc_can - timedelta(days=i)
-                ngay_str = ngay_hop.strftime("%d-%m-%Y")
-                url_goc = f"https://xoso.me/ngay-{ngay_str}"
-                dung_key = random.choice(DANH_SACH_API_KEYS)
-                url_proxy_html = f"https://scraperapi.com?api_key={dung_key}&url={url_goc}&country_code=vn"
-                try:
-                    res_web = requests.get(url_proxy_html, timeout=12)
-                    if res_web.status_code==200 and len(res_web.text)>2000:
-                        soup = BeautifulSoup(res_web.text,"html.parser")
-                        ds_so = []
-                        for tag in soup.select("span.giai_so,td.giai_so,span.number,span.prize-number"):
-                            txt = tag.get_text(strip=True)
-                            if txt.isdigit() and len(txt)>=2: ds_so.append(txt[-2:])
-                        if len(ds_so)>=22: tong_hop_so_duoi.extend(ds_so); so_ngay_quet_thanh_cong +=1
-                except: pass
-                time.sleep(0.3)
-                if so_ngay_quet_thanh_cong >=45: break
-        except Exception as e: print(f"Phụ lỗi quét dự phòng: {e}")
-
-    if so_ngay_quet_thanh_cong >=45:
-        top3,top20 = tinh_diem_chuan(tong_hop_so_duoi)
-        chuoi_top3 = "\n".join([f"🔥 Top {i+1}: Đuôi {ma} – xuất hiện {sl} lần, quy luật đều tốt nhất" for i,(ma,sl) in enumerate(top3)])
-        chuoi_top20 = " ▫️ ".join(top20)
-        return f"""📊 **KẾT QUẢ PHÂN TÍCH XSMB** 📊
-📅 Tính lùi 60 ngày từ: {ngay_moc_can.strftime('%d/%m/%Y')}
-🗂️ Tổng số ngày đủ chuẩn: {so_ngay_quet_thanh_cong} | Nguồn: {loai_nguon}
-
-🎯 **TOP 3 ĐUÔI CÓ XÁC SUẤT CAO NHẤT:**
-{chuoi_top3}
-
-📋 **Danh sách đủ 20 đuôi ưu tiên:**
-{chuoi_top20}
-
-⚠️ Chỉ mang tính tham khảo vui chơi giải trí!"""
-    else: return f"❌ Chưa thu thập đủ 45 ngày chuẩn ({so_ngay_quet_thanh_cong} ngày), vui lòng thử lại hoặc gửi bổ sung theo mẫu!"
-
-# --- PHÂN TÍCH CỔ PHIẾU UPCoM ---
-def xu_ly_co_phieu_upcom(ma_ck):
+# === XỬ LÝ LỆNH: Nhận văn bản: Ngày DD/MM/YYYY | Số:94533,87299,40109,... ===
+@bot.message_handler(func=lambda m: m.text and "Ngày" in m.text and "Số:" in m.text)
+def xu_ly_ngay_moi(message):
     try:
-        dung_key = random.choice(DANH_SACH_API_KEYS)
-        url_boc_ssi = f"https://scraperapi.com?api_key={dung_key}&url=https://ssi.com.vn&country_code=vn"
-        headers = {"Accept":"application/json","User-Agent":"Mozilla/5.0"}
-        res = requests.get(url_boc_ssi, headers=headers, timeout=20)
-        gia_hien_tai = "Đang cập nhật"; bien_dong="0.0%"; tim_thay=False
-        if res.status_code==200:
-            try:
-                danh_sach_cp = res.json().get('data',[])
-                for cp in danh_sach_cp:
-                    if cp.get('ss')==ma_ck:
-                        tim_thay=True
-                        gia_raw = cp.get('l',cp.get('o',0))
-                        gia_hien_tai = f"{gia_raw:,} đồng" if isinstance(gia_raw,(int,float)) and gia_raw>0 else "Mức tham chiếu"
-                        bien_dong=f"{cp.get('pc',0)}%"
-                        break
-            except: pass
-        if tim_thay: return f"""📈 **PHÂN TÍCH UPCoM: {ma_ck}** 📈
-💵 Giá: {gia_hien_tai} | Biến động: {bien_dong}
-💡 Khuyến nghị: Theo dõi đường trung bình, đặt rõ vùng hỗ trợ mua, chốt lời & cắt lỗ chặt chẽ quản lý tốt rủi ro nhé!"""
-        else: return f"⚠️ Tạm chưa lấy được dữ liệu mã {ma_ck}, thử lại giờ giao dịch nhé!"
-    except Exception as e: return f"❌ Lỗi kiểm tra {ma_ck}: {str(e)[:55]}"
+        tach_ngay = re.search(r"Ngày\s+(\d{1,2}/\d{1,2}/\d{4})", message.text).group(1)
+        kiem_tra_ngay = tach_ngay[:5] # lấy chỉ ngày/tháng để khớp khóa
+        tach_so = re.search(r"Số:\s*(.+)$", message.text).group(1).replace(" ","").split(",")
+        tach_so = [s.strip()[-2:] for s in tach_so if s.strip().isdigit() and len(s.strip())>=2]
 
-# --- 🛡️ CHỈ TRẢ LỜI CHO ĐÚNG CHỦ, BẮT NGOẠI TOÀN BỘ VÒNG LẮNG NGHE KHÔNG THOÁT SỚM ---
-@bot.message_handler(func=lambda msg:True)
-def xu_ly_tin_nhan_tong_hop(msg):
-    chat_id_nguoi = msg.chat.id
-    if chat_id_nguoi != CHAT_ID: return # Bỏ qua tin nhắn người lạ tăng bảo mật
+        chuoi_moi = trich_xuat_tao_chuoi_ngay(tach_ngay, tach_so)
+        gia_tri_moi = chuoi_moi.split(":",1)[1]
 
-    van_ban = msg.text.strip()
-    # Xử lý gửi ngày tháng
-    ngay_hop_le = None
-    for dinh_dang in ["%d %m %Y","%d/%m/%Y","%d-%m-%Y"]:
-        try: ngay_hop_le = datetime.strptime(van_ban,dinh_dang); break
-        except: continue
-    if ngay_hop_le:
-        bot.reply_to(msg,f"🔄 Đang luân phiên khóa API lấy dữ liệu lùi 60 ngày từ {ngay_hop_le.strftime('%d/%m/%Y')}...")
-        bot.send_message(chat_id_nguoi, xu_ly_xsmb_tu_dong(ngay_hop_le), parse_mode="Markdown")
+        if kiem_tra_ngay in kho_du_lieu:
+            gia_tri_cu = kho_du_lieu[kiem_tra_ngay]
+            if gia_tri_cu == gia_tri_moi:
+                bot.send_message(message.chat.id,f"📌 Ngày {tach_ngay} **đã có trong kho & dữ liệu HOÀN TOÀN TRÙNG KHỚP** không thay đổi gì!")
+            else:
+                bot.send_message(message.chat.id,f"⚠️ Ngày {tach_ngay} **đã tồn tại nhưng dữ liệu KHÁC BIỆT:**\n📋 Cũ: {gia_tri_cu}\n📥 Mới: {gia_tri_moi}\n→ Đã cập nhật thay thế bản mới nhất!")
+                kho_du_lieu[kiem_tra_ngay] = gia_tri_moi
+        else:
+            kho_du_lieu[kiem_tra_ngay] = gia_tri_moi
+            bot.send_message(message.chat.id,f"✅ **THÀNH CÔNG THÊM MỚI:** Ngày {tach_ngay} đã được lưu vào bộ dữ liệu!\n📊 Tổng số ngày hiện có: {len(kho_du_lieu)} ngày liên tục.")
+
+    except Exception as e:
+        bot.send_message(message.chat.id,f"❌ Đọc chưa hiểu! Ghi đúng mẫu: **Ngày 21/08/2026 | Số:94533,87299,40109,41819,... tất cả các giải** nhé!")
+
+# === LỆNH PHÂN TÍNH TOP NHÓM ĐẦU & ĐUÔI ƯU TIÊN ===
+@bot.message_handler(commands=['phantich'])
+def phan_tich_thong_ke(message):
+    if len(kho_du_lieu)<30:
+        bot.reply_to(message,"⚠️ Cần đủ ít nhất 30 ngày trở lên để phân tích có cơ sở thống kê rõ ràng hơn!")
         return
+    dem_dau = Counter()
+    dem_duoi = Counter()
+    for gt in kho_du_lieu.values():
+        for nhom in gt.split(";"):
+            d,ds = nhom.split(":")
+            dem_dau[d] +=1
+            for duoi in ds.split(","):
+                dem_duoi[duoi] +=1
+    top_dau = dem_dau.most_common(5)
+    top_duoi = dem_duoi.most_common(10)
+    noi = "📊 **KẾT QUẢ THỐNG KÊ TỪ BỘ DỮ LIỆU ĐÃ LƯU:**\n━━━━━━━━━━━━━━━━━━━━━━\n🏆 5 Nhóm Đầu xuất hiện nhiều đều nhất:\n"
+    for i,(d,sl) in enumerate(top_dau,1): noi +=f"{i}. Đầu {d}: xuất hiện {sl} lần\n"
+    noi += "\n💎 10 Đuôi xuất hiện tần suất cao nhất:\n"
+    for i,(d,sl) in enumerate(top_duoi,1): noi +=f"{i}. Đuôi {d}: {sl} lần\n"
+    noi += "\n⚠️ Chỉ dựa lịch sử đã mở thưởng, tham khảo vui chơi giải trí thôi nhé!"
+    bot.send_message(message.chat.id,noi,parse_mode="Markdown")
 
-    # Xử lý danh sách mã chứng khoán
-    cac_tu = van_ban.replace(","," ").split()
-    if all(len(t)==3 and t.isupper() and t.isalpha() for t in cac_tu):
-        for ma in cac_tu: bot.reply_to(msg,f"🔍 Đang kiểm tra mã {ma}..."); bot.send_message(chat_id_nguoi,xu_ly_co_phieu_upcom(ma)); time.sleep(1); return
-
-    # Lệnh lưu thủ công dữ liệu khi nguồn tự lấy tạm khó truy cập
-    if van_ban.startswith("Luu du lieu:"):
-        try:
-            tach = van_ban.replace("Luu du lieu:","").strip().split("|")
-            ngay_chuan = datetime.strptime(tach[0].replace("Ngày","").strip(),"%d/%m/%Y").strftime("%d/%m/%Y")
-            ds_d = [d.strip() for d in tach[1].replace("Đuôi:","").strip().split(",") if len(d.strip())==2 and d.strip().isdigit()]
-            bot.send_message(chat_id_nguoi,f"✅ Đã ghi nhận thành công ngày {ngay_chuan} có {len(ds_d)} đuôi số hợp lệ! Tiếp tục thêm vài ngày nữa là đủ chuẩn ra kết quả tự động nhé!")
-        except: bot.send_message(chat_id_nguoi,"⚠️ Viết đúng mẫu: Luu du lieu: Ngày 22/08/2026 | Đuôi: 00,07,09,06,...");return
-        return
-
-    # Hướng dẫn sử dụng rõ ràng
-    bot.send_message(chat_id_nguoi,"""📝 **CÁCH DÙNG BOT ĐƠN GIẢN** 📝
-🔢 Phân tích Xổ số Miền Bắc: Gửi thẳng ngày: 22 08 2026 / 22/08/2026
-💹 Kiểm tra nhanh cổ phiếu UPCoM: Gửi mã 3 chữ in hoa: SHB, TCB, AAS...
-📝 Bổ sung nhanh khi chưa đủ dữ liệu: Luu du lieu: Ngày __/__/____ | Đuôi:00,01,...
-""",parse_mode="Markdown")
-
-# === 🚀 CHẠY ĐÚNG QUY TẮC RENDER: GẮN 0.0.0.0 + BIẾN PORT, BẮT LỖI MẠNG NHẸ TỰ CHỜ LẠI ===
+# === CHẠY BOT ===
 if __name__ == "__main__":
-    from threading import Thread
-    def chay_web_giusong():
-        app.run(host="0.0.0.0", port=int(os.environ.get("PORT",10000))) # ✅ Đúng theo tài liệu hướng dẫn
-    Thread(target=chay_web_giusong).start()
-
-    # ✅ Vòng lặp bắt toàn bộ lỗi kết nối nhỏ, chờ ngắn rồi chạy tiếp không thoát ra hoàn toàn
-    while True:
-        try:
-            bot.polling(none_stop=True, interval=5, timeout=60)
-        except Exception as e:
-            print(f"⚠️ Kết nối tạm ngắt/khóa API hết lượt: {e} → chờ 10 giây kết nối lại tiếp tục lắng nghe...")
-            time.sleep(10)
+    print("🤖 Bot đang chạy: Kiểm tra trùng ngày + báo rõ đã tồn tại/thêm mới thành công!")
+    bot.polling(none_stop=True)

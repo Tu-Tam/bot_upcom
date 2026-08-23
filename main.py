@@ -8,7 +8,7 @@ from collections import Counter
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 
-# --- KHỞI TẠO WEB SERVER ĐỂ TREO UP-TIME TRÊN RENDER ---
+# --- KHỞI TẠO WEB SERVER FLASK NUÔI SỐNG THEO TIÊU CHUẨN RENDER ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -20,17 +20,16 @@ BOT_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns"
 CHAT_ID = 7064473358
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# --- 🗝️ TẬN DỤNG DANH SÁCH CÁC KHÓA API CỦA BẠN (CƠ CHẾ XOAY VÒNG CHỊU LỖI) ---
+# --- 🗝️ TẬN DỤNG CÁC KHÓA API VIP CỦA BẠN ĐỂ BYPASS CHẶN IP ---
 DANH_SACH_API_KEYS = [
     "SYHGO5Z8DE4RAU8E",
     "52MWBOYE0RSLQE8E",
     "N8TO30AM8DVVGDE7"
 ]
 
-# Nguồn cấp phôi dữ liệu gốc
 URL_XSMB_GOC = "https://githubusercontent.com"
 
-# --- THUẬT TOÁN TÍNH ĐIỂM CHUẨN TRUYỀN THỐNG ---
+# --- THUẬT TOÁN TÍNH ĐIỂM CHUẨN ---
 def tinh_diem_chuan(danh_sach_duoi):
     dem_so_lan = Counter(danh_sach_duoi)
     vi_tri_tung_lan = {}
@@ -63,12 +62,11 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
     so_ngay_quet_thanh_cong = 0
     loai_nguon = "API_PROXY_VIP"
 
-    # LỚP 1: Sử dụng khóa của bạn để bóc gói JSON thẳng từ GitHub thông qua cổng trung gian ẩn danh IP
+    # LỚP 1: Sử dụng khóa của bạn để bóc gói JSON thẳng từ GitHub
     for api_key in DANH_SACH_API_KEYS:
         try:
-            # Gửi request bọc qua cổng trung gian Scraper ẩn danh sử dụng Token của bạn
             url_proxy = f"https://scraperapi.com?api_key={api_key}&url={URL_XSMB_GOC}"
-            res = requests.get(url_proxy, timeout=25)
+            res = requests.get(url_proxy, timeout=20)
             
             if res.status_code == 200:
                 data = res.json()
@@ -82,31 +80,27 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
                             tong_hop_so_duoi.extend(ds_khong_trung)
                             so_ngay_quet_thanh_cong += 1
                 if so_ngay_quet_thanh_cong > 0: 
-                    break # Lấy thành công từ một Key thì thoát luồng xoay vòng ngay
+                    break
         except Exception as e:
-            print(f"Khóa {api_key[:4]} lỗi hoặc hết hạn, đang tự động đảo sang khóa tiếp theo... Chi tiết: {e}")
+            print(f"Khóa {api_key[:4]} trục trặc, tự động xoay vòng: {e}")
             continue
 
-    # LỚP 2: Nếu luồng JSON bị chặn, ép luồng cào HTML từ xoso.me bọc qua lớp bảo vệ Proxy dân cư Việt Nam của Key bạn cung cấp
+    # LỚP 2: Dự phòng cào HTML từ xoso.me bọc qua lớp bảo vệ Proxy dân cư Việt Nam của Key bạn cung cấp
     if so_ngay_quet_thanh_cong < 15:
         try:
             loai_nguon = "XOSOME_PROXY_HTML"
             tong_hop_so_duoi = []
             so_ngay_quet_thanh_cong = 0
-            
-            # Chọn ngẫu nhiên một Key còn sống của bạn để chia tải
             dung_key = random.choice(DANH_SACH_API_KEYS)
             
             for i in range(60):
                 ngay_hop = ngay_moc_can - timedelta(days=i)
                 ngay_str = ngay_hop.strftime("%d-%m-%Y")
                 url_goc = f"https://xoso.me{ngay_str}.html"
-                
-                # Gọi cấu hình bọc Proxy vị trí Việt Nam để cào HTML sạch
-                url_bọc_mạng = f"https://scraperapi.com?api_key={dung_key}&url={url_goc}&country_code=vn"
+                url_proxy_html = f"https://scraperapi.com?api_key={dung_key}&url={url_goc}&country_code=vn"
                 
                 try:
-                    res_web = requests.get(url_bọc_mạng, timeout=15)
+                    res_web = requests.get(url_proxy_html, timeout=12)
                     if res_web.status_code == 200:
                         soup = BeautifulSoup(res_web.text, "html.parser")
                         so_tags = soup.select("span.giai_so, td.giai_so, span.v-giai")
@@ -144,18 +138,15 @@ def xu_ly_xsmb_tu_dong(ngay_moc_can):
     else:
         return f"❌ Tường lửa trang đích quá mạnh. Cả 3 khóa API của bạn hiện tại đều đang bận hoặc quá tải hạn mức. Vui lòng gửi lại ngày sau vài phút!"
 
-# --- [PHẦN 2] TRÍCH XUẤT CỔ PHIẾU UPCOM BỌC QUA MẠNG LƯỚI KHÓA CỦA BẠN ---
+# --- [PHẦN 2] TRÍCH XUẤT CỔ PHIẾU UPCOM BỌC QUA MẠNG LƯỚI KHÓA PROXY ---
 def xu_ly_co_phieu_upcom(ma_ck):
     try:
-        # Chọn ngẫu nhiên xoay vòng 1 trong các Key bạn gửi để mã hóa địa chỉ IP Render nước ngoài
         dung_key = random.choice(DANH_SACH_API_KEYS)
         url_goc_ssi = "https://ssi.com.vn"
-        
-        # Bọc cổng API SSI qua hệ thống ẩn danh quốc gia
-        url_bọc_ssi = f"https://scraperapi.com?api_key={dung_key}&url={url_goc_ssi}&country_code=vn"
+        url_boc_ssi = f"https://scraperapi.com?api_key={dung_key}&url={url_goc_ssi}&country_code=vn"
         
         headers = {"Accept": "application/json"}
-        res = requests.get(url_bọc_ssi, headers=headers, timeout=20)
+        res = requests.get(url_boc_ssi, headers=headers, timeout=20)
         
         gia_hien_tai = "Đang cập nhật"
         bien_dong = "0.0%"
@@ -183,7 +174,7 @@ def xu_ly_co_phieu_upcom(ma_ck):
             return (
                 f"📈 **PHÂN TÍCH CỔ PHIẾU UPCOM: {ma_ck}** 📈\n"
                 f"🌐 Sàn giao dịch: **UPCoM** (Biên độ dao động rộng ±15%)\n"
-                f"🔑 Cơ chế: Bảo mật dữ liệu mã hóa Proxy Dân cư thành công\n"
+                f"🔑 Cơ chế: Bảo mật mã hóa Proxy Dân cư thành công\n"
                 f"💵 Giá khớp lệnh gần nhất: **{gia_hien_tai}** ({bien_dong})\n\n"
                 f"📊 **Đánh giá xu hướng dòng tiền kỹ thuật:**\n"
                 f"• Đồ thị giá đang giữ vững cấu trúc nền hỗ trợ tích lũy ngắn hạn.\n"
@@ -196,12 +187,11 @@ def xu_ly_co_phieu_upcom(ma_ck):
     except Exception as e:
         return f"❌ Lỗi mã hóa dữ liệu chứng khoán qua API Key: {str(e)[:60]}"
 
-# --- [PHẦN 3] ĐIỀU PHỐI ĐỌC TIN NHẮN TỰ ĐỘNG ---
+# --- [PHẦN 3] ĐIỀU PHỐI ĐỌC TIN NHẮN TỰ ĐỘNG CHỐNG XUNG ĐỘT ---
 @bot.message_handler(func=lambda msg: True)
 def xu_ly_tin_nhan_tong_hop(msg):
     van_ban = msg.text.strip()
     
-    # 1. KIỂM TRA ĐỊNH DẠNG NGÀY THÁNG (Tính năng tự động XSMB)
     ngay_hop_le = None
     cac_dinh_dang = ["%d %m %Y", "%d/%m/%Y", "%d-%m-%Y"]
     for dinh_dang in cac_dinh_dang:
@@ -217,12 +207,24 @@ def xu_ly_tin_nhan_tong_hop(msg):
         bot.send_message(msg.chat.id, thong_bao_kq, parse_mode="Markdown")
         return
 
-    # 2. KIỂM TRA ĐỊNH DẠNG MÃ CỔ PHIẾU
     cac_tu = van_ban.replace(",", " ").split()
     la_danh_sach_ma = True
-    
     for tu in cac_tu:
         if not (tu.isupper() and len(tu) == 3 and tu.isalpha()):
             la_danh_sach_ma = False
             break
             
+    if la_danh_sach_ma and len(cac_tu) > 0:
+        for ma in cac_tu:
+            bot.reply_to(msg, f"🔍 Nhận lệnh UPCoM! Đang dùng API Key kích hoạt luồng Proxy để phân tích mã `{ma}`...")
+            thong_bao_cp = xu_ly_co_phieu_upcom(ma)
+            bot.send_message(msg.chat.id, thong_bao_cp, parse_mode="Markdown")
+            time.sleep(1)
+        return
+
+    huong_dan = (
+        f"📝 **MENU ĐIỀU KHIỂN BOT ĐA NĂNG TỰ ĐỘNG** 📝\n\n"
+        f"🔢 **1. Phân tích kết quả XSMB (Tự động quét lùi 60 ngày):**\n"
+        f"Gửi thẳng nội dung tin nhắn ngày tháng cần xem.\n"
+        f"👉 Ví dụ: `22 08 2026` hoặc `22/08/2026`\n\n"
+        f"📈 **2. Tra cứu & Phân tích cổ phiếu sàn UPCoM:**\n"

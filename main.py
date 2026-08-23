@@ -3,9 +3,11 @@ import re
 from collections import defaultdict, Counter
 from datetime import datetime
 
-# === THÔNG TIN CẦN THAY BẰNG CỦA BẠN ===
-BOT_TOKEN = "THAY_BẰNG_TOKEN_TELEGRAM_CỦA_BẠN"
-CHAT_ID = int("THAY_BẰNG_SỐ_CHAT_ID_CÁ_NHÂN")
+# === THÔNG TIN CÁ NHÂN CỦA BẠN - ĐIỀN ĐÚNG THÔNG TIN LẤY TỪ TELEGRAM ===
+# Thay chuỗi mã Token bạn nhận được từ @BotFather vào giữa dấu ngoặc kép
+BOT_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns"
+# Thay số Chat ID cá nhân lấy từ @getidsbot vào đây (chỉ ghi số thôi)
+CHAT_ID = 7064473358
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # === LƯU SẴN BỘ 66 NGÀY ĐÃ XÂY DỰNG TRƯỚC ĐÓ ===
@@ -79,7 +81,7 @@ kho_du_lieu = {
     "19/06": "0:01;1:11;2:28;3:31;4:47;5:53;6:65;7:74;8:84;9:97"
 }
 
-# === HÀM TRÍCH XUẤT ĐÚNG ĐỊNH DẠNG KHI BẠN GHI: Ngày DD/MM/YYYY kèm danh sách số tất cả giải ===
+# === HÀM TRÍCH XUẤT ĐÚNG ĐỊNH DẠNG ===
 def trich_xuat_tao_chuoi_ngay(ngay_str, danh_sach_so):
     nhom_dau = defaultdict(list)
     for s in danh_sach_so:
@@ -91,12 +93,12 @@ def trich_xuat_tao_chuoi_ngay(ngay_str, danh_sach_so):
         sap_xep.append(f"{so_dau}:{','.join(nhom_dau[so_dau])}")
     return f"{ngay_str[:5]}:{';'.join(sap_xep)}"
 
-# === XỬ LÝ LỆNH: Nhận văn bản: Ngày DD/MM/YYYY | Số:94533,87299,40109,... ===
+# === XỬ LÝ THÊM/KIỂM TRA TRÙNG NGÀY ===
 @bot.message_handler(func=lambda m: m.text and "Ngày" in m.text and "Số:" in m.text)
 def xu_ly_ngay_moi(message):
     try:
         tach_ngay = re.search(r"Ngày\s+(\d{1,2}/\d{1,2}/\d{4})", message.text).group(1)
-        kiem_tra_ngay = tach_ngay[:5] # lấy chỉ ngày/tháng để khớp khóa
+        kiem_tra_ngay = tach_ngay[:5]
         tach_so = re.search(r"Số:\s*(.+)$", message.text).group(1).replace(" ","").split(",")
         tach_so = [s.strip()[-2:] for s in tach_so if s.strip().isdigit() and len(s.strip())>=2]
 
@@ -117,7 +119,7 @@ def xu_ly_ngay_moi(message):
     except Exception as e:
         bot.send_message(message.chat.id,f"❌ Đọc chưa hiểu! Ghi đúng mẫu: **Ngày 21/08/2026 | Số:94533,87299,40109,41819,... tất cả các giải** nhé!")
 
-# === LỆNH PHÂN TÍNH TOP NHÓM ĐẦU & ĐUÔI ƯU TIÊN ===
+# === LỆNH /phantich xem thống kê ===
 @bot.message_handler(commands=['phantich'])
 def phan_tich_thong_ke(message):
     if len(kho_du_lieu)<30:

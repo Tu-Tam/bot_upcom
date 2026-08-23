@@ -1,6 +1,6 @@
-pyTelegramBotAPI
-flask
-pytesseract
-Pillow
-requests
-python-dateutil
+pyTelegramBotAPI==4.36.1
+flask==2.3.3
+requests==2.34.2
+Pillow==12.3.0
+pytesseract==0.3.13
+python-dateutil==2.9.0.post0

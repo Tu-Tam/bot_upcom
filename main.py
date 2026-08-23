@@ -17,7 +17,7 @@ def chay_server(): app.run(host="0.0.0.0", port=int(os.environ.get("PORT",8080))
 Thread(target=chay_server).start()
 
 # === Kết nối Telegram ===
-BOT_TOKEN = "THAY_BẰNG_TOKEN_CỦA_BẠN"
+BOT_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns"
 CHAT_ID = 7064473358
 bot = telebot.TeleBot(BOT_TOKEN)
 

@@ -3,7 +3,6 @@ from datetime import datetime
 from collections import defaultdict
 from flask import Flask
 from threading import Thread
-import pytesseract
 from PIL import Image
 import requests
 

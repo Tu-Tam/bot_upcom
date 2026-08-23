@@ -18,19 +18,18 @@ if CHAT_ID <= 0:
 # ===========================================================================
 
 bot = telebot.TeleBot(BOT_TOKEN)
-# ✅ ĐƯỜNG DẪN CHÍNH XÁC: đọc ngay tệp cùng thư mục chứa main.py
+# ✅ Đọc đúng tệp dữ liệu bạn lưu cùng thư mục main.py
 TEN_TEP = os.path.join(os.path.dirname(__file__), "dulieu_xsmb.json")
 
 app = Flask(__name__)
 @app.route('/')
 def giu_song(): 
-    return "✅ Bot ƯU TIÊN ĐỌC tệp dulieu_xsmb.json cùng thư mục | napdulieu=đọc tệp + bổ sung thiếu | top3=3 đuôi tốt nhất giai đoạn 10/03-23/03 | db=TOP10 Giải Đặc Biệt dự đoán ngày tiếp theo"
+    return "✅ Bot: napdulieu=đọc tệp + bổ sung thiếu | **top3**=Phân tích ra 3 đuôi chất lượng cao nhất từ dữ liệu có sẵn | db=TOP10 Giải Đặc Biệt dự đoán ngày tiếp theo"
 
 def chay_web():
     cong = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=cong, debug=False, use_reloader=False)
 
-# ✅ PHÂN CẤP TRỌNG SỐ: Giải Đặc Biệt được ưu tiên trọng số cao nhất
 TRONG_SO = {
     "DB": 2.5, "G1": 1.6, "G2": 1.3, "G3": 1.1,
     "G4": 0.9, "G5": 0.8, "G6": 0.7, "G7": 0.6
@@ -39,53 +38,32 @@ TRONG_SO = {
 def lay_2cuoi(s): return str(s).strip()[-2:]
 def lay_chuc(d): return str(d)[0] if len(str(d))==2 else "0"
 
-# === ✅ HÀM ĐỌC LẠI CHÍNH XÁC: mở đúng vị trí tệp cùng thư mục ===
 def tai_dulieu():
     try:
         if os.path.exists(TEN_TEP):
-            with open(TEN_TEP,"r",encoding="utf-8") as f:
-                dl = json.load(f)
-                print(f"📂 ĐỌC THÀNH CÔNG tệp cùng thư mục! Tổng số ngày có sẵn: {len(dl)} ngày")
-                return dl
-        else:
-            print(f"⚠️ Chưa tìm thấy tệp dulieu_xsmb.json tại vị trí: {os.path.abspath(TEN_TEP)}")
-            return {}
-    except Exception as e:
-        print(f"⚠️ Lỗi đọc tệp: {str(e)} → tạo dữ liệu trống tạm")
+            with open(TEN_TEP,"r",encoding="utf-8") as f: return json.load(f)
         return {}
+    except: return {}
 
 def luu_dulieu_va_giu_60ngay(ngay, d):
-    dl = tai_dulieu()
-    dl[ngay] = d # Ghi đè cập nhật giữ nguyên dữ liệu khác không xóa mất
+    dl = tai_dulieu(); dl[ngay] = d
     try:
         with open(TEN_TEP,"w",encoding="utf-8") as f: json.dump(dl,f,ensure_ascii=False,indent=2)
-        print(f"💾 Đã lưu cập nhật thành công ngày: {ngay} vào tệp gốc")
-    except Exception as e:
-        print(f"❌ Không ghi được vào tệp: {e}")
+    except: pass
     return len(dl)
 
-# === ✅ NẠP: ĐỌC TRƯỚC TỆP CỦA BẠN → CHỈ BỔ SUNG NHỮNG NGÀY THIẾU TỪ INTERNET ===
+# === Nạp bổ sung ngày thiếu vẫn giữ nguyên dữ liệu gốc ===
 def tu_lay_du_lieu_giai_doan():
-    dl = tai_dulieu() # Lấy trước toàn bộ dữ liệu bạn đã lưu
-    batdau = datetime(2026,3,10)
-    ketthuc = datetime(2026,3,23)
+    dl = tai_dulieu()
+    batdau = datetime(2026,3,10); ketthuc = datetime(2026,3,23)
     co_san=0; them_bo_sung=0
-
     while batdau <= ketthuc:
         ngay_ddmm = batdau.strftime("%d/%m")
-        # ✅ Nếu đã có trong tệp của bạn → giữ nguyên tuyệt đối không ghi đè
-        if ngay_ddmm in dl and dl[ngay_ddmm].get("DB",""):
-            co_san +=1
-            batdau += timedelta(days=1)
-            continue
-        # Chỉ đi lấy thêm ngày còn thiếu thôi
+        if ngay_ddmm in dl and dl[ngay_ddmm].get("DB",""): co_san +=1; batdau += timedelta(days=1); continue
         try:
             ngay_link = batdau.strftime("%d-%m-%Y")
-            url = f"https://ketqua.net/ngay-{ngay_link}"
-            res = requests.get(url, timeout=12, headers={"User-Agent":"Mozilla/5.0"})
-            res.raise_for_status()
-            soup = BeautifulSoup(res.text,"html.parser")
-
+            res = requests.get(f"https://ketqua.net/ngay-{ngay_link}", timeout=12, headers={"User-Agent":"Mozilla/5.0"})
+            res.raise_for_status(); soup = BeautifulSoup(res.text,"html.parser")
             du_lieu_ngay = {}
             du_lieu_ngay["DB"] = soup.find("td",attrs={"id":"rs_0_0"}).get_text(strip=True) if soup.find("td",attrs={"id":"rs_0_0"}) else ""
             du_lieu_ngay["G1"] = soup.find("td",attrs={"id":"rs_1_0"}).get_text(strip=True) if soup.find("td",attrs={"id":"rs_1_0"}) else ""
@@ -95,37 +73,23 @@ def tu_lay_du_lieu_giai_doan():
             g5 = soup.find_all("td",attrs={"class":"giai5"}); du_lieu_ngay["G5"]=[x.get_text(strip=True) for x in g5] if len(g5)==6 else ""
             g6 = soup.find_all("td",attrs={"class":"giai6"}); du_lieu_ngay["G6"]=[x.get_text(strip=True) for x in g6] if len(g6)==3 else ""
             g7 = soup.find_all("td",attrs={"class":"giai7"}); du_lieu_ngay["G7"]=[x.get_text(strip=True) for x in g7] if len(g7)==4 else ""
-
-            if du_lieu_ngay["DB"]:
-                dl[ngay_ddmm]=du_lieu_ngay
-                them_bo_sung +=1
-        except Exception as e: print(f"Không lấy được thiếu {ngay_ddmm}: {e}")
+            if du_lieu_ngay["DB"]: dl[ngay_ddmm]=du_lieu_ngay; them_bo_sung +=1
+        except Exception as e: print(f"Thiếu {ngay_ddmm}: {e}")
         batdau += timedelta(days=1)
-
-    # Lưu lại bổ sung thêm vào tệp gốc của bạn thôi
     try:
         with open(TEN_TEP,"w",encoding="utf-8") as f: json.dump(dl,f,ensure_ascii=False,indent=2)
     except: pass
-    return f"📂 KẾT QUẢ: Đã có sẵn trong tệp: {co_san} ngày | Bổ sung thêm thiếu: {them_bo_sung} ngày\n✅ Đã giữ nguyên toàn bộ dữ liệu gốc bạn lưu, không thay đổi số đã có!"
+    return f"📂 Đã có sẵn: {co_san} ngày | Bổ sung thêm: {them_bo_sung} ngày vào tệp dữ liệu của bạn!"
 
-# === ✅ LỆNH TOP3: PHÂN TÍCH CHÍNH XÁC GIAI ĐOẠN 10/03→23/03 ===
-def tinh_top3_giai_doan(dl):
+# === ✅ CHÍNH THỨC THAY: KHÔNG CỨNG KIỆN 10→23, HÀM **top3** LẤY ĐỦ DANH SÁCH CÓ TRONG TỆP → TÍNH RA 3 ĐUÔI TỐT NHẤT ===
+def tinh_top3(dl):
     ds_ngay = sorted(dl.keys(), key=lambda x:datetime.strptime(x,"%d/%m"))
-    ngay_batdau, ngay_ketthuc = "10/03", "23/03"
-    khung_giai_doan = []
-    for n in ds_ngay:
-        try:
-            d=datetime.strptime(n,"%d/%m")
-            if datetime.strptime(ngay_batdau,"%d/%m") <= d <= datetime.strptime(ngay_ketthuc,"%d/%m"): khung_giai_doan.append(n)
-        except: pass
+    if len(ds_ngay)<5: return f"⚠️ Hiện có {len(ds_ngay)} ngày trong tệp! Gõ **napdulieu** trước để đủ dữ liệu phân tích!"
 
-    if len(khung_giai_doan)<5:
-        return f"⚠️ Hiện có {len(khung_giai_doan)} ngày trong giai đoạn! Gõ **napdulieu**: đọc tệp + tự bổ sung đủ thiếu nhé."
-
-    ghi_chu = f"✅ PHÂN TÍCH DỰA TRÊN TỆP DỮ LIỆU CỦA BẠN: {ngay_batdau} → {ngay_ketthuc}\nƯu tiên Giải Đặc Biệt trọng số cao nhất + quy luật khoảng nghỉ vàng & chu kỳ đều đặn!"
+    ghi_chu = f"✅ **LỆNH TOP3**: Phân tích toàn bộ dữ liệu hợp lệ có trong tệp của bạn → chọn ra 3 đuôi có điểm chất lượng cao nhất, ưu tiên Giải Đặc Biệt & quy luật rõ ràng!"
     thongke = defaultdict(lambda: {"tong_diem":0, "ngay_db":[], "ngay_tat_ca":[], "nhom_chuc":""})
 
-    for thu_tu,ngay in enumerate(khung_giai_doan):
+    for thu_tu,ngay in enumerate(ds_ngay):
         db_so = dl[ngay].get("DB",""); db_d=lay_2cuoi(db_so)
         if db_d.isdigit():
             thongke[db_d]["ngay_db"].append(thu_tu); thongke[db_d]["tong_diem"] += TRONG_SO["DB"]; thongke[db_d]["nhom_chuc"]=lay_chuc(db_d)
@@ -142,7 +106,7 @@ def tinh_top3_giai_doan(dl):
         if sl_db<2 or sl_tong<4: continue
         diem_nghi=0
         if tt["ngay_db"]:
-            k=len(khung_giai_doan)-1 - tt["ngay_db"][-1]
+            k=len(ds_ngay)-1 - tt["ngay_db"][-1]
             if 4<=k<=7: diem_nghi=65
             elif 3<=k<=9: diem_nghi=50
             elif k<=2: diem_nghi=30
@@ -154,56 +118,44 @@ def tinh_top3_giai_doan(dl):
         ds_xep.append((duoi, round(diem_nghi+diem_deu+tt["tong_diem"]*8)))
 
     ds_xep.sort(key=lambda x:-x[1]); top3=ds_xep[:3]
-    if not top3: return "⚠️ Chưa đủ quy luật rõ ràng!"
-    noi=f"{ghi_chu}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🏆 TOP 3 ĐUÔI TỐT NHẤT:\n"
-    for vt,(d,dt) in enumerate(top3,1): noi+=f"{vt}. Đuôi: {d} | Tổng điểm chất lượng: {dt}/100\n"
+    if not top3: return "⚠️ Chưa đủ quy luật rõ ràng trong dữ liệu tệp!"
+    noi=f"{ghi_chu}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🏆 **TOP 3 ĐUÔI CHẤT LƯỢNG CAO NHẤT**:\n"
+    for vt,(d,dt) in enumerate(top3,1): noi+=f"{vt}. Đuôi: {d} | Tổng điểm: {dt}/100\n"
     return noi
 
-# === ✅ LỆNH DB: CHỈ TẬP TRUNG GIẢI ĐẶC BIỆT DỰ KIẾN NGÀY SAU ===
+# === Lệnh DB vẫn giữ phân tích Giải Đặc Biệt ===
 def tinh_top10_dacbiet_ngaytiep(dl):
     ds_ngay = sorted(dl.keys(), key=lambda x:datetime.strptime(x,"%d/%m"))
-    ngay_batdau, ngay_ketthuc = "10/03", "23/03"
-    khung_giai_doan = []
-    for n in ds_ngay:
-        try:
-            d=datetime.strptime(n,"%d/%m")
-            if datetime.strptime(ngay_batdau,"%d/%m") <= d <= datetime.strptime(ngay_ketthuc,"%d/%m"): khung_giai_doan.append(n)
-        except: pass
-
-    if len(khung_giai_doan)<5: return f"⚠️ Cần đủ dữ liệu Giải Đặc Biệt trong tệp giai đoạn {ngay_batdau}→{ngay_ketthuc}!"
+    if len(ds_ngay)<5: return f"⚠️ Gõ **napdulieu** đủ dữ liệu trước nhé!"
     thongke_db = defaultdict(lambda: {"lan_xuat":0, "ngay_xuat":[], "diem":0.0})
-
-    for thu_tu,ngay in enumerate(khung_giai_doan):
+    for thu_tu,ngay in enumerate(ds_ngay):
         db_so=dl[ngay].get("DB","").strip()
         if len(db_so)>=2 and db_so.isdigit():
             d=lay_2cuoi(db_so); thongke_db[d]["lan_xuat"]+=1; thongke_db[d]["ngay_xuat"].append(thu_tu)
-
     ds_diem=[]; cao_nhat=0
     for duoi,tt in thongke_db.items():
         sl=tt["lan_xuat"]; if sl<2: continue
-        k=len(khung_giai_doan)-tt["ngay_xuat"][-1]
+        k=len(ds_ngay)-tt["ngay_xuat"][-1]
         diem=95 if 5<=k<=8 else 85 if 4<=k<=10 else 75 if 3<=k<=12 else 60 if k<=2 else 50
         if sl>=3:
             kc=[tt["ngay_xuat"][i+1]-tt["ngay_xuat"][i] for i in range(sl-1)]; tb=sum(kc)/len(kc)
             if 4<=tb<=7: diem+=5
         if diem>cao_nhat: cao_nhat=diem
         ds_diem.append((duoi,round(diem)))
-
     ds_diem.sort(key=lambda x:-x[1]); top10=ds_diem[:10]
-    noi=f"🎖️ DB: TOP 10 ĐUÔI CHỈ GIẢI ĐẶC BIỆT\n📊 Phân tích từ tệp dữ liệu của bạn giai đoạn {ngay_batdau}→{ngay_ketthuc} ➡️ DỰ KIẾN xác suất cao NGÀY TIẾP THEO sau giai đoạn!\n📈 Điểm cao nhất làm chuẩn tham chiếu 100%\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    noi=f"🎖️ **DB: TOP10 Giải Đặc Biệt**\n📊 Dựa dữ liệu trong tệp → xác suất cao ngày tiếp theo!\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     for vt,(duoi,d) in enumerate(top10,1):
         tl=round((d/cao_nhat*100),1) if cao_nhat>0 else d
-        noi+=f"{vt:02d}. Đuôi: {duoi} ⭐ Xác suất tham khảo: {tl}% | Điểm tin cậy: {d}/100\n"
-    return noi+"\n💡 Lưu ý: Dựa hoàn toàn trên bộ dữ liệu bạn lưu trong tệp cùng thư mục!"
+        noi+=f"{vt:02d}. Đuôi: {duoi} ⭐ {tl}% | Điểm: {d}/100\n"
+    return noi
 
-# === NHẬP THỦ CÔNG CẬP NHẬT THÊM VÀO CHÍNH TỆP CỦA BẠN ===
+# === Nhập thủ công bổ sung lưu vào tệp ===
 @bot.message_handler(func=lambda m: re.fullmatch(r"\d{1,2}/\d{1,2}", m.text.strip()))
 def nhap_ngay_du_lieu(m):
     if m.chat.id!=CHAT_ID: return
     ngay=m.text.strip()
-    bot.reply_to(m,f"📅 Nhập kết quả ngày {ngay} theo mẫu:\nDB: số\nG1: số\nG2: số,số...\n→ Sẽ lưu thẳng vào tệp dulieu_xsmb.json của bạn!")
+    bot.reply_to(m,f"📅 Ngày {ngay}! Gửi: DB:số, G1:số... lưu vào tệp chính!")
     bot.register_next_step_handler(m,lambda msg:luu_ngay(ngay,msg))
-
 def luu_ngay(ngay,msg):
     try:
         dlngay={}
@@ -212,28 +164,28 @@ def luu_ngay(ngay,msg):
             if ":"in d:
                 t,g=d.split(":",1); t=t.strip().upper(); g=g.strip()
                 if t in ["DB","G1","G2","G3","G4","G5","G6","G7"]: dlngay[t]=g if ","not in g else [x.strip() for x in g.split(",")]
-        if dlngay: bot.send_message(msg.chat.id,f"✅ Đã cập nhật thành công ngày {ngay} vào tệp dữ liệu chính! Tổng: {luu_dulieu_va_giu_60ngay(ngay,dlngay)} ngày")
-        else: bot.send_message(msg.chat.id,"⚠️ Sai mẫu, ghi rõ tên giải kèm số nhé!")
-    except: bot.send_message(msg.chat.id,"❌ Lỗi nhập lại theo hướng dẫn!")
+        if dlngay: bot.send_message(msg.chat.id,f"✅ Đã lưu ngày {ngay} vào tệp! Tổng: {luu_dulieu_va_giu_60ngay(ngay,dlngay)} ngày")
+        else: bot.send_message(msg.chat.id,"⚠️ Sai mẫu!")
+    except: bot.send_message(msg.chat.id,"❌ Nhập lại!")
 
-# === ĐĂNG KÝ LỆNH ===
+# === ĐĂNG KÝ LỆNH CHÍNH: thay thế hoàn toàn gọi cố định thành gọi hàm tinh_top3 ===
 @bot.message_handler(func=lambda m: m.text.strip().lower()=="napdulieu" and m.chat.id==CHAT_ID)
 def gn(m): bot.send_message(m.chat.id,tu_lay_du_lieu_giai_doan())
 @bot.message_handler(func=lambda m: m.text.strip().lower()=="top3" and m.chat.id==CHAT_ID)
-def gt(m): bot.send_message(m.chat.id,tinh_top3_giai_doan(tai_dulieu()))
+def goi_top3_moi(m): bot.send_message(m.chat.id,tinh_top3(tai_dulieu())) # ✅ Đã thay đúng yêu cầu!
 @bot.message_handler(func=lambda m: m.text.strip().lower()=="db" and m.chat.id==CHAT_ID)
 def gd(m): bot.send_message(m.chat.id,tinh_top10_dacbiet_ngaytiep(tai_dulieu()))
 @bot.message_handler(commands=['start','help'])
-def help_bot(m): bot.send_message(m.chat.id,"📖 Hướng dẫn:\n🔹 **napdulieu**: Ưu tiên đọc tệp dulieu_xsmb.json cùng thư mục → chỉ bổ sung ngày còn thiếu\n🔹 **top3**: Phân tích ra 3 đuôi tốt nhất đúng giai đoạn từ dữ liệu của bạn\n🔹 **db**: TOP10 Giải Đặc Biệt dự đoán ngày tiếp theo + tỷ lệ % chuẩn\n🔹 Gõ ngày DD/MM: sửa/thêm kết quả lưu trực tiếp vào tệp gốc!")
+def help_bot(m): bot.send_message(m.chat.id,"📖 Lệnh:\n🔹 napdulieu: đọc tệp + bổ sung thiếu\n🔹 **top3**: Phân tích lấy ngay 3 đuôi tốt nhất từ dữ liệu có trong tệp của bạn!\n🔹 db: TOP10 Giải Đặc Biệt dự đoán + tỷ lệ %\n🔹 Gõ ngày DD/MM: sửa/thêm kết quả lưu vào tệp!")
 
-# === CHẠY BỀN ỔN ĐỊNH ===
+# === Chạy bền ổn định ===
 def chay_bot_ben():
     while True:
         try: bot.polling(none_stop=True, interval=3, timeout=180, long_polling_timeout=180)
-        except Exception as e: print(f"⚠️ Chờ khởi động lại: {e}");time.sleep(5)
+        except Exception as e: print(f"⚠️ Khởi động lại: {e}");time.sleep(5)
 
 Thread(target=chay_web, daemon=True).start()
 Thread(target=chay_bot_ben, daemon=True).start()
 
 if __name__=="__main__":
-    print("🚀 HOÀN TOÀN ƯU TIÊN: Đọc trước tệp dulieu_xsmb.json đặt chung với main.py trên Render/GitHub!");while True:time.sleep(3600)
+    print("🚀 Đã thay thành công: không còn cố định 10/03-23/03 → gõ **top3** phân tích toàn bộ dữ liệu có trong tệp ra 3 đuôi chất lượng cao nhất!");while True:time.sleep(3600)

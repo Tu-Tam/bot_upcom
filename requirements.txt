@@ -4,3 +4,4 @@ python-dateutil
 pandas
 numpy
 python-telegram-bot
+gunicorn

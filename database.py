@@ -19,7 +19,7 @@ def get_conn():
     conn = sqlite3.connect(DB_PATH, timeout=30)
     try:
         yield conn
-n    finally:
+    finally:
         conn.commit()
         conn.close()
 

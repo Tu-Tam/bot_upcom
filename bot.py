@@ -7,15 +7,15 @@ from threading import Thread
 from flask import Flask
 import telebot
 
-# === CÁC MODULE CỦA DỰ ÁN ===
+# === NHẬP CSDL — CHỈ CÁC HÀM CÓ THẬT ===
 from database import (
     init_db, save_result, get_results, get_date_range,
-    count_results, get_full_data
+    count_results
 )
-from scraper import tai_90_ngay_gan_nhat  # ✅ Đã thêm bộ cào 90 ngày
-from predictor import predict, analyze_trend
+from scraper import tai_90_ngay_gan_nhat
+from predictor import predict
 
-# === WEB GIỮ HOẠT ĐỘNG RENDER ===
+# === WEB GIỮ SỐNG ===
 app = Flask(__name__)
 
 @app.route('/')
@@ -31,7 +31,7 @@ def keep_alive():
     except Exception:
         return "🤖 Bot hoạt động — Dữ liệu đang được chuẩn bị..."
 
-# === 🔑 CẤU HÌNH BOT ===
+# === 🔑 TOKEN & ID ===
 BOT_TOKEN = os.environ.get(
     "BOT_TOKEN",
     "8520938638:AAF3KD6Qj8k7nPLaq8uJs25ZhSw_D8OTCY0"
@@ -40,7 +40,7 @@ CHAT_ID = int(os.environ.get("CHAT_ID", "7064473358"))
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# === 📊 LỆNH THÔNG TIN ===
+# === LỆNH KHỞI ĐỘNG / TRỢ GIÚP ===
 @bot.message_handler(commands=['start', 'help'])
 def cmd_start(message):
     bot.send_message(
@@ -69,7 +69,7 @@ def cmd_stats(message):
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Lỗi: {str(e)}")
 
-# === 📈 DỰ ĐOÁN ===
+# === DỰ ĐOÁN ===
 @bot.message_handler(commands=['top3'])
 def cmd_top3(message):
     args = message.text.split()
@@ -100,7 +100,7 @@ def cmd_top10(message):
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Lỗi: {str(e)}")
 
-# === ⚙️ KIỂM CHỨNG ===
+# === KIỂM CHỨNG ===
 @bot.message_handler(commands=['backtest'])
 def cmd_backtest(message):
     args = message.text.split()
@@ -123,7 +123,7 @@ def cmd_backtest(message):
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Lỗi kiểm tra: {repr(e)}")
 
-# === ⬇️ CẬP NHẬT DỮ LIỆU ===
+# === CẬP NHẬT DỮ LIỆU ===
 @bot.message_handler(commands=['update'])
 def cmd_update(message):
     bot.send_message(message.chat.id, "🔄 Đang quét & cập nhật CSDL... chờ lát nhé!")
@@ -139,12 +139,12 @@ def cmd_update(message):
             bot.send_message(message.chat.id, f"❌ Lỗi cập nhật: {str(e)}")
     Thread(target=background, daemon=True).start()
 
-# === 🚀 KHỞI ĐỘNG CHÍNH — GIỮ NGUYÊN CẤU TRÚC ===
+# === KHỞI ĐỘNG CHÍNH — KHÔNG THÊM HÀM KHÔNG CÓ TRONG DB ===
 if __name__ == "__main__":
     init_db()
-    print("🚀 Khởi động Flask giữ mạng & Bot Telegram...")
+    print("🚀 Khởi động Flask & Bot Telegram...")
 
-    # ⚡ TẢI LỊCH SỬ 90 NGÀY CHẠY NỀN — KHÔNG LÀM TREO BOT
+    # Tải 90 ngày chạy nền
     def tai_nen():
         try:
             print("📦 Bắt đầu xây dựng kho dữ liệu 90 ngày...")
@@ -155,14 +155,14 @@ if __name__ == "__main__":
 
     Thread(target=tai_nen, daemon=True).start()
 
-    # 🟢 Chạy web giữ sống Render
+    # Chạy web giữ sống
     def run_web():
         cong = int(os.environ.get("PORT", 8080))
         app.run(host="0.0.0.0", port=cong, use_reloader=False)
 
     Thread(target=run_web, daemon=True).start()
 
-    # 🤖 Bắt đầu lắng nghe Telegram — CHẤT LƯỢNG, KHÔNG XUNG ĐỘT
+    # Bot lắng nghe ổn định
     print("🤖 Bot đang lắng nghe lệnh...")
     bot.infinity_polling(
         timeout=35,

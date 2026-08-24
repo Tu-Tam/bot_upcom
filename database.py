@@ -1,354 +1,93 @@
-import os
-import sqlite3
+import os, sqlite3, json
 from datetime import datetime
-
 from config import DATABASE_PATH
 
 
-# ============================================================
-# CONNECTION
-# ============================================================
+def get_conn():
+    os.makedirs(os.path.dirname(DATABASE_PATH) or ".", exist_ok=True)
+    c = sqlite3.connect(DATABASE_PATH, timeout=30)
+    c.execute("PRAGMA journal_mode=WAL")
+    return c
 
-def get_connection():
-
-    folder = os.path.dirname(
-        DATABASE_PATH
-    )
-
-    if folder:
-        os.makedirs(
-            folder,
-            exist_ok=True
-        )
-
-    conn = sqlite3.connect(
-        DATABASE_PATH,
-        timeout=30
-    )
-
-    # Tăng độ an toàn khi nhiều thao tác
-    # đọc/ghi xảy ra gần nhau.
-    conn.execute(
-        "PRAGMA journal_mode=WAL"
-    )
-
-    conn.execute(
-        "PRAGMA foreign_keys=ON"
-    )
-
-    return conn
-
-
-# ============================================================
-# INIT DATABASE
-# ============================================================
 
 def init_db():
-
-    conn = get_connection()
-
-    try:
-
+    with get_conn() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS results (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-
                 date TEXT UNIQUE NOT NULL,
-
                 special TEXT NOT NULL,
-
                 special_last2 TEXT NOT NULL,
-
                 day_of_week INTEGER NOT NULL,
-
+                g1 TEXT NOT NULL, g2 TEXT NOT NULL, g3 TEXT NOT NULL,
+                g4 TEXT NOT NULL, g5 TEXT NOT NULL, g6 TEXT NOT NULL, g7 TEXT NOT NULL,
+                loto_head TEXT NOT NULL,
+                all_numbers TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )
         """)
 
-        conn.commit()
 
-        print(
-            f"[DATABASE] Database ready: "
-            f"{DATABASE_PATH}"
-        )
-
-    finally:
-
-        conn.close()
+def _tojson(obj):
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
-# ============================================================
-# SAVE RESULT
-# ============================================================
+def save_result(rec):
+    sp = rec["special"]
+    last2 = sp[-2:]
+    def norm(arr): return list(arr) if isinstance(arr,(list,tuple)) else []
+    g1,g2,g3,g4,g5,g6,g7 = map(norm,[rec.get(k,[]) for k in "g1 g2 g3 g4 g5 g6 g7".split()])
+    tails = [n[-2:] for n in ([sp]+g1+g2+g3+g4+g5+g6+g7) if isinstance(n,str) and len(n)>=2]
+    all_dump = _tojson({"full5": [sp]+g1+g2+g3+g4+g5+g6+g7, "tails2": tails})
+    dow = rec.get("weekday", datetime.strptime(rec["date"],"%Y-%m-%d").weekday())
+    now = datetime.now().isoformat(timespec="seconds")
 
-def save_result(date, special):
-
-    # --------------------------------------------------------
-    # Validate date
-    # --------------------------------------------------------
-
-    try:
-
-        dt = datetime.strptime(
-            date,
-            "%Y-%m-%d"
-        )
-
-    except ValueError as e:
-
-        raise ValueError(
-            f"Ngày không hợp lệ: {date}"
-        ) from e
-
-    # --------------------------------------------------------
-    # Normalize special
-    # --------------------------------------------------------
-
-    special = str(
-        special
-    ).strip()
-
-    # Chỉ giữ 5 chữ số.
-    #
-    # Không tự động biến một chuỗi sai thành dữ liệu hợp lệ.
-    if not special.isdigit():
-
-        raise ValueError(
-            f"Giải đặc biệt không hợp lệ: "
-            f"{special}"
-        )
-
-    special = special.zfill(5)
-
-    if len(special) != 5:
-
-        raise ValueError(
-            f"Giải đặc biệt phải có 5 chữ số: "
-            f"{special}"
-        )
-
-    last2 = special[-2:]
-
-    now = datetime.now().isoformat(
-        timespec="seconds"
-    )
-
-    # --------------------------------------------------------
-    # Save
-    # --------------------------------------------------------
-
-    conn = get_connection()
-
-    try:
-
+    with get_conn() as conn:
         conn.execute("""
             INSERT INTO results
-            (
-                date,
-                special,
-                special_last2,
-                day_of_week,
-                created_at
-            )
-            VALUES (?, ?, ?, ?, ?)
+            (date,special,special_last2,day_of_week,g1,g2,g3,g4,g5,g6,g7,loto_head,all_numbers,created_at)
+            VALUES (?,?,?,?, ?,?,?,?,?,?,?, ?,?,?)
+            ON CONFLICT(date) DO UPDATE SET
+                special=excluded.special, special_last2=excluded.special_last2,
+                day_of_week=excluded.day_of_week,
+                g1=excluded.g1,g2=excluded.g2,g3=excluded.g3,g4=excluded.g4,
+                g5=excluded.g5,g6=excluded.g6,g7=excluded.g7,
+                loto_head=excluded.loto_head, all_numbers=excluded.all_numbers, created_at=excluded.created_at
+        """, (rec["date"], sp, last2, dow,
+              _tojson(g1),_tojson(g2),_tojson(g3),_tojson(g4),_tojson(g5),_tojson(g6),_tojson(g7),
+              _tojson(rec.get("loto_by_head",{})), all_dump, now))
 
-            ON CONFLICT(date)
-            DO UPDATE SET
-                special = excluded.special,
-                special_last2 = excluded.special_last2,
-                day_of_week = excluded.day_of_week,
-                created_at = excluded.created_at
-        """, (
-            date,
-            special,
-            last2,
-            dt.weekday(),
-            now
-        ))
-
-        conn.commit()
-
-        print(
-            f"[DATABASE] Saved: "
-            f"{date} -> {special}"
-        )
-
-    finally:
-
-        conn.close()
-
-
-# ============================================================
-# GET RESULTS
-# ============================================================
 
 def get_results(limit=None):
-
-    conn = get_connection()
-
-    try:
-
-        if limit is not None:
-
-            limit = int(limit)
-
-            if limit <= 0:
-                return []
-
-            rows = conn.execute("""
-                SELECT
-                    date,
-                    special,
-                    special_last2,
-                    day_of_week
-                FROM results
-                ORDER BY date DESC
-                LIMIT ?
-            """, (
-                limit,
-            )).fetchall()
-
-        else:
-
-            rows = conn.execute("""
-                SELECT
-                    date,
-                    special,
-                    special_last2,
-                    day_of_week
-                FROM results
-                ORDER BY date DESC
-            """).fetchall()
-
-    finally:
-
-        conn.close()
-
-    return rows
+    with get_conn() as c:
+        cur = c.cursor()
+        sql = "SELECT date,special,special_last2,day_of_week FROM results ORDER BY date DESC"
+        if isinstance(limit,int) and limit>0: sql+=" LIMIT ?"; cur.execute(sql,(limit,))
+        else: cur.execute(sql)
+        return cur.fetchall()
 
 
-# ============================================================
-# GET ONE RESULT
-# ============================================================
+def get_full(date_str):
+    with get_conn() as c:
+        r = c.execute("""
+            SELECT date,special,special_last2,day_of_week,g1,g2,g3,g4,g5,g6,g7,loto_head,all_numbers
+            FROM results WHERE date=?
+        """,(date_str,)).fetchone()
+    if not r: return None
+    return {
+        "date":r[0],"special":r[1],"special_last2":r[2],"weekday":r[3],
+        "g1":json.loads(r[4]),"g2":json.loads(r[5]),"g3":json.loads(r[6]),
+        "g4":json.loads(r[7]),"g5":json.loads(r[8]),"g6":json.loads(r[9]),"g7":json.loads(r[10]),
+        "loto":json.loads(r[11]),"all":json.loads(r[12])
+    }
 
-def get_result(date):
-
-    conn = get_connection()
-
-    try:
-
-        row = conn.execute("""
-            SELECT
-                date,
-                special,
-                special_last2,
-                day_of_week
-            FROM results
-            WHERE date = ?
-        """, (
-            date,
-        )).fetchone()
-
-    finally:
-
-        conn.close()
-
-    return row
-
-
-# ============================================================
-# COUNT
-# ============================================================
 
 def count_results():
-
-    conn = get_connection()
-
-    try:
-
-        result = conn.execute(
-            """
-            SELECT COUNT(*)
-            FROM results
-            """
-        ).fetchone()
-
-    finally:
-
-        conn.close()
-
-    return result[0]
-
-
-# ============================================================
-# DATABASE INFO
-# ============================================================
-
+    with get_conn() as c: return c.execute("SELECT COUNT(*) FROM results").fetchone()[0]
 def get_date_range():
-
-    conn = get_connection()
-
-    try:
-
-        row = conn.execute("""
-            SELECT
-                MIN(date),
-                MAX(date)
-            FROM results
-        """).fetchone()
-
-    finally:
-
-        conn.close()
-
-    return row
+    with get_conn() as c: return c.execute("SELECT MIN(date),MAX(date) FROM results").fetchone()
 
 
-# ============================================================
-# TEST
-# ============================================================
-
-if __name__ == "__main__":
-
-    print(
-        "========================================"
-    )
-
-    print(
-        "[DATABASE] TEST"
-    )
-
-    print(
-        "========================================"
-    )
-
+if __name__=="__main__":
     init_db()
-
-    print(
-        "Database:",
-        DATABASE_PATH
-    )
-
-    print(
-        "Số bản ghi:",
-        count_results()
-    )
-
-    print(
-        "Khoảng ngày:",
-        get_date_range()
-    )
-
-    print(
-        "5 kết quả mới nhất:"
-    )
-
-    for row in get_results(5):
-
-        print(
-            row
-        )
-
-    print(
-        "========================================"
-        )
+    print(f"✅ DB: {DATABASE_PATH} | Tổng: {count_results()} ngày")

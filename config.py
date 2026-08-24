@@ -1,7 +1,7 @@
 import os
 
-TELEGRAM_TOKEN = "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns", "")
-TELEGRAM_CHAT_ID = 7064473358
+TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
+
 DATABASE_PATH = "data/xsmb.db"
 
 # Số ngày lịch sử dùng để tính toán

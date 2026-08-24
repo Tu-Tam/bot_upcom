@@ -1,3 +1,6 @@
+import os
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime, timedelta
 
 from telegram import Update
@@ -23,6 +26,45 @@ from backtest import (
 )
 
 
+# ============================================================
+# HTTP SERVER CHO RENDER
+# ============================================================
+
+class HealthHandler(BaseHTTPRequestHandler):
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"XSMB Bot is running!")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        return
+
+
+def start_web_server():
+
+    port = int(os.environ.get("PORT", 10000))
+
+    server = HTTPServer(
+        ("0.0.0.0", port),
+        HealthHandler
+    )
+
+    print(f"Web server đang chạy trên port {port}")
+
+    server.serve_forever()
+
+
+# ============================================================
+# FORMAT DATE
+# ============================================================
+
 def format_date(date):
 
     dt = datetime.strptime(
@@ -34,6 +76,10 @@ def format_date(date):
         "%d/%m/%Y"
     )
 
+
+# ============================================================
+# START
+# ============================================================
 
 async def start(
     update: Update,
@@ -69,6 +115,10 @@ Thống kê database
     )
 
 
+# ============================================================
+# UPDATE
+# ============================================================
+
 async def update_cmd(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
@@ -88,6 +138,10 @@ async def update_cmd(
             f"❌ Lỗi cập nhật:\n{e}"
         )
 
+
+# ============================================================
+# PREDICT
+# ============================================================
 
 async def predict_cmd(
     update: Update,
@@ -167,6 +221,10 @@ async def predict_cmd(
     )
 
 
+# ============================================================
+# TEST
+# ============================================================
+
 async def test_cmd(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
@@ -224,11 +282,6 @@ async def test_cmd(
 
     predictions = result["predictions"]
 
-    numbers = [
-        x[0]
-        for x in predictions
-    ]
-
     text = [
         "🧪 BACKTEST",
         "",
@@ -248,10 +301,14 @@ async def test_cmd(
             f"{i}. {number} ({score:.2f})"
         )
 
+    actual = str(
+        result["actual"]
+    ).zfill(5)
+
     text.extend([
         "",
-        f"🎯 Kết quả ĐB: {result['actual']}",
-        f"2 số cuối: {result['actual']}"
+        f"🎯 Kết quả ĐB: {actual}",
+        f"2 số cuối: {actual[-2:]}"
     ])
 
     if result["hit"]:
@@ -259,7 +316,7 @@ async def test_cmd(
         text.extend([
             "",
             "✅ TRÚNG",
-            f"Số trúng: {result['actual']}",
+            f"Số trúng: {actual}",
             f"Xếp hạng: #{result['rank']}"
         ])
 
@@ -274,6 +331,10 @@ async def test_cmd(
         "\n".join(text)
     )
 
+
+# ============================================================
+# BACKTEST
+# ============================================================
 
 async def backtest_cmd(
     update: Update,
@@ -293,13 +354,23 @@ async def backtest_cmd(
         f"⏳ Đang backtest {days} ngày..."
     )
 
-    results = run_backtest(
-        days
-    )
+    try:
 
-    summary = summarize(
-        results
-    )
+        results = run_backtest(
+            days
+        )
+
+        summary = summarize(
+            results
+        )
+
+    except Exception as e:
+
+        await update.message.reply_text(
+            f"❌ Lỗi backtest:\n{e}"
+        )
+
+        return
 
     if not summary:
 
@@ -336,6 +407,10 @@ Top 5:
     )
 
 
+# ============================================================
+# STATS
+# ============================================================
+
 async def stats_cmd(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
@@ -347,6 +422,10 @@ async def stats_cmd(
     )
 
 
+# ============================================================
+# MAIN
+# ============================================================
+
 def main():
 
     init_db()
@@ -357,6 +436,15 @@ def main():
             "Chưa cấu hình TELEGRAM_TOKEN"
         )
 
+    # Khởi động HTTP server cho Render
+    web_thread = threading.Thread(
+        target=start_web_server,
+        daemon=True
+    )
+
+    web_thread.start()
+
+    # Khởi động Telegram Bot
     app = (
         Application
         .builder()

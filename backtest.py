@@ -5,7 +5,7 @@ from predictor import predict
 
 
 # ============================================================
-# GET AVAILABLE DATES
+# LẤY DANH SÁCH NGÀY CÓ DỮ LIỆU
 # ============================================================
 
 def get_dates():
@@ -20,23 +20,44 @@ def get_dates():
 
 
 # ============================================================
-# TEST SINGLE DATE
+# TEST 1 NGÀY
 # ============================================================
 
-def test_single_date(
-    prediction_date
-):
+def test_single_date(prediction_date):
 
-    target = datetime.strptime(
-        prediction_date,
-        "%Y-%m-%d"
-    )
+    try:
+        target = datetime.strptime(
+            prediction_date,
+            "%Y-%m-%d"
+        )
+    except ValueError:
+        raise ValueError(
+            f"Ngày không hợp lệ: {prediction_date}"
+        )
 
     target_date = (
         target + timedelta(days=1)
     ).strftime("%Y-%m-%d")
 
+    print("")
+    print("=" * 60)
+    print("BACKTEST")
+    print(f"Ngày dự đoán : {prediction_date}")
+    print(f"Ngày kiểm tra: {target_date}")
+
+    # ========================================================
+    # LẤY DATABASE
+    # ========================================================
+
     rows = get_results()
+
+    print(
+        f"Database có {len(rows)} dòng."
+    )
+
+    # ========================================================
+    # TÌM KẾT QUẢ THỰC TẾ
+    # ========================================================
 
     actual_row = None
 
@@ -47,8 +68,15 @@ def test_single_date(
             actual_row = row
             break
 
-    # Chưa có kết quả ngày hôm sau
+    # ========================================================
+    # CHƯA CÓ KẾT QUẢ
+    # ========================================================
+
     if actual_row is None:
+
+        print(
+            f"NO_RESULT: chưa có dữ liệu {target_date}"
+        )
 
         return {
             "prediction_date": prediction_date,
@@ -57,25 +85,32 @@ def test_single_date(
         }
 
     # ========================================================
-    # DATABASE:
+    # DATABASE STRUCTURE
     #
     # row[0] = date
     # row[1] = special
     # row[2] = special_last2
     # row[3] = day_of_week
-    #
-    # Chúng ta chỉ đánh giá 2 số cuối
     # ========================================================
+
+    special = str(
+        actual_row[1]
+    ).zfill(5)
 
     actual = str(
         actual_row[2]
     ).zfill(2)
 
+    print(
+        f"Actual ĐB     : {special}"
+    )
+
+    print(
+        f"Actual 2 số   : {actual}"
+    )
+
     # ========================================================
-    # PREDICT
-    #
-    # predictor.py phải tự đảm bảo rằng chỉ sử dụng
-    # dữ liệu trước target_date.
+    # DỰ ĐOÁN
     # ========================================================
 
     predictions = predict(
@@ -83,13 +118,24 @@ def test_single_date(
         top_n=10
     )
 
+    if not predictions:
+
+        raise ValueError(
+            "predict() không trả về kết quả."
+        )
+
     numbers = [
         str(number).zfill(2)
         for number, score in predictions
     ]
 
+    print(
+        "Predictions    : "
+        + ", ".join(numbers)
+    )
+
     # ========================================================
-    # CHECK HIT
+    # SO SÁNH
     # ========================================================
 
     hit = actual in numbers
@@ -98,15 +144,42 @@ def test_single_date(
 
     if hit:
 
-        rank = (
-            numbers.index(actual)
-            + 1
+        rank = numbers.index(actual) + 1
+
+    print(
+        f"Hit            : {hit}"
+    )
+
+    print(
+        f"Rank           : {rank}"
+    )
+
+    # ========================================================
+    # IN CHI TIẾT TOP 10
+    # ========================================================
+
+    print("")
+    print("TOP 10:")
+
+    for index, (number, score) in enumerate(
+        predictions,
+        start=1
+    ):
+
+        print(
+            f"{index:2d}. "
+            f"{str(number).zfill(2)} "
+            f"| score={score:.4f}"
         )
+
+    print("=" * 60)
 
     return {
         "prediction_date": prediction_date,
         "target_date": target_date,
+        "status": "OK",
         "actual": actual,
+        "special": special,
         "predictions": predictions,
         "hit": hit,
         "rank": rank
@@ -114,36 +187,36 @@ def test_single_date(
 
 
 # ============================================================
-# RUN BACKTEST
+# BACKTEST N NGÀY
 # ============================================================
 
-def run_backtest(
-    days=30
-):
+def run_backtest(days=30):
+
+    try:
+        days = int(days)
+    except (ValueError, TypeError):
+        days = 30
+
+    if days <= 0:
+        days = 30
 
     dates = get_dates()
 
     if not dates:
 
+        print(
+            "BACKTEST: database không có dữ liệu."
+        )
+
         return []
 
-    available_dates = set(
-        dates
-    )
-
     # ========================================================
-    # Chỉ chọn những ngày mà NGÀY HÔM SAU cũng có dữ liệu.
-    #
-    # Ví dụ:
-    #
-    # 22/08 -> 23/08 có dữ liệu
-    # => được test
-    #
-    # 24/08 -> 25/08 chưa có dữ liệu
-    # => không test
+    # CHỈ TEST NHỮNG NGÀY MÀ NGÀY SAU CÓ KẾT QUẢ
     # ========================================================
 
-    test_dates = []
+    available_dates = set(dates)
+
+    valid_dates = []
 
     for date in dates:
 
@@ -156,6 +229,10 @@ def run_backtest(
 
         except ValueError:
 
+            print(
+                f"BACKTEST: bỏ qua ngày lỗi {date}"
+            )
+
             continue
 
         next_date = (
@@ -164,31 +241,35 @@ def run_backtest(
 
         if next_date in available_dates:
 
-            test_dates.append(
-                date
-            )
+            valid_dates.append(date)
 
-    # Không có ngày nào đủ dữ liệu
-    if not test_dates:
+    if not valid_dates:
+
+        print(
+            "BACKTEST: không có cặp ngày hợp lệ."
+        )
 
         return []
 
     # ========================================================
-    # Lấy N ngày gần nhất
+    # LẤY N NGÀY GẦN NHẤT
     # ========================================================
 
-    test_dates.sort(
+    valid_dates.sort(
         reverse=True
     )
 
-    test_dates = test_dates[:days]
+    test_dates = valid_dates[:days]
 
-    # ========================================================
-    # Chạy theo thứ tự thời gian
-    # để log/backtest dễ kiểm tra
-    # ========================================================
-
+    # Chạy từ cũ -> mới
     test_dates.sort()
+
+    print("")
+    print("#" * 60)
+    print(
+        f"BACKTEST BẮT ĐẦU: {len(test_dates)} ngày"
+    )
+    print("#" * 60)
 
     results = []
 
@@ -200,20 +281,24 @@ def run_backtest(
                 date
             )
 
-            if result.get(
-                "status"
-            ) != "NO_RESULT":
+            if result.get("status") == "OK":
 
-                results.append(
-                    result
-                )
+                results.append(result)
 
         except Exception as e:
 
+            print("")
             print(
                 f"BACKTEST ERROR {date}: "
                 f"{repr(e)}"
             )
+
+    print("")
+    print("#" * 60)
+    print(
+        f"BACKTEST KẾT THÚC: {len(results)} ngày"
+    )
+    print("#" * 60)
 
     return results
 
@@ -222,22 +307,18 @@ def run_backtest(
 # SUMMARY
 # ============================================================
 
-def summarize(
-    results
-):
+def summarize(results):
 
     if not results:
 
         return {}
 
-    total = len(
-        results
-    )
+    total = len(results)
 
     hits = sum(
         1
         for result in results
-        if result["hit"]
+        if result.get("hit") is True
     )
 
     top1 = 0
@@ -247,46 +328,54 @@ def summarize(
 
     for result in results:
 
-        rank = result["rank"]
+        rank = result.get("rank")
 
         if rank is None:
-
             continue
 
         if rank <= 1:
-
             top1 += 1
 
         if rank <= 3:
-
             top3 += 1
 
         if rank <= 5:
-
             top5 += 1
 
         if rank <= 10:
-
             top10 += 1
 
-    return {
-
+    summary = {
         "days": total,
-
         "hits": hits,
-
-        "hit_rate":
-            hits / total,
-
-        "top1":
-            top1 / total,
-
-        "top3":
-            top3 / total,
-
-        "top5":
-            top5 / total,
-
-        "top10":
-            top10 / total
+        "hit_rate": hits / total,
+        "top1": top1 / total,
+        "top3": top3 / total,
+        "top5": top5 / total,
+        "top10": top10 / total
     }
+
+    print("")
+    print("=" * 60)
+    print("BACKTEST SUMMARY")
+    print("=" * 60)
+    print(f"Days   : {total}")
+    print(f"Hits   : {hits}")
+    print(
+        f"Hit    : {summary['hit_rate'] * 100:.2f}%"
+    )
+    print(
+        f"Top 1  : {summary['top1'] * 100:.2f}%"
+    )
+    print(
+        f"Top 3  : {summary['top3'] * 100:.2f}%"
+    )
+    print(
+        f"Top 5  : {summary['top5'] * 100:.2f}%"
+    )
+    print(
+        f"Top 10 : {summary['top10'] * 100:.2f}%"
+    )
+    print("=" * 60)
+
+    return summary

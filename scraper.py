@@ -1,105 +1,75 @@
-import re
-import time
 import requests
-
 from bs4 import BeautifulSoup
-from datetime import datetime
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+from datetime import datetime, timedelta
+import time
+import random
 
-from database import save_result
-
-
-PRIMARY_URL = "https://xoso.com.vn/xsmb-100-ngay.html"
-FALLBACK_URLS = [
-    "https://xoso.com.vn/xsmb-30-ngay.html",
-    "https://xsmb.com.vn/xsmb-sxmb-ket-qua-xo-so-mien-bac-truc-tiep",
+# Danh sách nguồn tin cậy, dự phòng nhau
+NGUON = [
+    "https://xosohn.com/xsmb-xo-so-mien-bac.html",
+    "https://ketqua.vn/xo-so-mien-bac",
+    "https://xsmb.vn/lich-su-xo-so-mien-bac"
 ]
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7"
-}
+def lay_ket_qua_mien_bac_90_ngay():
+    """Quét tự động đủ 90 ngày gần nhất, trả về danh sách dict: ngày + tất cả các giải"""
+    du_lieu = []
+    ngay_hien_tai = datetime.today()
 
-TIMEOUT = 30
-RETRY_MAX = 3
+    for i in range(90):
+        ngay_can_lay = ngay_hien_tai - timedelta(days=i)
+        ngay_str = ngay_can_lay.strftime("%d/%m/%Y")
+        da_lay_du = False
 
+        for link in NGUON:
+            try:
+                tieu_de = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                                  "(KHTML, như Gecko) Chrome/120.0.0.0 Safari/537.36"
+                }
+                resp = requests.get(link, headers=tieu_de, timeout=15)
+                resp.encoding = "utf-8"
+                soup = BeautifulSoup(resp.text, "html.parser")
 
-def create_session():
-    session = requests.Session()
-    adapter = HTTPAdapter(max_retries=Retry(
-        total=RETRY_MAX, backoff_factor=1.5,
-        status_forcelist=[429,500,502,503,504]
-    ))
-    session.mount("https://", adapter)
-    session.headers.update(HEADERS)
-    return session
+                # Tìm bảng kết quả theo ngày (cấu trúc phổ biến)
+                bang = soup.find("table", class_="table-kq") or soup.find("div", class_="ketqua-ngay")
+                if not bang:
+                    continue
 
+                cac_giai = []
+                for hang in bang.find_all("tr"):
+                    o_td = hang.find_all("td")
+                    if len(o_td) >= 2:
+                        # Lấy tất cả số trong mỗi giải
+                        cac_so = [s.get_text(strip=True) for s in o_td if s.get_text(strip=True).isdigit() or len(s.get_text(strip=True)) in [2,5,6]]
+                        if cac_so:
+                            cac_giai.extend(cac_so)
 
-def fetch_page(url):
-    print(f"\n🔗 Đọc nguồn: {url}")
-    s = create_session()
-    resp = s.get(url, timeout=TIMEOUT)
-    resp.raise_for_status()
-    return resp.text
+                if len(cac_giai) >= 10:  # Đủ số lượng giải tối thiểu XSMB
+                    du_lieu.append({
+                        "ngay": ngay_str,
+                        "cac_giai": cac_giai
+                    })
+                    print(f"✅ Đã lấy: {ngay_str} – {len(cac_giai)} số")
+                    da_lay_du = True
+                    break
+            except Exception as e:
+                print(f"⚠️ Lỗi {ngay_str} – thử nguồn khác: {str(e)[:40]}...")
+                continue
 
+        if not da_lay_du:
+            print(f"❌ Không lấy được: {ngay_str}")
 
-def normalize_text(t):
-    return re.sub(r"\s+", " ", t.replace("\xa0"," ")).strip()
+        # Nghỉ ngẫu nhiên để không bị chặn
+        time.sleep(random.uniform(0.4, 1.2))
 
-
-def parse_html(html):
-    soup = BeautifulSoup(html, "html.parser")
-    out = []
-    for tbl in soup.find_all("table"):
-        text = tbl.get_text("\n")
-        m_date = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", text)
-        if not m_date: continue
-        try:
-            dt = datetime.strptime(m_date.group(), "%d/%m/%Y")
-            day_id = dt.strftime("%Y-%m-%d")
-        except Exception: continue
-
-        rec = {
-            "date": day_id, "weekday": dt.weekday(), "special": None,
-            "g1": [], "g2": [], "g3": [], "g4": [], "g5": [], "g6": [], "g7": [],
-            "loto_by_head": {}
-        }
-        for tr in tbl.find_all("tr"):
-            cells = [normalize_text(td.get_text()) for td in tr.find_all(["td","th"])]
-            if len(cells)<2: continue
-            tieu = cells[0].upper().strip(":.")
-            so = re.findall(r"\b\d{2,5}\b", " ".join(cells[1:]))
-            if tieu in ("ĐB","ĐẶC BIỆT") and len(so)>=1 and len(so[0])==5:
-                rec["special"]=so[0]
-            elif tieu=="1": rec["g1"]+=so
-            elif tieu=="2": rec["g2"]+=so
-            elif tieu=="3": rec["g3"]+=so
-            elif tieu=="4": rec["g4"]+=so
-            elif tieu=="5": rec["g5"]+=so
-            elif tieu=="6": rec["g6"]+=so
-            elif tieu=="7": rec["g7"]+=so
-        if rec["special"]:
-            out.append(rec)
-            print(f"✅ Phân tích: {day_id} | ĐB={rec['special']}")
-    return out
+    return du_lieu
 
 
-def fetch_and_parse_all():
-    for url in [PRIMARY_URL]+FALLBACK_URLS:
-        try:
-            html = fetch_page(url)
-            data = parse_html(html)
-            if data: return data
-        except Exception as e:
-            print(f"⚠️ Nguồn {url}: {e}")
-    return []
-
-
-if __name__=="__main__":
-    from database import init_db
-    init_db()
-    print("🚀 Quét dữ liệu...")
-    ds = fetch_and_parse_all()
-    for rec in ds: save_result(rec)
-    print(f"✅ Hoàn tất: {len(ds)} ngày đã lưu.")
+def cap_nhat_vao_csdl(du_lieu, ham_luu_ngay):
+    """Chèn dữ liệu đã quét vào DB, kiểm tra trùng thông minh"""
+    dem_moi = 0
+    for ban_ghi in du_lieu:
+        if ham_luu_ngay(ban_ghi["ngay"], ban_ghi["cac_giai"]):
+            dem_moi += 1
+    return dem_moi

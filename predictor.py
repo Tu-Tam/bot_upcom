@@ -1,98 +1,93 @@
 from collections import Counter
 from datetime import datetime
 import math
-
 from database import get_results, get_full
 
 
-MIN_HISTORY = 10
+MIN_HISTORY=10
 SHORT_WINDOW=7; MEDIUM_WINDOW=30; LONG_WINDOW=90
 WEIGHT_SHORT=0.30; WEIGHT_MEDIUM=0.25; WEIGHT_LONG=0.15; WEIGHT_WEEKDAY=0.15; WEIGHT_GAP=0.15
 
 
-def normalize_number(n): return str(n).zfill(2)
-def parse_date(s): return datetime.strptime(s,"%Y-%m-%d")
+def norm_num(n): return str(n).zfill(2)
+def parse_dt(s): return datetime.strptime(s,"%Y-%m-%d")
 
 
-def extract_all_tails(rec):
-    tails = [rec["special"][-2:]]
-    for g in ["g1","g2","g3","g4","g5","g6","g7"]:
-        for num5 in rec.get(g,[]):
-            if isinstance(num5,str) and len(num5)>=2: tails.append(num5[-2:])
-    if isinstance(rec.get("all"),dict): tails.extend(rec["all"].get("tails2",[]))
-    return [normalize_number(t) for t in tails if len(str(t))==2 or str(t).isdigit()]
+def extract_tails(rec):
+    t = [rec["special"][-2:]]
+    for g in [rec["g1"],rec["g2"],rec["g3"],rec["g4"],rec["g5"],rec["g6"],rec["g7"]]:
+        for f in g:
+            if isinstance(f,str) and len(f)>=2: t.append(f[-2:])
+    if isinstance(rec.get("all"),dict): t.extend(rec["all"].get("tails2",[]))
+    return [norm_num(x) for x in t if len(str(x))==2 or str(x).isdigit()]
 
 
-def get_full_history_before(target_date):
-    target_dt=parse_date(target_date)
-    rows=get_results()
+def get_history_before(target_dt):
+    tgt = parse_dt(target_dt)
+    rows = get_results()
     hist=[]
-    for dt_str, *_ in sorted(rows, key=lambda r:r[0]):
-        if parse_date(dt_str) < target_dt:
-            f=get_full(dt_str)
+    for d,*_ in sorted(rows,key=lambda r:r[0]):
+        if parse_dt(d) < tgt:
+            f=get_full(d)
             if f: hist.append(f)
-    return sorted(hist, key=lambda r:r["date"], reverse=True)
+    return sorted(hist, key=lambda x:x["date"], reverse=True)
 
 
-def build_frequency(hist, win):
+def freq_window(hist, win):
     c=Counter()
-    for r in hist[:win]: c.update(extract_all_tails(r))
-    return {normalize_number(i):c.get(normalize_number(i),0) for i in range(100)}
+    for r in hist[:win]: c.update(extract_tails(r))
+    return {norm_num(i):c.get(norm_num(i),0) for i in range(100)}
 
 
-def recency_score(hist, win):
-    sc={normalize_number(i):0.0 for i in range(100)}
+def score_recency(hist, win):
+    sc={norm_num(i):0.0 for i in range(100)}
     if not hist: return sc
     for idx,rec in enumerate(hist[:win]):
         w=math.exp(-idx/max(win/3,1))
-        for t in extract_all_tails(rec): sc[t]+=w
+        for tail in extract_tails(rec): sc[tail]+=w
     return sc
 
 
-def normalize_scores(dic):
+def norm_score(dic):
     if not dic: return dic
     vals=list(dic.values()); lo,hi=min(vals),max(vals)
     return {k: (v-lo)/(hi-lo) if hi!=lo else 0.0 for k,v in dic.items()}
 
 
-def weekday_score(hist, target_dt_str):
-    dow=parse_date(target_dt_str).weekday()
+def score_weekday(hist, target_dt):
+    dow=parse_dt(target_dt).weekday()
     c=Counter()
     for rec in hist:
-        if rec["weekday"]==dow: c.update(extract_all_tails(rec))
-    raw={normalize_number(i):c.get(normalize_number(i),0) for i in range(100)}
-    return normalize_scores(raw)
+        if rec["weekday"]==dow: c.update(extract_tails(rec))
+    raw={norm_num(i):c.get(norm_num(i),0) for i in range(100)}
+    return norm_score(raw)
 
 
-def gap_score(hist):
+def score_gap(hist):
     sc={}
-    all_n=[normalize_number(i) for i in range(100)]
-    for n in all_n:
+    for num in [norm_num(i) for i in range(100)]:
         g=len(hist)
         for idx,rec in enumerate(hist):
-            if n in extract_all_tails(rec): g=idx; break
-        sc[n]=math.log1p(g)
-    return normalize_scores(sc)
+            if num in extract_tails(rec): g=idx; break
+        sc[num]=math.log1p(g)
+    return norm_score(sc)
 
 
-def calculate_scores(target_date):
-    hist=get_full_history_before(target_date)
-    if not hist: raise ValueError("❌ Chưa có lịch sử! Cập nhật trước.")
-    if len(hist)<MIN_HISTORY: raise ValueError(f"⚠️ Cần ít nhất {MIN_HISTORY} ngày.")
-
-    sh=normalize_scores(recency_score(hist,SHORT_WINDOW))
-    md=normalize_scores(recency_score(hist,MEDIUM_WINDOW))
-    lg=normalize_scores(build_frequency(hist,LONG_WINDOW))
-    wd=weekday_score(hist,target_date)
-    gp=gap_score(hist)
-
+def calculate(target_dt):
+    hist=get_history_before(target_dt)
+    if len(hist)<MIN_HISTORY: raise ValueError(f"Cần ít nhất {MIN_HISTORY} ngày lịch sử")
+    sh=norm_score(score_recency(hist,SHORT_WINDOW))
+    md=norm_score(score_recency(hist,MEDIUM_WINDOW))
+    lg=norm_score(freq_window(hist,LONG_WINDOW))
+    wd=score_weekday(hist,target_dt)
+    gp=score_gap(hist)
     total={}
-    for num in [normalize_number(i) for i in range(100)]:
-        total[num]=sh[num]*WEIGHT_SHORT + md[num]*WEIGHT_MEDIUM + lg[num]*WEIGHT_LONG + wd[num]*WEIGHT_WEEKDAY + gp[num]*WEIGHT_GAP
+    for n in [norm_num(i) for i in range(100)]:
+        total[n]=sh[n]*WEIGHT_SHORT + md[n]*WEIGHT_MEDIUM + lg[n]*WEIGHT_LONG + wd[n]*WEIGHT_WEEKDAY + gp[n]*WEIGHT_GAP
     return total
 
 
 def predict(target_date, top_n=10):
-    if not (1<=top_n<=100): top_n=max(1,min(top_n,100))
-    sc=calculate_scores(target_date)
-    return sorted(sc.items(), key=lambda kv: (-kv[1], kv[0]))[:top_n]
+    sc=calculate(target_date)
+    rank=sorted(sc.items(), key=lambda kv: (-kv[1], kv[0]))
+    return rank[:max(1,min(top_n,100))]

@@ -4,62 +4,143 @@ from predictor import predict
 
 
 def get_dates():
-    return sorted(set(r[0] for r in get_results()))
+    rows = get_results()
+    return sorted(set(r[0] for r in rows))
 
 
-def test_single(pred_date):
-    try: tgt=datetime.strptime(pred_date,"%Y-%m-%d")
-    except: raise ValueError(f"Sai định dạng: {pred_date}")
-    next_day=(tgt+timedelta(days=1)).strftime("%Y-%m-%d")
-    rows=get_results()
-    actual=None
-    for r in rows:
-        if r[0]==next_day: actual=r; break
-    if not actual:
-        return {"pred":pred_date,"target":next_day,"status":"NO_DATA"}
-    sp,last2=actual[1],actual[2]
-    preds=predict(next_day,10)
-    nums=[n for n,_ in preds]
-    hit=last2 in nums
-    rank=nums.index(last2)+1 if hit else None
-    return {"pred":pred_date,"target":next_day,"status":"OK",
-            "actual":last2,"special":sp,"preds":preds,"hit":hit,"rank":rank}
+def test_single_date(prediction_date):
+    try:
+        target = datetime.strptime(prediction_date, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError(f"Ngày không hợp lệ: {prediction_date}")
+
+    target_date = (target + timedelta(days=1)).strftime("%Y-%m-%d")
+    rows = get_results()
+
+    actual_row = None
+    for row in rows:
+        if row[0] == target_date:
+            actual_row = row
+            break
+
+    if not actual_row:
+        return {
+            "pred": prediction_date,
+            "target": target_date,
+            "status": "NO_DATA"
+        }
+
+    special = actual_row[1]
+    actual_last2 = actual_row[2]
+
+    try:
+        predictions = predict(target_date, top_n=10)
+    except Exception as e:
+        raise RuntimeError(f"Lỗi gọi dự đoán: {e}")
+
+    numbers = [num for num, _score in predictions]
+    hit = actual_last2 in numbers
+    rank = numbers.index(actual_last2) + 1 if hit else None
+
+    return {
+        "pred": prediction_date,
+        "target": target_date,
+        "status": "OK",
+        "actual": actual_last2,
+        "special": special,
+        "preds": predictions,
+        "hit": hit,
+        "rank": rank
+    }
 
 
 def run_backtest(days=30):
-    days=max(1,int(days))
-    dates=get_dates()
-    if not dates: return []
-    valid=[]
-    for d in dates:
-        try: dt=datetime.strptime(d,"%Y-%m-%d")
-        except: continue
-        if (dt+timedelta(days=1)).strftime("%Y-%m-%d") in dates: valid.append(d)
-    valid=sorted(valid,reverse=True)[:days]; valid.sort()
-    out=[]
-    for d in valid:
-        try: res=test_single(d); if res["status"]=="OK": out.append(res)
-        except Exception as e: print(f"⚠️ {d}: {e}")
-    return out
+    try:
+        days = max(1, int(days))
+    except Exception:
+        days = 30
+
+    all_dates = get_dates()
+    if not all_dates:
+        print("⚠️ Không có dữ liệu ngày nào trong cơ sở dữ liệu.")
+        return []
+
+    # Lọc ra những ngày có ngày tiếp theo tồn tại
+    valid_dates = []
+    for date_str in all_dates:
+        try:
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            continue
+        next_day = (dt + timedelta(days=1)).strftime("%Y-%m-%d")
+        if next_day in all_dates:
+            valid_dates.append(date_str)
+
+    if not valid_dates:
+        print("⚠️ Không tìm thấy cặp ngày liên tiếp hợp lệ để kiểm tra.")
+        return []
+
+    # Lấy số ngày gần nhất & sắp xếp từ cũ đến mới
+    valid_dates.sort(reverse=True)
+    test_set = valid_dates[:days]
+    test_set.sort()
+
+    out_results = []
+    for day in test_set:
+        try:
+            result = test_single_date(day)
+            if result.get("status") == "OK":
+                out_results.append(result)
+        except Exception as err:
+            print(f"❌ Bỏ qua ngày {day}: {repr(err)}")
+
+    return out_results
 
 
 def summarize(results):
-    if not results: return {}
-    total=len(results); hits=sum(1 for x in results if x.get("hit"))
-    t1=t3=t5=t10=0
-    for x in results:
-        rk=x.get("rank")
-        if not rk: continue
-        if rk<=1: t1+=1
-        if rk<=3: t3+=1
-        if rk<=5: t5+=1
-        if rk<=10: t10+=1
-    st={"days":total,"hits":hits,"hit_rate":hits/total,"top1":t1/total,"top3":t3/total,"top5":t5/total,"top10":t10/total}
-    print(f"\n📊 KẾT QUẢ: {total} ngày | Trúng: {hits} | Tỷ lệ chung: {st['hit_rate']*100:.2f}%")
-    print(f"Top1={st['top1']*100:.2f}% | Top3={st['top3']*100:.2f}% | Top5={st['top5']*100:.2f}% | Top10={st['top10']*100:.2f}%")
-    return st
+    if not results:
+        print("\n⚠️ Không có kết quả hợp lệ để tổng hợp.")
+        return {}
+
+    total = len(results)
+    hits = sum(1 for rec in results if rec.get("hit"))
+
+    top1 = top3 = top5 = top10 = 0
+    for rec in results:
+        rank = rec.get("rank")
+        if not rank:
+            continue
+        if rank <= 1:
+            top1 += 1
+        if rank <= 3:
+            top3 += 1
+        if rank <= 5:
+            top5 += 1
+        if rank <= 10:
+            top10 += 1
+
+    stats = {
+        "days": total,
+        "hits": hits,
+        "hit_rate": hits / total,
+        "top1": top1 / total,
+        "top3": top3 / total,
+        "top5": top5 / total,
+        "top10": top10 / total
+    }
+
+    print("\n" + "=" * 60)
+    print("📊 KẾT QUẢ TỔNG HỢP KIỂM CHỨNG LẠI")
+    print(f"✅ Tổng ngày kiểm tra: {total}")
+    print(f"🎯 Số lần trúng: {hits} — Tỷ lệ chung: {stats['hit_rate']*100:.2f}%")
+    print(f"🥇 Top1: {stats['top1']*100:.2f}% | 🥉 Top3: {stats['top3']*100:.2f}%")
+    print(f"⭐ Top5: {stats['top5']*100:.2f}% | 📎 Top10: {stats['top10']*100:.2f}%")
+    print("=" * 60)
+
+    return stats
 
 
-if __name__=="__main__":
-    kq=run_backtest(30)
+# Chạy trực tiếp nếu cần thử
+if __name__ == "__main__":
+    kq = run_backtest(30)
     summarize(kq)

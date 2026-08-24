@@ -11,14 +11,17 @@ from telegram.ext import (
 )
 
 from config import TELEGRAM_TOKEN
+
 from database import (
     init_db,
     count_results,
-    get_result
+    get_result,
+    get_results
 )
 
 from scraper import update_database
 from predictor import predict
+
 from backtest import (
     test_single_date,
     run_backtest,
@@ -33,30 +36,56 @@ from backtest import (
 class HealthHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
+
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
+
+        self.send_header(
+            "Content-Type",
+            "text/plain; charset=utf-8"
+        )
+
         self.end_headers()
-        self.wfile.write(b"XSMB Bot is running!")
+
+        self.wfile.write(
+            b"XSMB Bot is running!"
+        )
 
     def do_HEAD(self):
+
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
+
+        self.send_header(
+            "Content-Type",
+            "text/plain; charset=utf-8"
+        )
+
         self.end_headers()
 
-    def log_message(self, format, *args):
+    def log_message(
+        self,
+        format,
+        *args
+    ):
         return
 
 
 def start_web_server():
 
-    port = int(os.environ.get("PORT", 10000))
+    port = int(
+        os.environ.get(
+            "PORT",
+            10000
+        )
+    )
 
     server = HTTPServer(
         ("0.0.0.0", port),
         HealthHandler
     )
 
-    print(f"Web server đang chạy trên port {port}")
+    print(
+        f"Web server đang chạy trên port {port}"
+    )
 
     server.serve_forever()
 
@@ -101,7 +130,7 @@ Dự đoán ngày tiếp theo
 Dự đoán ngày sau ngày nhập
 
 /test DD/MM/YYYY
-Backtest một ngày
+Dự đoán và kiểm tra kết quả ngày hôm sau
 
 /backtest 30
 Backtest 30 ngày
@@ -126,13 +155,23 @@ async def update_cmd(
 
     try:
 
+        print("UPDATE: bắt đầu")
+
         count = update_database()
+
+        print(
+            f"UPDATE: hoàn thành, {count} kết quả"
+        )
 
         await update.message.reply_text(
             f"✅ Đã cập nhật {count} kết quả."
         )
 
     except Exception as e:
+
+        print(
+            f"UPDATE ERROR: {repr(e)}"
+        )
 
         await update.message.reply_text(
             f"❌ Lỗi cập nhật:\n{e}"
@@ -166,7 +205,9 @@ async def predict_cmd(
 
             return
 
-        target = dt + timedelta(days=1)
+        target = dt + timedelta(
+            days=1
+        )
 
     else:
 
@@ -201,13 +242,18 @@ async def predict_cmd(
         "TOP 10:"
     ]
 
-    for i, (number, score) in enumerate(
+    for i, (
+        number,
+        score
+    ) in enumerate(
         predictions,
         start=1
     ):
 
         lines.append(
-            f"{i}. {number} — {score:.2f}"
+            f"{i}. "
+            f"{str(number).zfill(2)} "
+            f"— {score:.2f}"
         )
 
     lines.extend([
@@ -230,6 +276,10 @@ async def test_cmd(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
+    # ========================================================
+    # KIỂM TRA THAM SỐ
+    # ========================================================
+
     if not context.args:
 
         await update.message.reply_text(
@@ -238,6 +288,10 @@ async def test_cmd(
         )
 
         return
+
+    # ========================================================
+    # PARSE DATE
+    # ========================================================
 
     try:
 
@@ -249,86 +303,256 @@ async def test_cmd(
     except ValueError:
 
         await update.message.reply_text(
-            "Sai định dạng."
+            "❌ Sai định dạng ngày.\n\n"
+            "Ví dụ:\n"
+            "/test 22/08/2026"
         )
 
         return
 
-    date = dt.strftime(
+    prediction_date = dt.strftime(
         "%Y-%m-%d"
     )
 
+    # ========================================================
+    # NGÀY CẦN DỰ ĐOÁN
+    # ========================================================
+
+    target_dt = dt + timedelta(
+        days=1
+    )
+
+    target_date = target_dt.strftime(
+        "%Y-%m-%d"
+    )
+
+    # ========================================================
+    # DỰ ĐOÁN
+    # ========================================================
+
     try:
 
-        result = test_single_date(
-            date
+        predictions = predict(
+            target_date,
+            top_n=10
         )
 
     except Exception as e:
 
+        print(
+            f"TEST PREDICT ERROR: {repr(e)}"
+        )
+
         await update.message.reply_text(
-            f"❌ {e}"
+            f"❌ Không thể tạo dự đoán:\n{e}"
         )
 
         return
 
-    if result.get("status") == "NO_RESULT":
+    if not predictions:
 
         await update.message.reply_text(
-            "Chưa có kết quả ngày hôm sau."
+            "❌ Predictor không trả về kết quả."
         )
 
         return
 
-    predictions = result["predictions"]
+    # ========================================================
+    # LẤY KẾT QUẢ DATABASE
+    # ========================================================
 
-    text = [
-        "🧪 BACKTEST",
-        "",
-        f"Ngày chạy: {format_date(date)}",
-        f"Ngày kiểm tra: "
-        f"{format_date(result['target_date'])}",
-        "",
-        "TOP 10:"
+    try:
+
+        actual_row = get_result(
+            target_date
+        )
+
+    except Exception as e:
+
+        print(
+            f"TEST DATABASE ERROR: {repr(e)}"
+        )
+
+        await update.message.reply_text(
+            f"❌ Lỗi đọc database:\n{e}"
+        )
+
+        return
+
+    # ========================================================
+    # CHUẨN HÓA TOP 10
+    # ========================================================
+
+    prediction_numbers = []
+
+    for number, score in predictions:
+
+        prediction_numbers.append(
+            (
+                str(number).zfill(2),
+                score
+            )
+        )
+
+    numbers = [
+        number
+        for number, score
+        in prediction_numbers
     ]
 
-    for i, (number, score) in enumerate(
-        predictions,
-        1
-    ):
+    # ========================================================
+    # CHƯA CÓ KẾT QUẢ
+    # ========================================================
 
-        text.append(
-            f"{i}. {number} ({score:.2f})"
+    if actual_row is None:
+
+        lines = [
+            "⏳ ĐANG ĐỢI XỔ",
+            "",
+            f"Ngày dự đoán: "
+            f"{format_date(target_date)}",
+            "",
+            "Chưa có kết quả XSMB.",
+            "",
+            "⚠️ Chưa thể đánh giá "
+            "TRÚNG / KHÔNG TRÚNG.",
+            "",
+            "🔮 TOP 10 DỰ ĐOÁN:"
+        ]
+
+        for i, (
+            number,
+            score
+        ) in enumerate(
+            prediction_numbers,
+            start=1
+        ):
+
+            lines.append(
+                f"{i}. "
+                f"{number} "
+                f"— {score:.2f}"
+            )
+
+        await update.message.reply_text(
+            "\n".join(lines)
         )
 
-    actual = str(
-        result["actual"]
-    ).zfill(5)
+        return
 
-    text.extend([
-        "",
-        f"🎯 Kết quả ĐB: {actual}",
-        f"2 số cuối: {actual[-2:]}"
-    ])
+    # ========================================================
+    # ĐÃ CÓ KẾT QUẢ
+    # ========================================================
 
-    if result["hit"]:
+    try:
 
-        text.extend([
-            "",
+        special = str(
+            actual_row[1]
+        ).zfill(5)
+
+        actual = str(
+            actual_row[2]
+        ).zfill(2)
+
+    except Exception as e:
+
+        print(
+            f"TEST RESULT PARSE ERROR: "
+            f"{repr(e)}"
+        )
+
+        await update.message.reply_text(
+            "❌ Dữ liệu kết quả trong "
+            "database không hợp lệ."
+        )
+
+        return
+
+    # ========================================================
+    # SO SÁNH
+    # ========================================================
+
+    hit = actual in numbers
+
+    rank = None
+
+    if hit:
+
+        rank = (
+            numbers.index(actual)
+            + 1
+        )
+
+    # ========================================================
+    # TẠO KẾT QUẢ
+    # ========================================================
+
+    if hit:
+
+        lines = [
             "✅ TRÚNG",
-            f"Số trúng: {actual}",
-            f"Xếp hạng: #{result['rank']}"
-        ])
+            "",
+            f"Ngày dự đoán: "
+            f"{format_date(target_date)}",
+            "",
+            f"🎯 Kết quả ĐB: {special}",
+            f"🔢 2 số cuối: {actual}",
+            "",
+            f"🏆 Số trúng: {actual}",
+            f"📊 Xếp hạng: #{rank}"
+        ]
 
     else:
 
-        text.extend([
+        lines = [
+            "❌ KHÔNG TRÚNG",
             "",
-            "❌ KHÔNG TRÚNG"
-        ])
+            f"Ngày dự đoán: "
+            f"{format_date(target_date)}",
+            "",
+            f"🎯 Kết quả ĐB: {special}",
+            f"🔢 2 số cuối: {actual}",
+            "",
+            "Không có số trúng "
+            "trong TOP 10."
+        ]
+
+    # ========================================================
+    # TOP 10
+    # ========================================================
+
+    lines.extend([
+        "",
+        "🔮 TOP 10 DỰ ĐOÁN:"
+    ])
+
+    for i, (
+        number,
+        score
+    ) in enumerate(
+        prediction_numbers,
+        start=1
+    ):
+
+        marker = ""
+
+        if number == actual:
+
+            marker = " ← 🎯"
+
+        lines.append(
+            f"{i}. "
+            f"{number} "
+            f"— {score:.2f}"
+            f"{marker}"
+        )
+
+    # ========================================================
+    # GỬI TELEGRAM
+    # ========================================================
 
     await update.message.reply_text(
-        "\n".join(text)
+        "\n".join(lines)
     )
 
 
@@ -346,9 +570,27 @@ async def backtest_cmd(
     if context.args:
 
         try:
-            days = int(context.args[0])
+
+            days = int(
+                context.args[0]
+            )
+
         except ValueError:
-            pass
+
+            await update.message.reply_text(
+                "❌ Số ngày không hợp lệ.\n"
+                "Ví dụ: /backtest 30"
+            )
+
+            return
+
+    if days <= 0:
+
+        await update.message.reply_text(
+            "❌ Số ngày phải lớn hơn 0."
+        )
+
+        return
 
     await update.message.reply_text(
         f"⏳ Đang backtest {days} ngày..."
@@ -366,6 +608,10 @@ async def backtest_cmd(
 
     except Exception as e:
 
+        print(
+            f"BACKTEST ERROR: {repr(e)}"
+        )
+
         await update.message.reply_text(
             f"❌ Lỗi backtest:\n{e}"
         )
@@ -375,7 +621,7 @@ async def backtest_cmd(
     if not summary:
 
         await update.message.reply_text(
-            "Không đủ dữ liệu."
+            "Không đủ dữ liệu để backtest."
         )
 
         return
@@ -400,6 +646,9 @@ Top 3:
 
 Top 5:
 {summary['top5'] * 100:.2f}%
+
+Top 10:
+{summary['top10'] * 100:.2f}%
 """
 
     await update.message.reply_text(
@@ -416,9 +665,59 @@ async def stats_cmd(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
+    try:
+
+        rows = get_results(
+            limit=20
+        )
+
+        total = count_results()
+
+    except Exception as e:
+
+        print(
+            f"STATS ERROR: {repr(e)}"
+        )
+
+        await update.message.reply_text(
+            f"❌ Lỗi đọc database:\n{e}"
+        )
+
+        return
+
+    if not rows:
+
+        await update.message.reply_text(
+            "📚 Database đang trống."
+        )
+
+        return
+
+    lines = [
+        "📚 DATABASE",
+        "",
+        f"Tổng số ngày: {total}",
+        "",
+        "20 kết quả gần nhất:",
+        ""
+    ]
+
+    for row in rows:
+
+        date = row[0]
+        special = row[1]
+        last2 = row[2]
+        weekday = row[3]
+
+        lines.append(
+            f"{date} | "
+            f"ĐB: {special} | "
+            f"2 số cuối: {last2} | "
+            f"weekday: {weekday}"
+        )
+
     await update.message.reply_text(
-        f"📚 Database đang có "
-        f"{count_results()} ngày dữ liệu."
+        "\n".join(lines)
     )
 
 
@@ -428,7 +727,15 @@ async def stats_cmd(
 
 def main():
 
+    # ========================================================
+    # DATABASE
+    # ========================================================
+
     init_db()
+
+    # ========================================================
+    # TELEGRAM TOKEN
+    # ========================================================
 
     if not TELEGRAM_TOKEN:
 
@@ -436,7 +743,10 @@ def main():
             "Chưa cấu hình TELEGRAM_TOKEN"
         )
 
-    # Khởi động HTTP server cho Render
+    # ========================================================
+    # HTTP SERVER CHO RENDER
+    # ========================================================
+
     web_thread = threading.Thread(
         target=start_web_server,
         daemon=True
@@ -444,13 +754,22 @@ def main():
 
     web_thread.start()
 
-    # Khởi động Telegram Bot
+    # ========================================================
+    # TELEGRAM APPLICATION
+    # ========================================================
+
     app = (
         Application
         .builder()
-        .token(TELEGRAM_TOKEN)
+        .token(
+            TELEGRAM_TOKEN
+        )
         .build()
     )
+
+    # ========================================================
+    # HANDLERS
+    # ========================================================
 
     app.add_handler(
         CommandHandler(
@@ -494,6 +813,10 @@ def main():
         )
     )
 
+    # ========================================================
+    # START BOT
+    # ========================================================
+
     print(
         "XSMB Bot đang chạy..."
     )
@@ -501,5 +824,10 @@ def main():
     app.run_polling()
 
 
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
 if __name__ == "__main__":
+
     main()

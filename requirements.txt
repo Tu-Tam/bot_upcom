@@ -1,7 +1,4 @@
-requests
-beautifulsoup4
-python-dateutil
-pandas
-numpy
-python-telegram-bot
-gunicorn
+requests>=2.31.0
+beautifulsoup4>=4.12.3
+Flask>=3.0.3
+pyTelegramBotAPI>=4.36.0

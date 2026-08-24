@@ -1,155 +1,172 @@
 import os
+import re
+import json
+from datetime import datetime, timedelta
+from collections import defaultdict, Counter
+from threading import Thread
 from flask import Flask
 import telebot
-from datetime import datetime
 
-# Nạp module nội bộ — KHỚP HOÀN HẢO
-from config import DATABASE_PATH
-from database import init_db, count_results, get_date_range
-from scraper import fetch_and_parse_all
-from predictor import predict
-from backtest import run_backtest, summarize
+# === CÁC MODULE CỦA DỰ ÁN ===
+from database import (
+    init_db, save_result, get_results, get_date_range,
+    count_results, get_full_data
+)
+from scraper import tai_90_ngay_gan_nhat  # ✅ Đã thêm bộ cào 90 ngày
+from predictor import predict, analyze_trend
 
-# ---------- WEB SERVER GIỮ UPTIME RENDER ----------
+# === WEB GIỮ HOẠT ĐỘNG RENDER ===
 app = Flask(__name__)
 
 @app.route('/')
-def home():
+def keep_alive():
     try:
         total = count_results()
-        min_d, max_d = get_date_range()
+        min_date, max_date = get_date_range()
         return (
-            f"✅ Bot XSMB HOẠT ĐỘNG!\n"
+            f"✅ Bot XSMB ĐANG CHẠY ỔN!\n"
             f"📂 Dữ liệu: {total} ngày\n"
-            f"📅 Khoảng: {min_d} → {max_d}"
+            f"📅 Khoảng: {min_date or '—'} → {max_date or '—'}"
         )
     except Exception:
-        return "🤖 Bot đang chạy, vui lòng /update để tạo dữ liệu."
+        return "🤖 Bot hoạt động — Dữ liệu đang được chuẩn bị..."
 
-
-# ---------- TOKEN & ID: Ưu tiên biến môi trường Render + mặc định an toàn ----------
+# === 🔑 CẤU HÌNH BOT ===
 BOT_TOKEN = os.environ.get(
     "BOT_TOKEN",
-    "8520938638:AAEHwQp89_P2slG7YTkod4z6_XvYbgBD7ns"
+    "8520938638:AAF3KD6Qj8k7nPLaq8uJs25ZhSw_D8OTCY0"
 )
 CHAT_ID = int(os.environ.get("CHAT_ID", "7064473358"))
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-
-# ---------- LỆNH /start ----------
-@bot.message_handler(commands=['start'])
-def cmd_start(msg):
+# === 📊 LỆNH THÔNG TIN ===
+@bot.message_handler(commands=['start', 'help'])
+def cmd_start(message):
     bot.send_message(
-        msg.chat.id,
-        "🤖 Bot XỔ SỐ MIỀN BẮC HOÀN CHỈNH:\n"
-        "/update — Tải & cập nhật dữ liệu đầy đủ\n"
-        "/top3 [YYYY-MM-DD] — Dự đoán 3 đuôi mạnh nhất\n"
-        "/top10 [YYYY-MM-DD] — Danh sách chi tiết 10 số\n"
+        message.chat.id,
+        "🤖 BOT XỔ SỐ MIỀN BẮC TỰ ĐỘNG:\n"
+        "/stats — Trạng thái dữ liệu\n"
+        "/top3 [ngày YYYY-MM-DD] — Dự đoán đuôi mạnh nhất\n"
+        "/top10 [ngày] — Danh sách chi tiết 10 số\n"
         "/backtest [số_ngày] — Kiểm chứng độ chính xác\n"
-        "/stats — Xem tình trạng cơ sở dữ liệu"
+        "/update — Tải cập nhật lịch sử & ngày mới"
     )
 
-
-# ---------- LỆNH /update ----------
-@bot.message_handler(commands=['update'])
-def cmd_update(msg):
-    bot.send_message(msg.chat.id, "🔄 Đang quét nguồn & lưu CSDL... vui chờ!")
-    try:
-        init_db()
-        data = fetch_and_parse_all()
-        bot.send_message(
-            msg.chat.id,
-            f"✅ Hoàn tất! Đã xử lý: {len(data)} bản ghi ngày."
-        )
-    except Exception as e:
-        bot.send_message(msg.chat.id, f"❌ Lỗi: {str(e)}")
-
-
-# ---------- LỆNH /top3 ----------
-@bot.message_handler(commands=['top3'])
-def cmd_top3(msg):
-    parts = msg.text.strip().split()
-    target = datetime.now().strftime("%Y-%m-%d")
-    if len(parts) >= 2:
-        target = parts[1]
-    try:
-        lst = predict(target, top_n=3)
-        txt = f"🎯 TOP 3 — NGÀY: {target}\n"
-        for i, (num, sc) in enumerate(lst, 1):
-            txt += f"{i}. {num} | điểm={sc:.4f}\n"
-        bot.send_message(msg.chat.id, txt)
-    except Exception as e:
-        bot.send_message(msg.chat.id, f"❌ {str(e)}")
-
-
-# ---------- LỆNH /top10 ----------
-@bot.message_handler(commands=['top10'])
-def cmd_top10(msg):
-    parts = msg.text.strip().split()
-    target = datetime.now().strftime("%Y-%m-%d")
-    if len(parts) >= 2:
-        target = parts[1]
-    try:
-        lst = predict(target, top_n=10)
-        txt = f"📋 TOP 10 — NGÀY: {target}\n"
-        for i, (num, sc) in enumerate(lst, 1):
-            txt += f"{i:2d}. {num} | điểm={sc:.4f}\n"
-        bot.send_message(msg.chat.id, txt)
-    except Exception as e:
-        bot.send_message(msg.chat.id, f"❌ {str(e)}")
-
-
-# ---------- LỆNH /backtest ----------
-@bot.message_handler(commands=['backtest'])
-def cmd_bt(msg):
-    parts = msg.text.strip().split()
-    n = 30
-    if len(parts) >= 2 and parts[1].isdigit():
-        n = int(parts[1])
-    bot.send_message(msg.chat.id, f"🔍 Chạy kiểm chứng {n} ngày... hơi lâu nhé!")
-    try:
-        kq = run_backtest(n)
-        st = summarize(kq)
-        txt = (
-            f"📊 TỔNG HỢP: {st.get('days',0)} ngày\n"
-            f"✅ Trúng: {st.get('hits')} | Tỷ lệ: {st.get('hit_rate',0)*100:.2f}%\n"
-            f"🥇 Top1: {st.get('top1',0)*100:.2f}% | 🥉 Top3: {st.get('top3',0)*100:.2f}%\n"
-            f"📌 Top5: {st.get('top5',0)*100:.2f}% | 📎 Top10: {st.get('top10',0)*100:.2f}%"
-        )
-        bot.send_message(msg.chat.id, txt)
-    except Exception as e:
-        bot.send_message(msg.chat.id, f"❌ Lỗi kiểm tra: {repr(e)}")
-
-
-# ---------- LỆNH /stats ----------
 @bot.message_handler(commands=['stats'])
-def cmd_stats(msg):
+def cmd_stats(message):
     try:
         init_db()
-        n = count_results()
-        mn, mx = get_date_range()
+        total = count_results()
+        min_d, max_d = get_date_range()
         bot.send_message(
-            msg.chat.id,
-            f"📂 DỮ LIỆU HIỆN CÓ:\n- Tổng ngày: {n}\n- Từ {mn} → {mx}"
+            message.chat.id,
+            f"📂 THÔNG TIN DỮ LIỆU:\n"
+            f"• Tổng ngày: {total}\n"
+            f"• Từ: {min_d or 'chưa có'}\n"
+            f"• Đến: {max_d or 'chưa có'}"
         )
     except Exception as e:
-        bot.send_message(msg.chat.id, f"❌ {str(e)}")
+        bot.send_message(message.chat.id, f"❌ Lỗi: {str(e)}")
 
+# === 📈 DỰ ĐOÁN ===
+@bot.message_handler(commands=['top3'])
+def cmd_top3(message):
+    args = message.text.split()
+    target_date = datetime.now().strftime("%Y-%m-%d")
+    if len(args) >= 2:
+        target_date = args[1]
+    try:
+        top_list = predict(target_date, limit=3)
+        text = f"🎯 TOP 3 NGÀY {target_date}:\n"
+        for idx, (num, score) in enumerate(top_list, 1):
+            text += f"{idx}. {num} — điểm: {score:.3f}\n"
+        bot.send_message(message.chat.id, text)
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Không tính được: {str(e)}")
 
-# ---------- KHỞI ĐỘNG CHÍNH THỨC ----------
+@bot.message_handler(commands=['top10'])
+def cmd_top10(message):
+    args = message.text.split()
+    target_date = datetime.now().strftime("%Y-%m-%d")
+    if len(args) >= 2:
+        target_date = args[1]
+    try:
+        top_list = predict(target_date, limit=10)
+        text = f"📋 TOP 10 NGÀY {target_date}:\n"
+        for idx, (num, score) in enumerate(top_list, 1):
+            text += f"{idx:2d}. {num} — {score:.3f}\n"
+        bot.send_message(message.chat.id, text)
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Lỗi: {str(e)}")
+
+# === ⚙️ KIỂM CHỨNG ===
+@bot.message_handler(commands=['backtest'])
+def cmd_backtest(message):
+    args = message.text.split()
+    days = 30
+    if len(args) >= 2 and args[1].isdigit():
+        days = int(args[1])
+    bot.send_message(message.chat.id, f"🔍 Đang kiểm chứng {days} ngày... vui chờ!")
+    try:
+        from backtest import run_backtest, summarize
+        result_list = run_backtest(days)
+        summary = summarize(result_list)
+        txt = (
+            f"📊 KẾT QUẢ KIỂM CHỨNG {summary.get('days', 0)} NGÀY:\n"
+            f"✅ Trúng: {summary.get('hits')} / {summary.get('days')}\n"
+            f"🎯 Tỷ lệ chung: {summary.get('hit_rate',0)*100:.2f}%\n"
+            f"🥇 Top1: {summary.get('top1',0)*100:.2f}% | 🥉 Top3: {summary.get('top3',0)*100:.2f}%\n"
+            f"📌 Top10: {summary.get('top10',0)*100:.2f}%"
+        )
+        bot.send_message(message.chat.id, txt)
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Lỗi kiểm tra: {repr(e)}")
+
+# === ⬇️ CẬP NHẬT DỮ LIỆU ===
+@bot.message_handler(commands=['update'])
+def cmd_update(message):
+    bot.send_message(message.chat.id, "🔄 Đang quét & cập nhật CSDL... chờ lát nhé!")
+    def background():
+        try:
+            init_db()
+            ok = tai_90_ngay_gan_nhat()
+            bot.send_message(
+                message.chat.id,
+                f"✅ Hoàn tất cập nhật! Hiện có {ok} ngày chuẩn trong kho."
+            )
+        except Exception as e:
+            bot.send_message(message.chat.id, f"❌ Lỗi cập nhật: {str(e)}")
+    Thread(target=background, daemon=True).start()
+
+# === 🚀 KHỞI ĐỘNG CHÍNH — GIỮ NGUYÊN CẤU TRÚC ===
 if __name__ == "__main__":
-    from threading import Thread
     init_db()
-    print("🚀 Flask + Bot Telegram đang khởi động...")
+    print("🚀 Khởi động Flask giữ mạng & Bot Telegram...")
 
-    # Web giữ mạng
-    def web_run():
-        port = int(os.environ.get("PORT", 8080))
-        app.run(host="0.0.0.0", port=port)
+    # ⚡ TẢI LỊCH SỬ 90 NGÀY CHẠY NỀN — KHÔNG LÀM TREO BOT
+    def tai_nen():
+        try:
+            print("📦 Bắt đầu xây dựng kho dữ liệu 90 ngày...")
+            so_ngay = tai_90_ngay_gan_nhat()
+            print(f"✅ Đã xây dựng xong: {so_ngay} ngày hợp lệ!")
+        except Exception as err:
+            print(f"⚠️ Quá trình nền gặp lỗi: {err}")
 
-    Thread(target=web_run, daemon=True).start()
+    Thread(target=tai_nen, daemon=True).start()
 
-    # Vòng lặp Bot ổn định cho Render
-    print("🤖 Bot đang lắng nghe...")
-    bot.infinity_polling(timeout=25, interval=1)
+    # 🟢 Chạy web giữ sống Render
+    def run_web():
+        cong = int(os.environ.get("PORT", 8080))
+        app.run(host="0.0.0.0", port=cong, use_reloader=False)
+
+    Thread(target=run_web, daemon=True).start()
+
+    # 🤖 Bắt đầu lắng nghe Telegram — CHẤT LƯỢNG, KHÔNG XUNG ĐỘT
+    print("🤖 Bot đang lắng nghe lệnh...")
+    bot.infinity_polling(
+        timeout=35,
+        interval=1.2,
+        long_polling_timeout=25,
+        restart_on_change=False
+    )

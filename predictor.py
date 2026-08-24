@@ -136,10 +136,16 @@ def calculate_scores(target_date):
         target_date
     )
 
-    if len(history) < 10:
-
+    if len(history) == 0:
         raise ValueError(
-            "Chưa đủ dữ liệu để dự đoán."
+            "Database chưa có dữ liệu. "
+            "Hãy chạy /update trước."
+        )
+
+    if len(history) < 10:
+        raise ValueError(
+            f"Chỉ có {len(history)} ngày dữ liệu. "
+            "Cần ít nhất 10 ngày để dự đoán."
         )
 
     freq7 = frequency_score(
@@ -174,11 +180,6 @@ def calculate_scores(target_date):
 
         n = normalize_number(number)
 
-        # Trọng số ban đầu.
-        #
-        # Đây chưa phải "trọng số tối ưu".
-        # Backtest sẽ dùng để điều chỉnh sau.
-
         score = (
             freq7[n] * 1.5
             + freq30[n] * 1.0
@@ -187,11 +188,10 @@ def calculate_scores(target_date):
             + trend[n] * 1.0
         )
 
-        # Gap chỉ tạo một ảnh hưởng nhỏ.
-        #
-        # Không cho "số gan" chi phối mô hình.
-
-        score += min(gap[n], 20) * 0.05
+        score += min(
+            gap[n],
+            20
+        ) * 0.05
 
         scores[n] = score
 

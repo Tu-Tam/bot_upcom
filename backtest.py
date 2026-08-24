@@ -1,146 +1,141 @@
-from datetime import datetime, timedelta
-from database import get_results
+import os
+from flask import Flask
+import telebot
+from datetime import datetime
+
+# === NẠP MODULE ===
+from config import DATABASE_PATH
+from database import init_db, count_results, get_date_range
+from scraper import fetch_and_parse_all
 from predictor import predict
+from backtest import run_backtest, summarize
 
+# === WEB GIỮ HOẠT ĐỘNG RENDER ===
+app = Flask(__name__)
 
-def get_dates():
-    rows = get_results()
-    return sorted(set(r[0] for r in rows))
-
-
-def test_single_date(prediction_date):
+@app.route('/')
+def home():
     try:
-        target = datetime.strptime(prediction_date, "%Y-%m-%d")
-    except ValueError:
-        raise ValueError(f"Ngày không hợp lệ: {prediction_date}")
+        total = count_results()
+        min_d, max_d = get_date_range()
+        return (
+            f"✅ Bot XSMB ĐANG CHẠY!\n"
+            f"📂 Dữ liệu: {total} ngày\n"
+            f"📅 Khoảng: {min_d} → {max_d}"
+        )
+    except:
+        return "🤖 Bot đang chạy — dùng /update để tạo dữ liệu."
 
-    target_date = (target + timedelta(days=1)).strftime("%Y-%m-%d")
-    rows = get_results()
+# === 🔑 TOKEN MỚI CỦA BẠN ===
+BOT_TOKEN = os.environ.get(
+    "BOT_TOKEN",
+    "8520938638:AAF3KD6Qj8k7nPLaq8uJs25ZhSw_D8OTCY0"
+)
+CHAT_ID = int(os.environ.get("CHAT_ID", "7064473358"))
 
-    actual_row = None
-    for row in rows:
-        if row[0] == target_date:
-            actual_row = row
-            break
+bot = telebot.TeleBot(BOT_TOKEN)
 
-    if not actual_row:
-        return {
-            "pred": prediction_date,
-            "target": target_date,
-            "status": "NO_DATA"
-        }
+# === LỆNH /start ===
+@bot.message_handler(commands=['start'])
+def cmd_start(msg):
+    bot.send_message(
+        msg.chat.id,
+        "🤖 Bot XỔ SỐ MIỀN BẮC HOÀN CHỈNH:\n"
+        "/update — Tải & cập nhật dữ liệu đầy đủ\n"
+        "/top3 [YYYY-MM-DD] — Dự đoán 3 đuôi mạnh nhất\n"
+        "/top10 [YYYY-MM-DD] — Danh sách chi tiết 10 số\n"
+        "/backtest [số_ngày] — Kiểm chứng độ chính xác\n"
+        "/stats — Xem tình trạng cơ sở dữ liệu"
+    )
 
-    special = actual_row[1]
-    actual_last2 = actual_row[2]
-
+# === LỆNH /update ===
+@bot.message_handler(commands=['update'])
+def cmd_update(msg):
+    bot.send_message(msg.chat.id, "🔄 Đang quét nguồn & lưu CSDL... vui chờ!")
     try:
-        predictions = predict(target_date, top_n=10)
+        init_db()
+        data = fetch_and_parse_all()
+        bot.send_message(msg.chat.id, f"✅ Hoàn tất! Đã xử lý/lưu {len(data)} bản ghi ngày.")
     except Exception as e:
-        raise RuntimeError(f"Lỗi gọi dự đoán: {e}")
+        bot.send_message(msg.chat.id, f"❌ Lỗi cập nhật: {str(e)}")
 
-    numbers = [num for num, _score in predictions]
-    hit = actual_last2 in numbers
-    rank = numbers.index(actual_last2) + 1 if hit else None
-
-    return {
-        "pred": prediction_date,
-        "target": target_date,
-        "status": "OK",
-        "actual": actual_last2,
-        "special": special,
-        "preds": predictions,
-        "hit": hit,
-        "rank": rank
-    }
-
-
-def run_backtest(days=30):
+# === LỆNH /top3 ===
+@bot.message_handler(commands=['top3'])
+def cmd_top3(msg):
+    parts = msg.text.strip().split()
+    target = datetime.now().strftime("%Y-%m-%d")
+    if len(parts) >= 2:
+        target = parts[1]
     try:
-        days = max(1, int(days))
-    except Exception:
-        days = 30
+        lst = predict(target, top_n=3)
+        txt = f"🎯 TOP 3 — NGÀY: {target}\n"
+        for i, (num, sc) in enumerate(lst, 1):
+            txt += f"{i}. {num} | điểm={sc:.4f}\n"
+        bot.send_message(msg.chat.id, txt)
+    except Exception as e:
+        bot.send_message(msg.chat.id, f"❌ {str(e)}")
 
-    all_dates = get_dates()
-    if not all_dates:
-        print("⚠️ Không có dữ liệu ngày nào trong cơ sở dữ liệu.")
-        return []
+# === LỆNH /top10 ===
+@bot.message_handler(commands=['top10'])
+def cmd_top10(msg):
+    parts = msg.text.strip().split()
+    target = datetime.now().strftime("%Y-%m-%d")
+    if len(parts) >= 2:
+        target = parts[1]
+    try:
+        lst = predict(target, top_n=10)
+        txt = f"📋 TOP 10 — NGÀY: {target}\n"
+        for i, (num, sc) in enumerate(lst, 1):
+            txt += f"{i:2d}. {num} | điểm={sc:.4f}\n"
+        bot.send_message(msg.chat.id, txt)
+    except Exception as e:
+        bot.send_message(msg.chat.id, f"❌ {str(e)}")
 
-    # Lọc ra những ngày có ngày tiếp theo tồn tại
-    valid_dates = []
-    for date_str in all_dates:
-        try:
-            dt = datetime.strptime(date_str, "%Y-%m-%d")
-        except ValueError:
-            continue
-        next_day = (dt + timedelta(days=1)).strftime("%Y-%m-%d")
-        if next_day in all_dates:
-            valid_dates.append(date_str)
+# === LỆNH /backtest ===
+@bot.message_handler(commands=['backtest'])
+def cmd_bt(msg):
+    parts = msg.text.strip().split()
+    n = 30
+    if len(parts) >= 2 and parts[1].isdigit():
+        n = int(parts[1])
+    bot.send_message(msg.chat.id, f"🔍 Chạy kiểm chứng {n} ngày... hơi lâu nhé!")
+    try:
+        kq = run_backtest(n)
+        st = summarize(kq)
+        txt = (
+            f"📊 TỔNG HỢP: {st.get('days',0)} ngày\n"
+            f"✅ Trúng: {st.get('hits')} | Tỷ lệ: {st.get('hit_rate',0)*100:.2f}%\n"
+            f"🥇 Top1: {st.get('top1',0)*100:.2f}% | 🥉 Top3: {st.get('top3',0)*100:.2f}%\n"
+            f"📌 Top5: {st.get('top5',0)*100:.2f}% | 📎 Top10: {st.get('top10',0)*100:.2f}%"
+        )
+        bot.send_message(msg.chat.id, txt)
+    except Exception as e:
+        bot.send_message(msg.chat.id, f"❌ Lỗi kiểm tra: {repr(e)}")
 
-    if not valid_dates:
-        print("⚠️ Không tìm thấy cặp ngày liên tiếp hợp lệ để kiểm tra.")
-        return []
+# === LỆNH /stats ===
+@bot.message_handler(commands=['stats'])
+def cmd_stats(msg):
+    try:
+        init_db()
+        n = count_results()
+        mn, mx = get_date_range()
+        bot.send_message(msg.chat.id, f"📂 DỮ LIỆU HIỆN CÓ:\n- Tổng ngày: {n}\n- Phạm vi: {mn} → {mx}")
+    except Exception as e:
+        bot.send_message(msg.chat.id, f"❌ {str(e)}")
 
-    # Lấy số ngày gần nhất & sắp xếp từ cũ đến mới
-    valid_dates.sort(reverse=True)
-    test_set = valid_dates[:days]
-    test_set.sort()
-
-    out_results = []
-    for day in test_set:
-        try:
-            result = test_single_date(day)
-            if result.get("status") == "OK":
-                out_results.append(result)
-        except Exception as err:
-            print(f"❌ Bỏ qua ngày {day}: {repr(err)}")
-
-    return out_results
-
-
-def summarize(results):
-    if not results:
-        print("\n⚠️ Không có kết quả hợp lệ để tổng hợp.")
-        return {}
-
-    total = len(results)
-    hits = sum(1 for rec in results if rec.get("hit"))
-
-    top1 = top3 = top5 = top10 = 0
-    for rec in results:
-        rank = rec.get("rank")
-        if not rank:
-            continue
-        if rank <= 1:
-            top1 += 1
-        if rank <= 3:
-            top3 += 1
-        if rank <= 5:
-            top5 += 1
-        if rank <= 10:
-            top10 += 1
-
-    stats = {
-        "days": total,
-        "hits": hits,
-        "hit_rate": hits / total,
-        "top1": top1 / total,
-        "top3": top3 / total,
-        "top5": top5 / total,
-        "top10": top10 / total
-    }
-
-    print("\n" + "=" * 60)
-    print("📊 KẾT QUẢ TỔNG HỢP KIỂM CHỨNG LẠI")
-    print(f"✅ Tổng ngày kiểm tra: {total}")
-    print(f"🎯 Số lần trúng: {hits} — Tỷ lệ chung: {stats['hit_rate']*100:.2f}%")
-    print(f"🥇 Top1: {stats['top1']*100:.2f}% | 🥉 Top3: {stats['top3']*100:.2f}%")
-    print(f"⭐ Top5: {stats['top5']*100:.2f}% | 📎 Top10: {stats['top10']*100:.2f}%")
-    print("=" * 60)
-
-    return stats
-
-
-# Chạy trực tiếp nếu cần thử
+# === KHỞI ĐỘNG CHÍNH ===
 if __name__ == "__main__":
-    kq = run_backtest(30)
-    summarize(kq)
+    from threading import Thread
+    init_db()
+    print("🚀 Flask + Bot Telegram đang khởi động...")
+
+    # Web giữ mạng
+    def web_run():
+        port = int(os.environ.get("PORT", 8080))
+        app.run(host="0.0.0.0", port=port)
+
+    Thread(target=web_run, daemon=True).start()
+
+    # Vòng lặp ổn định Render
+    print("🤖 Bot đang lắng nghe...")
+    bot.infinity_polling(timeout=25, interval=1)

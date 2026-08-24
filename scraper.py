@@ -1,6 +1,5 @@
 import re
 import requests
-
 from bs4 import BeautifulSoup
 from datetime import datetime
 
@@ -32,47 +31,52 @@ def fetch_page():
 
 def parse_results(html):
 
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(
+        html,
+        "html.parser"
+    )
 
-    # Lấy toàn bộ text của trang
     text = soup.get_text("\n")
 
     # Chuẩn hóa khoảng trắng
-    text = re.sub(r"\r", "", text)
+    text = re.sub(
+        r"[ \t]+",
+        " ",
+        text
+    )
 
     results = []
 
     # Tìm từng cụm:
     #
-    # XSMB ... dd/mm/yyyy
+    # XSMB Thứ ..., dd/mm/yyyy
     # ...
     # ĐB | 12345
     #
     pattern = re.compile(
         r"XSMB.*?"
-        r"(\d{1,2})/(\d{1,2})/(\d{4})"
-        r".{0,1500}?"
+        r"(\d{1,2}/\d{1,2}/\d{4})"
+        r".*?"
         r"ĐB\s*\|\s*(\d{5})",
-        re.S | re.I
+        re.S
     )
 
-    for match in pattern.finditer(text):
+    matches = pattern.finditer(text)
 
-        day = int(match.group(1))
-        month = int(match.group(2))
-        year = int(match.group(3))
+    for match in matches:
 
-        special = match.group(4)
+        date_text = match.group(1)
+        special = match.group(2)
 
         try:
 
-            dt = datetime(
-                year,
-                month,
-                day
+            dt = datetime.strptime(
+                date_text,
+                "%d/%m/%Y"
             )
 
         except ValueError:
+
             continue
 
         results.append({
@@ -84,7 +88,6 @@ def parse_results(html):
     unique = {}
 
     for item in results:
-
         unique[item["date"]] = item["special"]
 
     results = [
@@ -95,9 +98,10 @@ def parse_results(html):
         for date, special in unique.items()
     ]
 
-    # Sắp xếp theo ngày
+    # Mới nhất trước
     results.sort(
-        key=lambda x: x["date"]
+        key=lambda x: x["date"],
+        reverse=True
     )
 
     return results
@@ -105,44 +109,28 @@ def parse_results(html):
 
 def update_database():
 
-    print("Đang tải dữ liệu XSMB...")
-
     html = fetch_page()
-
-    print(
-        f"Đã tải trang: {len(html):,} ký tự"
-    )
 
     results = parse_results(html)
 
     print(
-        f"Đã tìm thấy {len(results)} kết quả"
+        f"Scraper tìm thấy {len(results)} kết quả."
     )
 
     count = 0
 
     for item in results:
 
-        try:
+        save_result(
+            item["date"],
+            item["special"]
+        )
 
-            save_result(
-                item["date"],
-                item["special"]
-            )
+        count += 1
 
-            count += 1
-
-            print(
-                f"Đã lưu: "
-                f"{item['date']} - "
-                f"{item['special']}"
-            )
-
-        except Exception as e:
-
-            print(
-                f"Lỗi lưu {item['date']}: {e}"
-            )
+    print(
+        f"Đã lưu {count} kết quả vào database."
+    )
 
     return count
 

@@ -1,101 +1,177 @@
 from collections import Counter
 from datetime import datetime
+import math
 
 from database import get_results
 
+
+# ============================================================
+# CONFIG
+# ============================================================
+
+MIN_HISTORY = 10
+
+SHORT_WINDOW = 7
+MEDIUM_WINDOW = 30
+LONG_WINDOW = 90
+
+# Trọng số các nhóm feature
+WEIGHT_SHORT = 0.30
+WEIGHT_MEDIUM = 0.25
+WEIGHT_LONG = 0.15
+WEIGHT_WEEKDAY = 0.15
+WEIGHT_GAP = 0.15
+
+
+# ============================================================
+# UTIL
+# ============================================================
 
 def normalize_number(number):
     return str(number).zfill(2)
 
 
-def get_history_before(target_date):
-
-    rows = get_results()
-
-    target = datetime.strptime(
-        target_date,
+def parse_date(date):
+    return datetime.strptime(
+        date,
         "%Y-%m-%d"
     )
 
-    result = []
+
+# ============================================================
+# HISTORY
+# ============================================================
+
+def get_history_before(target_date):
+
+    target = parse_date(target_date)
+
+    rows = get_results()
+
+    history = []
 
     for row in rows:
 
-        date = datetime.strptime(
-            row[0],
-            "%Y-%m-%d"
-        )
+        try:
+            date = parse_date(row[0])
+        except (ValueError, TypeError):
+            continue
 
+        # QUAN TRỌNG:
+        # chỉ lấy dữ liệu trước ngày dự đoán
         if date < target:
-            result.append(row)
 
-    result.sort(
+            history.append(row)
+
+    history.sort(
         key=lambda x: x[0],
         reverse=True
     )
 
-    return result
+    return history
 
 
-def frequency_score(history, window):
+# ============================================================
+# COUNTER SCORE
+# ============================================================
+
+def build_frequency(history, window):
 
     recent = history[:window]
 
     counter = Counter(
-        row[2]
+        normalize_number(row[2])
         for row in recent
     )
 
-    scores = {}
+    return {
+        normalize_number(number):
+            counter.get(
+                normalize_number(number),
+                0
+            )
+        for number in range(100)
+    }
 
-    for number in range(100):
 
-        n = normalize_number(number)
+# ============================================================
+# NORMALIZE
+# ============================================================
 
-        scores[n] = counter.get(n, 0)
+def normalize_scores(scores):
+
+    if not scores:
+        return scores
+
+    values = list(scores.values())
+
+    minimum = min(values)
+    maximum = max(values)
+
+    if maximum == minimum:
+
+        return {
+            key: 0.0
+            for key in scores
+        }
+
+    return {
+        key:
+        (value - minimum)
+        / (maximum - minimum)
+
+        for key, value in scores.items()
+    }
+
+
+# ============================================================
+# RECENCY WEIGHTED SCORE
+# ============================================================
+
+def recency_score(history, window):
+
+    recent = history[:window]
+
+    scores = {
+        normalize_number(number): 0.0
+        for number in range(100)
+    }
+
+    if not recent:
+        return scores
+
+    # Ngày càng gần hiện tại → trọng số càng cao
+    for index, row in enumerate(recent):
+
+        number = normalize_number(row[2])
+
+        weight = math.exp(
+            -index / max(window / 3, 1)
+        )
+
+        scores[number] += weight
 
     return scores
 
 
-def gap_score(history):
+# ============================================================
+# WEEKDAY
+# ============================================================
 
-    scores = {}
+def weekday_score(history, target_date):
 
-    for number in range(100):
-
-        n = normalize_number(number)
-
-        gap = len(history) + 1
-
-        for index, row in enumerate(history):
-
-            if row[2] == n:
-
-                gap = index
-
-                break
-
-        scores[n] = gap
-
-    return scores
-
-
-def day_of_week_score(history, target_date):
-
-    target = datetime.strptime(
-        target_date,
-        "%Y-%m-%d"
-    )
+    target = parse_date(target_date)
 
     weekday = target.weekday()
 
     filtered = [
-        row for row in history
+        row
+        for row in history
         if row[3] == weekday
     ]
 
     counter = Counter(
-        row[2]
+        normalize_number(row[2])
         for row in filtered
     )
 
@@ -105,19 +181,19 @@ def day_of_week_score(history, target_date):
 
         n = normalize_number(number)
 
-        scores[n] = counter.get(n, 0)
+        scores[n] = counter.get(
+            n,
+            0
+        )
 
-    return scores
+    return normalize_scores(scores)
 
 
-def recent_trend_score(history):
+# ============================================================
+# GAP
+# ============================================================
 
-    recent = history[:10]
-
-    counter = Counter(
-        row[2]
-        for row in recent
-    )
+def gap_score(history):
 
     scores = {}
 
@@ -125,10 +201,37 @@ def recent_trend_score(history):
 
         n = normalize_number(number)
 
-        scores[n] = counter.get(n, 0)
+        gap = None
 
-    return scores
+        for index, row in enumerate(history):
 
+            if normalize_number(row[2]) == n:
+
+                gap = index
+
+                break
+
+        if gap is None:
+
+            gap = len(history)
+
+        scores[n] = gap
+
+    # Không dùng "gap càng lớn càng tốt" tuyến tính.
+    # Dùng log để tránh số quá lâu không xuất hiện
+    # chiếm ưu thế tuyệt đối.
+
+    scores = {
+        key: math.log1p(value)
+        for key, value in scores.items()
+    }
+
+    return normalize_scores(scores)
+
+
+# ============================================================
+# MAIN SCORE
+# ============================================================
 
 def calculate_scores(target_date):
 
@@ -136,43 +239,79 @@ def calculate_scores(target_date):
         target_date
     )
 
-    if len(history) == 0:
+    if not history:
+
         raise ValueError(
             "Database chưa có dữ liệu. "
             "Hãy chạy /update trước."
         )
 
-    if len(history) < 10:
+    if len(history) < MIN_HISTORY:
+
         raise ValueError(
             f"Chỉ có {len(history)} ngày dữ liệu. "
-            "Cần ít nhất 10 ngày để dự đoán."
+            f"Cần ít nhất {MIN_HISTORY} ngày."
         )
 
-    freq7 = frequency_score(
+    # --------------------------------------------------------
+    # FEATURE 1: ngắn hạn
+    # --------------------------------------------------------
+
+    short_raw = recency_score(
         history,
-        7
+        SHORT_WINDOW
     )
 
-    freq30 = frequency_score(
-        history,
-        30
+    short = normalize_scores(
+        short_raw
     )
 
-    freq90 = frequency_score(
+    # --------------------------------------------------------
+    # FEATURE 2: trung hạn
+    # --------------------------------------------------------
+
+    medium_raw = recency_score(
         history,
-        90
+        MEDIUM_WINDOW
     )
 
-    gap = gap_score(history)
+    medium = normalize_scores(
+        medium_raw
+    )
 
-    weekday = day_of_week_score(
+    # --------------------------------------------------------
+    # FEATURE 3: dài hạn
+    # --------------------------------------------------------
+
+    long_raw = build_frequency(
+        history,
+        LONG_WINDOW
+    )
+
+    long = normalize_scores(
+        long_raw
+    )
+
+    # --------------------------------------------------------
+    # FEATURE 4: thứ trong tuần
+    # --------------------------------------------------------
+
+    weekday = weekday_score(
         history,
         target_date
     )
 
-    trend = recent_trend_score(
+    # --------------------------------------------------------
+    # FEATURE 5: gap
+    # --------------------------------------------------------
+
+    gap = gap_score(
         history
     )
+
+    # --------------------------------------------------------
+    # COMBINE
+    # --------------------------------------------------------
 
     scores = {}
 
@@ -181,24 +320,55 @@ def calculate_scores(target_date):
         n = normalize_number(number)
 
         score = (
-            freq7[n] * 1.5
-            + freq30[n] * 1.0
-            + freq90[n] * 0.4
-            + weekday[n] * 1.2
-            + trend[n] * 1.0
-        )
 
-        score += min(
-            gap[n],
-            20
-        ) * 0.05
+            short[n]
+            * WEIGHT_SHORT
+
+            +
+
+            medium[n]
+            * WEIGHT_MEDIUM
+
+            +
+
+            long[n]
+            * WEIGHT_LONG
+
+            +
+
+            weekday[n]
+            * WEIGHT_WEEKDAY
+
+            +
+
+            gap[n]
+            * WEIGHT_GAP
+
+        )
 
         scores[n] = score
 
     return scores
 
 
-def predict(target_date, top_n=10):
+# ============================================================
+# PREDICT
+# ============================================================
+
+def predict(
+    target_date,
+    top_n=10
+):
+
+    if top_n <= 0:
+
+        raise ValueError(
+            "top_n phải lớn hơn 0."
+        )
+
+    if top_n > 100:
+
+        top_n = 100
 
     scores = calculate_scores(
         target_date
@@ -206,8 +376,10 @@ def predict(target_date, top_n=10):
 
     ranked = sorted(
         scores.items(),
-        key=lambda x: x[1],
-        reverse=True
+        key=lambda x: (
+            -x[1],
+            x[0]
+        )
     )
 
     return ranked[:top_n]

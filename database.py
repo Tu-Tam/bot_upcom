@@ -6,12 +6,21 @@ from config import DATABASE_PATH
 
 
 def get_connection():
-    os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
+    folder = os.path.dirname(DATABASE_PATH)
 
-    return sqlite3.connect(DATABASE_PATH)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+
+    conn = sqlite3.connect(
+        DATABASE_PATH,
+        timeout=30
+    )
+
+    return conn
 
 
 def init_db():
+
     conn = get_connection()
 
     conn.execute("""
@@ -30,72 +39,123 @@ def init_db():
 
 
 def save_result(date, special):
-    special = str(special).zfill(5)
+
+    special = str(special).strip().zfill(5)
+
+    if not special.isdigit() or len(special) != 5:
+        raise ValueError(
+            f"Giải đặc biệt không hợp lệ: {special}"
+        )
+
     last2 = special[-2:]
 
-    dt = datetime.strptime(date, "%Y-%m-%d")
+    dt = datetime.strptime(
+        date,
+        "%Y-%m-%d"
+    )
 
     conn = get_connection()
 
-    conn.execute("""
-        INSERT OR REPLACE INTO results
-        (date, special, special_last2, day_of_week, created_at)
-        VALUES (?, ?, ?, ?, ?)
-    """, (
-        date,
-        special,
-        last2,
-        dt.weekday(),
-        datetime.now().isoformat()
-    ))
+    try:
 
-    conn.commit()
-    conn.close()
+        conn.execute("""
+            INSERT OR REPLACE INTO results
+            (
+                date,
+                special,
+                special_last2,
+                day_of_week,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            date,
+            special,
+            last2,
+            dt.weekday(),
+            datetime.now().isoformat()
+        ))
+
+        conn.commit()
+
+    finally:
+
+        conn.close()
 
 
 def get_results(limit=None):
+
     conn = get_connection()
 
-    if limit:
-        rows = conn.execute("""
-            SELECT date, special, special_last2, day_of_week
-            FROM results
-            ORDER BY date DESC
-            LIMIT ?
-        """, (limit,)).fetchall()
-    else:
-        rows = conn.execute("""
-            SELECT date, special, special_last2, day_of_week
-            FROM results
-            ORDER BY date DESC
-        """).fetchall()
+    try:
 
-    conn.close()
+        if limit:
+
+            rows = conn.execute("""
+                SELECT
+                    date,
+                    special,
+                    special_last2,
+                    day_of_week
+                FROM results
+                ORDER BY date DESC
+                LIMIT ?
+            """, (limit,)).fetchall()
+
+        else:
+
+            rows = conn.execute("""
+                SELECT
+                    date,
+                    special,
+                    special_last2,
+                    day_of_week
+                FROM results
+                ORDER BY date DESC
+            """).fetchall()
+
+    finally:
+
+        conn.close()
 
     return rows
 
 
 def get_result(date):
+
     conn = get_connection()
 
-    row = conn.execute("""
-        SELECT date, special, special_last2, day_of_week
-        FROM results
-        WHERE date = ?
-    """, (date,)).fetchone()
+    try:
 
-    conn.close()
+        row = conn.execute("""
+            SELECT
+                date,
+                special,
+                special_last2,
+                day_of_week
+            FROM results
+            WHERE date = ?
+        """, (date,)).fetchone()
+
+    finally:
+
+        conn.close()
 
     return row
 
 
 def count_results():
+
     conn = get_connection()
 
-    result = conn.execute(
-        "SELECT COUNT(*) FROM results"
-    ).fetchone()[0]
+    try:
 
-    conn.close()
+        result = conn.execute(
+            "SELECT COUNT(*) FROM results"
+        ).fetchone()[0]
+
+    finally:
+
+        conn.close()
 
     return result

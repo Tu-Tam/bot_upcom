@@ -1,107 +1,74 @@
-import re
-import time
-import random
-from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
-from database import save_result, init_db
+import re
+import time
+from datetime import datetime, timedelta
+from database import save_result, count_results
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7"
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
 
-def lay_ket_qua_knet(ngay_dt: datetime):
-    """Cào dữ liệu chuẩn từ nguồn ketqua.net"""
-    ngay_str = ngay_dt.strftime("%d-%m-%Y")
-    url = f"https://ketqua.net/ket-qua-xosomb.php?ngay={ngay_str}"
-    
+def lay_ket_qua_ngay(date_str):
+    """
+    Cào kết quả XSMB theo ngày format YYYY-MM-DD
+    """
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
-        if resp.status_code != 200:
+        # Chuyển YYYY-MM-DD sang DD-MM-YYYY cho URL
+        d_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        formatted_date = d_obj.strftime("%d-%m-%Y")
+        url = f"https://xoso.com.vn/xsmb-{formatted_date}.html"
+
+        # Thêm timeout 5s tránh treo luồng
+        response = requests.get(url, headers=HEADERS, timeout=5)
+        if response.status_code != 200:
             return None
 
-        soup = BeautifulSoup(resp.text, "html.parser")
-        cac_so = {
-            "special": None,
-            "g1": [], "g2": [], "g3": [], "g4": [], "g5": [], "g6": [], "g7": []
-        }
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Tìm bảng kết quả
+        table = soup.find('table', class_='table-result')
+        if not table:
+            return None
 
-        # Bóc tách Giải Đặc Biệt
-        db = soup.select_one("#rs_0_0")
-        if db and db.text.strip().isdigit():
-            cac_so["special"] = db.text.strip()
+        numbers = []
+        # Lấy toàn bộ các giải
+        for td in table.find_all('td', class_=re.compile(r'v-giai|number')):
+            txt = td.text.strip()
+            # Tìm các chuỗi số từ 2 đến 5 chữ số
+            found = re.findall(r'\b\d{2,5}\b', txt)
+            numbers.extend(found)
 
-            # Bóc tách Giải 1 đến Giải 7
-            for i in range(1, 8):
-                elements = soup.select(f"[id^='rs_{i}_']")
-                cac_so[f"g{i}"] = [e.text.strip() for e in elements if e.text.strip().isdigit()]
+        if len(numbers) >= 20: # Một kỳ XSMB chuẩn có 27 giải
+            return numbers
+        return None
 
-            return cac_so
     except Exception as e:
-        print(f"Lỗi cào Knet: {e}")
-    return None
-
-
-def xu_ly_ngay(ngay: datetime):
-    date_id = ngay.strftime("%Y-%m-%d")
-    ngay_thang_vn = ngay.strftime("%d/%m/%Y")
-    thu = ngay.weekday()
-
-    print(f"🔍 Đang quét ngày {ngay_thang_vn}...")
-    cac_so = lay_ket_qua_knet(ngay)
-
-    if cac_so and cac_so["special"]:
-        # Gom tất cả các dãy số thu thập được
-        tat_ca = [cac_so["special"]]
-        for i in range(1, 8):
-            tat_ca.extend(cac_so[f"g{i}"])
-
-        # Tạo nhóm Lô theo đầu số
-        dau_so = {str(i): [] for i in range(10)}
-        for s in tat_ca:
-            if s and len(s) >= 2:
-                dau_so[s[-2]].append(s)
-
-        # Lưu kết quả vào CSDL
-        luu_ok = save_result({
-            "date": date_id,
-            "special": cac_so["special"],
-            "g1": cac_so["g1"],
-            "g2": cac_so["g2"],
-            "g3": cac_so["g3"],
-            "g4": cac_so["g4"],
-            "g5": cac_so["g5"],
-            "g6": cac_so["g6"],
-            "g7": cac_so["g7"],
-            "loto_by_head": dau_so,
-            "weekday": thu
-        })
-
-        if luu_ok:
-            print(f"✅ LƯU THÀNH CÔNG {date_id} | ĐB: {cac_so['special']}")
-            return True
-
-    print(f"❌ KHÔNG LẤY ĐƯỢC: {ngay_thang_vn}")
-    return False
-
+        print(f"⚠️ Lỗi cào ngày {date_str}: {e}")
+        return None
 
 def tai_90_ngay_gan_nhat():
-    init_db()
-    dem = 0
-    hom_nay = datetime.today()
-    print("🚀 Bắt đầu quét liên tục 90 ngày...")
-    
-    for lui in range(90):
-        ngay_can_lay = hom_nay - timedelta(days=lui)
-        if xu_ly_ngay(ngay_can_lay):
-            dem += 1
-        time.sleep(random.uniform(0.3, 0.6))
+    """
+    Quét lùi 90 ngày từ hôm nay, lưu vào CSDL
+    """
+    print("🚀 Bắt đầu quét dữ liệu 90 ngày...")
+    today = datetime.now()
+    thanh_cong = 0
+
+    for i in range(90):
+        current_date = (today - timedelta(days=i)).strftime("%Y-%m-%d")
+        print(f"🔍 Đang quét ngày {current_date}...")
         
-    print(f"\n===== 📊 KẾT THÚC: LẤY ĐƯỢC {dem}/90 NGÀY =====")
-    return dem
+        data = lay_ket_qua_ngay(current_date)
+        if data:
+            save_result(current_date, data)
+            thanh_cong += 1
+            print(f"  └─ ✅ Đã lưu {current_date}")
+        else:
+            print(f"  └─ ❌ Bỏ qua/Không có số {current_date}")
 
+        # Tạm dừng 0.5s giữa các request tránh bị chặn IP
+        time.sleep(0.5)
 
-if __name__ == "__main__":
-    tai_90_ngay_gan_nhat()
+    print(f"🎉 Hoàn tất! Đã lưu tổng cộng {thanh_cong} ngày.")
+    return count_results()

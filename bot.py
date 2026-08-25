@@ -36,8 +36,11 @@ def run_flask():
 def fetch_initial_data():
     """Tự động cào dữ liệu 90 ngày gần nhất khi ứng dụng khởi động"""
     print("📦 Bắt đầu xây dựng kho dữ liệu 90 ngày...", flush=True)
-    scraper.scrape_past_days(days=90)
-    print("✅ Đã hoàn tất khởi tạo kho dữ liệu!", flush=True)
+    try:
+        scraper.scrape_past_days(days=90)
+        print("✅ Đã hoàn tất khởi tạo kho dữ liệu!", flush=True)
+    except Exception as e:
+        print(f"⚠️ Lỗi khi khởi tạo dữ liệu: {e}", flush=True)
 
 # --- TELEGRAM BOT HANDLERS ---
 @bot.message_handler(commands=['start', 'help'])
@@ -48,7 +51,7 @@ def send_welcome(message):
         "🔹 `/dudoan` - Nhận dự đoán lô đẹp cho ngày hôm nay\n"
         "🔹 `/ketqua` - Xem kết quả XSMB mới nhất có trong CSDL\n"
         "🔹 `/capnhat` - Ép bot quét cập nhật kết quả hôm nay ngay lập tức\n"
-        "🔹 `/thongke` - Trạng thái kho dữ liệu hiện tại\n"
+        "🔹 `/thongke` hoặc `/stats` - Trạng thái kho dữ liệu hiện tại\n"
         "🔹 `/help` - Xem lại hướng dẫn này"
     )
     bot.reply_to(message, help_text, parse_mode="Markdown")
@@ -110,7 +113,8 @@ def handle_manual_update(message):
         bot.edit_message_text("⚠️ Không tìm thấy kết quả mới hoặc chưa đến giờ quay thưởng (18h15).", 
                               chat_id=message.chat.id, message_id=msg.message_id)
 
-@bot.message_handler(commands=['thongke'])
+# Xử lý đồng thời cả lệnh /thongke và /stats
+@bot.message_handler(commands=['thongke', 'stats'])
 def handle_stats(message):
     count = db.count_results()
     min_date, max_date = db.get_date_range()
@@ -135,9 +139,10 @@ if __name__ == '__main__':
     data_thread = threading.Thread(target=fetch_initial_data, daemon=True)
     data_thread.start()
 
-    # 3. Dọn dẹp Webhook cũ trước khi khởi chạy Polling
+    # 3. Dọn dẹp Webhook cũ & trễ 2 giây để Telegram giải phóng kết nối socket
     try:
         bot.remove_webhook()
+        time.sleep(2)
     except Exception as e:
         print(f"⚠️ Lỗi dọn dẹp Webhook: {e}", flush=True)
 
@@ -146,7 +151,7 @@ if __name__ == '__main__':
     # 4. Vòng lặp Polling an toàn - Tự khôi phục nếu đứt kết nối
     while True:
         try:
-            bot.infinity_polling(skip_pending_updates=True, timeout=20, long_polling_timeout=10)
+            bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)
         except Exception as e:
-            print(f"⚠️ Lỗi hệ thống Polling: {e}", flush=True)
-            time.sleep(3)
+            print(f"⚠️ Lỗi hệ thống Polling (sẽ thử lại sau 5 giây): {e}", flush=True)
+            time.sleep(5)

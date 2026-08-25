@@ -8,6 +8,7 @@ from flask import Flask
 import telebot
 import time
 from telebot import apihelper
+import requests
 
 # === NHẬP CSDL — CHỈ CÁC HÀM CÓ THẬT ===
 from database import (
@@ -167,6 +168,29 @@ if __name__ == "__main__":
 
     # Bot lắng nghe lệnh...
     print("🤖 Bot đang lắng nghe lệnh...")
+
+    # --- Debug: print webhook info and optionally delete it at startup to avoid 409 conflicts
+    try:
+        try:
+            resp = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo", timeout=10)
+            try:
+                info = resp.json()
+            except Exception:
+                info = {"error": "invalid json"}
+            print("[startup] getWebhookInfo:", json.dumps(info, ensure_ascii=False))
+            url = info.get("result", {}).get("url") if isinstance(info, dict) else None
+            if url:
+                # attempt to delete webhook to avoid getUpdates conflict
+                d = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook", data={"drop_pending_updates": "true"}, timeout=10)
+                try:
+                    djson = d.json()
+                except Exception:
+                    djson = {"error": "invalid json"}
+                print("[startup] deleteWebhook response:", json.dumps(djson, ensure_ascii=False))
+        except Exception as e:
+            print("[startup] webhook check failed:", repr(e))
+    except Exception as e:
+        print("[startup] unexpected error when checking webhook:", repr(e))
 
     # Ensure webhook is removed and use retry loop to handle Telegram 409 conflicts
     try:

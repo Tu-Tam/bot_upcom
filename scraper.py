@@ -9,7 +9,7 @@ HEADERS = {
     'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
 }
 
-def lay_ket_qua_ngay_ nguon_chinh(date_str):
+def lay_ket_qua_ngay_nguon_chinh(date_str):
     """Nguồn 1: xosodaiphat.com"""
     try:
         d_obj = datetime.strptime(date_str, "%Y-%m-%d")
@@ -24,7 +24,6 @@ def lay_ket_qua_ngay_ nguon_chinh(date_str):
         soup = BeautifulSoup(response.text, 'html.parser')
         numbers = []
         
-        # Lấy tất cả số xuất hiện trong các ô bảng kết quả
         table = soup.find('table', class_=['table-xsmb', 'results-table'])
         if table:
             for cell in table.find_all(['td', 'span']):
@@ -36,7 +35,7 @@ def lay_ket_qua_ngay_ nguon_chinh(date_str):
             return numbers[:27]
             
         return None
-    except Exception as e:
+    except Exception:
         return None
 
 def lay_ket_qua_ngay_du_phong(date_str):
@@ -54,7 +53,6 @@ def lay_ket_qua_ngay_du_phong(date_str):
         soup = BeautifulSoup(response.text, 'html.parser')
         numbers = []
         
-        # Bắt các thẻ hiển thị giải thưởng
         cells = soup.select('.table-result span, .table-result td, .v-gdb, .v-g1, .v-g2, .v-g3, .v-g4, .v-g5, .v-g6, .v-g7')
         for cell in cells:
             txt = cell.get_text(strip=True)
@@ -65,7 +63,7 @@ def lay_ket_qua_ngay_du_phong(date_str):
             return numbers[:27]
             
         return None
-    except Exception as e:
+    except Exception:
         return None
 
 def lay_ket_qua_ngay(date_str):
@@ -105,7 +103,6 @@ def scrape_today():
         save_result(today_str, data)
         return True
     
-    # Nếu cào hôm nay chưa có (do chưa đến giờ quay), cào ngày hôm qua để đảm bảo CSDL luôn cập nhật
     yesterday_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     data_yesterday = lay_ket_qua_ngay(yesterday_str)
     if data_yesterday:

@@ -18,13 +18,12 @@ def init_db():
         conn.close()
 
 def save_result(date_str, numbers):
-    """Lưu hoặc cập nhật kết quả 1 ngày (Nhận đúng 2 tham số: date_str và numbers)"""
+    """Lưu hoặc cập nhật kết quả 1 ngày (Nhận 2 tham số: date_str và numbers)"""
     with db_lock:
         try:
             conn = sqlite3.connect('xosomb.db')
             cursor = conn.cursor()
             
-            # Chuẩn hóa danh sách số thành chuỗi cách nhau bằng dấu phẩy
             numbers_str = ",".join(numbers) if isinstance(numbers, list) else str(numbers)
             
             cursor.execute('''
@@ -38,6 +37,26 @@ def save_result(date_str, numbers):
         except Exception as e:
             print(f"⚠️ Lỗi CSDL khi lưu ngày {date_str}: {e}", flush=True)
             return False
+
+def get_results(limit=90):
+    """Lấy danh sách kết quả xổ số gần nhất từ CSDL"""
+    with db_lock:
+        try:
+            conn = sqlite3.connect('xosomb.db')
+            cursor = conn.cursor()
+            cursor.execute('SELECT date, numbers FROM results ORDER BY date DESC LIMIT ?', (limit,))
+            rows = cursor.fetchall()
+            conn.close()
+            
+            # Chuyển đổi chuỗi numbers lại thành danh sách các số
+            results = []
+            for date, numbers_str in rows:
+                num_list = numbers_str.split(',') if numbers_str else []
+                results.append({'date': date, 'numbers': num_list})
+            return results
+        except Exception as e:
+            print(f"⚠️ Lỗi lấy dữ liệu CSDL: {e}", flush=True)
+            return []
 
 def count_results():
     """Đếm tổng số ngày đã lưu trong CSDL"""
@@ -53,5 +72,5 @@ def count_results():
             print(f"⚠️ Lỗi đếm CSDL: {e}", flush=True)
             return 0
 
-# Tự động khởi tạo database khi import file
+# Tự động khởi tạo DB khi module được load
 init_db()

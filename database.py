@@ -48,7 +48,6 @@ def get_results(limit=90):
             rows = cursor.fetchall()
             conn.close()
             
-            # Chuyển đổi chuỗi numbers lại thành danh sách các số
             results = []
             for date, numbers_str in rows:
                 num_list = numbers_str.split(',') if numbers_str else []
@@ -57,6 +56,22 @@ def get_results(limit=90):
         except Exception as e:
             print(f"⚠️ Lỗi lấy dữ liệu CSDL: {e}", flush=True)
             return []
+
+def get_date_range():
+    """Lấy ngày cũ nhất và mới nhất có trong CSDL"""
+    with db_lock:
+        try:
+            conn = sqlite3.connect('xosomb.db')
+            cursor = conn.cursor()
+            cursor.execute('SELECT MIN(date), MAX(date) FROM results')
+            row = cursor.fetchone()
+            conn.close()
+            if row and row[0] and row[1]:
+                return row[0], row[1]
+            return None, None
+        except Exception as e:
+            print(f"⚠️ Lỗi lấy phạm vi ngày CSDL: {e}", flush=True)
+            return None, None
 
 def count_results():
     """Đếm tổng số ngày đã lưu trong CSDL"""

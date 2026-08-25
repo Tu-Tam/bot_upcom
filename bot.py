@@ -6,6 +6,8 @@ from collections import defaultdict, Counter
 from threading import Thread
 from flask import Flask
 import telebot
+import time
+from telebot import apihelper
 
 # === NHẬP CSDL — CHỈ CÁC HÀM CÓ THẬT ===
 from database import (
@@ -200,9 +202,28 @@ if __name__ == "__main__":
 
     # Bot lắng nghe lệnh...
     print("🤖 Bot đang lắng nghe lệnh...")
-    bot.infinity_polling(
-        timeout=35,
-        interval=1.2,
-        long_polling_timeout=25,
-        restart_on_change=False
-    )
+
+    # Ensure webhook is removed and use retry loop to handle Telegram 409 conflicts
+    try:
+        bot.remove_webhook()
+    except Exception as e:
+        print("remove_webhook:", e)
+
+    while True:
+        try:
+            bot.infinity_polling(
+                timeout=35,
+                interval=1.2,
+                long_polling_timeout=25,
+                restart_on_change=False
+            )
+        except apihelper.ApiTelegramException as e:
+            print("Telegram API error:", e)
+            if '409' in str(e) or 'terminated by other getUpdates' in str(e):
+                print("Conflict (409). Pausing 60s — check other instances or webhook.")
+                time.sleep(60)
+            else:
+                time.sleep(10)
+        except Exception as e:
+            print("Unexpected error in polling:", e)
+            time.sleep(10)

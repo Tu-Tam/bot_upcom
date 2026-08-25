@@ -3,91 +3,149 @@ from datetime import datetime
 import math
 from database import get_results, get_full
 
+MIN_HISTORY = 10
+SHORT_WINDOW = 7
+MEDIUM_WINDOW = 30
+LONG_WINDOW = 90
 
-MIN_HISTORY=10
-SHORT_WINDOW=7; MEDIUM_WINDOW=30; LONG_WINDOW=90
-WEIGHT_SHORT=0.30; WEIGHT_MEDIUM=0.25; WEIGHT_LONG=0.15; WEIGHT_WEEKDAY=0.15; WEIGHT_GAP=0.15
+WEIGHT_SHORT = 0.30
+WEIGHT_MEDIUM = 0.25
+WEIGHT_LONG = 0.15
+WEIGHT_WEEKDAY = 0.15
+WEIGHT_GAP = 0.15
 
 
-def norm_num(n): return str(n).zfill(2)
-def parse_dt(s): return datetime.strptime(s,"%Y-%m-%d")
+def norm_num(n): 
+    return str(n).zfill(2)
+
+def parse_dt(s): 
+    return datetime.strptime(s, "%Y-%m-%d")
 
 
 def extract_tails(rec):
     t = [rec["special"][-2:]]
-    for g in [rec["g1"],rec["g2"],rec["g3"],rec["g4"],rec["g5"],rec["g6"],rec["g7"]]:
+    for g in [rec["g1"], rec["g2"], rec["g3"], rec["g4"], rec["g5"], rec["g6"], rec["g7"]]:
         for f in g:
-            if isinstance(f,str) and len(f)>=2: t.append(f[-2:])
-    if isinstance(rec.get("all"),dict): t.extend(rec["all"].get("tails2",[]))
-    return [norm_num(x) for x in t if len(str(x))==2 or str(x).isdigit()]
+            if isinstance(f, str) and len(f) >= 2: 
+                t.append(f[-2:])
+    if isinstance(rec.get("all"), dict): 
+        t.extend(rec["all"].get("tails2", []))
+    return [norm_num(x) for x in t if len(str(x)) == 2 or str(x).isdigit()]
 
 
 def get_history_before(target_dt):
     tgt = parse_dt(target_dt)
     rows = get_results()
-    hist=[]
-    for d,*_ in sorted(rows,key=lambda r:r[0]):
+    hist = []
+    for d, *_ in sorted(rows, key=lambda r: r[0]):
         if parse_dt(d) < tgt:
-            f=get_full(d)
-            if f: hist.append(f)
-    return sorted(hist, key=lambda x:x["date"], reverse=True)
+            f = get_full(d)
+            if f: 
+                hist.append(f)
+    return sorted(hist, key=lambda x: x["date"], reverse=True)
 
 
 def freq_window(hist, win):
-    c=Counter()
-    for r in hist[:win]: c.update(extract_tails(r))
-    return {norm_num(i):c.get(norm_num(i),0) for i in range(100)}
+    c = Counter()
+    for r in hist[:win]: 
+        c.update(extract_tails(r))
+    return {norm_num(i): c.get(norm_num(i), 0) for i in range(100)}
 
 
 def score_recency(hist, win):
-    sc={norm_num(i):0.0 for i in range(100)}
-    if not hist: return sc
-    for idx,rec in enumerate(hist[:win]):
-        w=math.exp(-idx/max(win/3,1))
-        for tail in extract_tails(rec): sc[tail]+=w
+    sc = {norm_num(i): 0.0 for i in range(100)}
+    if not hist: 
+        return sc
+    for idx, rec in enumerate(hist[:win]):
+        w = math.exp(-idx / max(win / 3, 1))
+        for tail in extract_tails(rec): 
+            sc[tail] += w
     return sc
 
 
 def norm_score(dic):
-    if not dic: return dic
-    vals=list(dic.values()); lo,hi=min(vals),max(vals)
-    return {k: (v-lo)/(hi-lo) if hi!=lo else 0.0 for k,v in dic.items()}
+    if not dic: 
+        return dic
+    vals = list(dic.values())
+    lo, hi = min(vals), max(vals)
+    return {k: (v - lo) / (hi - lo) if hi != lo else 0.0 for k, v in dic.items()}
 
 
 def score_weekday(hist, target_dt):
-    dow=parse_dt(target_dt).weekday()
-    c=Counter()
+    dow = parse_dt(target_dt).weekday()
+    c = Counter()
     for rec in hist:
-        if rec["weekday"]==dow: c.update(extract_tails(rec))
-    raw={norm_num(i):c.get(norm_num(i),0) for i in range(100)}
+        if rec["weekday"] == dow: 
+            c.update(extract_tails(rec))
+    raw = {norm_num(i): c.get(norm_num(i), 0) for i in range(100)}
     return norm_score(raw)
 
 
 def score_gap(hist):
-    sc={}
+    sc = {}
     for num in [norm_num(i) for i in range(100)]:
-        g=len(hist)
-        for idx,rec in enumerate(hist):
-            if num in extract_tails(rec): g=idx; break
-        sc[num]=math.log1p(g)
+        g = len(hist)
+        for idx, rec in enumerate(hist):
+            if num in extract_tails(rec): 
+                g = idx
+                break
+        sc[num] = math.log1p(g)
     return norm_score(sc)
 
 
 def calculate(target_dt):
-    hist=get_history_before(target_dt)
-    if len(hist)<MIN_HISTORY: raise ValueError(f"Cần ít nhất {MIN_HISTORY} ngày lịch sử")
-    sh=norm_score(score_recency(hist,SHORT_WINDOW))
-    md=norm_score(score_recency(hist,MEDIUM_WINDOW))
-    lg=norm_score(freq_window(hist,LONG_WINDOW))
-    wd=score_weekday(hist,target_dt)
-    gp=score_gap(hist)
-    total={}
+    hist = get_history_before(target_dt)
+    if len(hist) < MIN_HISTORY: 
+        raise ValueError(f"Cần ít nhất {MIN_HISTORY} ngày lịch sử")
+    sh = norm_score(score_recency(hist, SHORT_WINDOW))
+    md = norm_score(score_recency(hist, MEDIUM_WINDOW))
+    lg = norm_score(freq_window(hist, LONG_WINDOW))
+    wd = score_weekday(hist, target_dt)
+    gp = score_gap(hist)
+    total = {}
     for n in [norm_num(i) for i in range(100)]:
-        total[n]=sh[n]*WEIGHT_SHORT + md[n]*WEIGHT_MEDIUM + lg[n]*WEIGHT_LONG + wd[n]*WEIGHT_WEEKDAY + gp[n]*WEIGHT_GAP
+        total[n] = sh[n] * WEIGHT_SHORT + md[n] * WEIGHT_MEDIUM + lg[n] * WEIGHT_LONG + wd[n] * WEIGHT_WEEKDAY + gp[n] * WEIGHT_GAP
     return total
 
 
 def predict(target_date, top_n=10):
-    sc=calculate(target_date)
-    rank=sorted(sc.items(), key=lambda kv: (-kv[1], kv[0]))
-    return rank[:max(1,min(top_n,100))]
+    sc = calculate(target_date)
+    rank = sorted(sc.items(), key=lambda kv: (-kv[1], kv[0]))
+    return rank[:max(1, min(top_n, 100))]
+
+
+# --- HÀM BỔ SUNG ĐỂ TƯƠNG THÍCH VỚI BOT.PY ---
+def generate_prediction_report(results=None):
+    """Tạo bản tin dự đoán dựa trên thuật toán tính điểm trọng số."""
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    
+    try:
+        # Gọi thuật toán gốc để lấy ra top 10 lô đẹp nhất
+        predictions = predict(today_str, top_n=10)
+        
+        bTL = predictions[0][0]
+        sTL = [predictions[0][0], predictions[1][0]]
+        top_5 = [p[0] for p in predictions[:5]]
+        
+        report = (
+            f"🎯 *BẢN TIN DỰ ĐOÁN XSMB NGÀY {today_str}*\n"
+            "------------------------------------\n"
+            f"🔥 **Bạch Thủ Lô:** `{bTL}`\n"
+            f"👯 **Song Thủ Lô:** `{sTL[0]} - {sTL[1]}`\n"
+            f"🌟 **Top 5 Lô đẹp nhất:** `{', '.join(top_5)}` \n\n"
+            "📊 *BẢNG ĐIỂM THUẬT TOÁN (TOP 10):*\n"
+        )
+        
+        for rank, (num, score) in enumerate(predictions, 1):
+            report += f"▫️ Hạng {rank:02d}: Lô `{num}` (Điểm: `{score:.2f}`)\n"
+            
+        report += "\n⚠️ *Lưu ý:* _Kết quả dựa trên thuật toán thống kê trọng số (Chu kỳ, Thứ, Khoảng cách gan)._"
+        return report
+
+    except Exception as e:
+        # Nếu chưa đủ ngày lịch sử (dưới MIN_HISTORY) để tính toán nâng cao, bot sẽ rơi vào trường hợp này
+        return (
+            f"⚠️ *Thông báo hệ thống dự đoán:*\n"
+            f"Không thể chạy thuật toán chuyên sâu ({e}).\n"
+            "Hãy thử bấm `/capnhat` hoặc cào thêm dữ liệu lịch sử."
+        )

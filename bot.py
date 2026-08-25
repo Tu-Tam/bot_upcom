@@ -2,7 +2,7 @@ import os
 import sys
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime
 import telebot
 from flask import Flask
 
@@ -135,18 +135,18 @@ if __name__ == '__main__':
     data_thread = threading.Thread(target=fetch_initial_data, daemon=True)
     data_thread.start()
 
-    # 3. Dọn dẹp Webhook cũ trước khi khởi chạy Polling
+    # 3. Dọn dẹp Webhook cũ & bỏ qua các tin nhắn tồn đọng
     try:
-        bot.remove_webhook()
+        bot.remove_webhook(drop_pending_updates=True)
     except Exception as e:
         print(f"⚠️ Lỗi dọn dẹp Webhook: {e}", flush=True)
 
     print("🤖 Bot đang lắng nghe lệnh...", flush=True)
 
-    # 4. Vòng lặp Polling an toàn - Tự khôi phục nếu đứt kết nối
+    # 4. Vòng lặp Polling an toàn
     while True:
         try:
-            bot.infinity_polling(skip_pending_updates=True, timeout=20, long_polling_timeout=10)
+            bot.infinity_polling(timeout=20, long_polling_timeout=10)
         except Exception as e:
             print(f"⚠️ Lỗi hệ thống Polling: {e}", flush=True)
             time.sleep(3)

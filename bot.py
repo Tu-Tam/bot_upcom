@@ -62,30 +62,49 @@ def handle_prediction(message):
     
     # Kiểm tra và tự cập nhật nếu thiếu dữ liệu mới
     today_str = datetime.now().strftime("%Y-%m-%d")
-    recent = db.get_results(limit=1)
-    if not recent or recent[0]['date'] != today_str:
+    recent = db.get_results(limit=1) if hasattr(db, 'get_results') else None
+    
+    if not recent or (isinstance(recent, list) and len(recent) > 0 and recent[0].get('date') != today_str):
         scraper.scrape_today()
 
-    results = db.get_full(limit=90)
+    # Lấy dữ liệu phân tích
+    if hasattr(db, 'get_full'):
+        results = db.get_full(limit=90)
+    elif hasattr(db, 'get_results'):
+        results = db.get_results(limit=90)
+    else:
+        results = []
+
     if not results:
-        bot.edit_message_text("⚠️ Chưa có đủ dữ liệu trong CSDL để phân tích. Hãy thử `/capnhat` trước!", 
-                              chat_id=message.chat.id, message_id=msg.message_id)
+        bot.edit_message_text("⚠️ Chưa có đủ dữ liệu trong CSDL để phân tích. Hãy bấm `/capnhat` trước!", 
+                              chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
         return
 
-    pred_text = predictor.generate_prediction_report(results)
-    bot.edit_message_text(pred_text, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
+    try:
+        pred_text = predictor.generate_prediction_report(results)
+        bot.edit_message_text(pred_text, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
+    except Exception as e:
+        bot.edit_message_text(f"⚠️ Lỗi khi tạo bản tin dự đoán: {e}", chat_id=message.chat.id, message_id=msg.message_id)
 
 @bot.message_handler(commands=['ketqua'])
 def handle_latest_result(message):
-    results = db.get_results(limit=1)
+    results = db.get_results(limit=1) if hasattr(db, 'get_results') else None
     if not results:
         bot.reply_to(message, "⚠️ Chưa có dữ liệu kết quả nào trong CSDL.")
         return
     
     latest = results[0]
-    date_str = latest['date']
-    nums = latest['numbers']
+    date_str = latest.get('date', 'N/A')
+    nums = latest.get('numbers', [])
     
+    # Xử lý nếu numbers lưu dưới dạng chuỗi trong DB
+    if isinstance(nums, str):
+        import json
+        try:
+            nums = json.loads(nums)
+        except:
+            nums = nums.split(',')
+
     if not nums:
         bot.reply_to(message, f"📅 Ngày `{date_str}`: Chưa có kết quả.", parse_mode="Markdown")
         return
@@ -113,11 +132,15 @@ def handle_manual_update(message):
         bot.edit_message_text("⚠️ Không tìm thấy kết quả mới hoặc chưa đến giờ quay thưởng (18h15).", 
                               chat_id=message.chat.id, message_id=msg.message_id)
 
-# Xử lý đồng thời cả lệnh /thongke và /stats
+# Xử lý đồng thời cả lệnh /thongke và /stats an toàn
 @bot.message_handler(commands=['thongke', 'stats'])
 def handle_stats(message):
-    count = db.count_results()
-    min_date, max_date = db.get_date_range()
+    count = db.count_results() if hasattr(db, 'count_results') else 0
+    
+    if hasattr(db, 'get_date_range'):
+        min_date, max_date = db.get_date_range()
+    else:
+        min_date, max_date = None, None
     
     stats_msg = (
         "📈 *THỐNG KÊ KHO DỮ LIỆU CSDL*\n\n"

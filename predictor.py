@@ -15,7 +15,7 @@ SHORT_WINDOW = 7
 MEDIUM_WINDOW = 30
 LONG_WINDOW = 90
 
-# Bộ trọng số tối ưu hóa cân bằng nhịp lô
+# Bộ trọng số cân bằng chuẩn
 WEIGHT_SHORT = 0.20
 WEIGHT_MEDIUM = 0.25
 WEIGHT_LONG = 0.15
@@ -23,21 +23,21 @@ WEIGHT_WEEKDAY = 0.25
 WEIGHT_GAP = 0.15
 
 
-def clean_str(val):
-    """Làm sạch hoàn toàn các ký tự ngắt dòng và khoảng trắng thừa."""
+def clean_text(val):
+    """Xóa bỏ hoàn toàn ký tự xuống dòng và khoảng trắng thừa gây lỗi giao diện Telegram."""
     if val is None:
         return ""
     return str(val).replace('\n', ' ').replace('\r', '').replace('\xa0', '').strip()
 
 
 def norm_num(n):
-    return clean_str(n).zfill(2)
+    return clean_text(n).zfill(2)
 
 
 def parse_dt(s):
     if isinstance(s, datetime):
         return s
-    return datetime.strptime(clean_str(s).split()[0], "%Y-%m-%d")
+    return datetime.strptime(clean_text(s).split()[0], "%Y-%m-%d")
 
 
 def extract_tails(rec):
@@ -47,14 +47,14 @@ def extract_tails(rec):
         return t
 
     sp = rec.get("special") or rec.get("g0")
-    if sp and len(clean_str(sp)) >= 2:
-        t.append(clean_str(sp)[-2:])
+    if sp and len(clean_text(sp)) >= 2:
+        t.append(clean_text(sp)[-2:])
 
     for key in ["g1", "g2", "g3", "g4", "g5", "g6", "g7"]:
         g_val = rec.get(key, [])
         if isinstance(g_val, list):
             for f in g_val:
-                f_str = clean_str(f)
+                f_str = clean_text(f)
                 if len(f_str) >= 2:
                     t.append(f_str[-2:])
 
@@ -70,11 +70,11 @@ def extract_tails(rec):
             
     if isinstance(nums, list):
         for num in nums:
-            n_str = clean_str(num)
+            n_str = clean_text(num)
             if len(n_str) >= 2:
                 t.append(n_str[-2:])
 
-    return [norm_num(x) for x in t if clean_str(x).isdigit()]
+    return [norm_num(x) for x in t if clean_text(x).isdigit()]
 
 
 def get_history_before(target_dt):
@@ -174,7 +174,7 @@ def calculate(target_dt):
     wd = score_weekday(hist, target_dt)
     gp = score_gap(hist)
     
-    # Lấy danh sách lô xuất hiện ở 2 ngày gần nhất
+    # Lấy danh sách lô xuất hiện trong 2 ngày gần nhất
     day1_tails = set(extract_tails(hist[0])) if len(hist) > 0 else set()
     day2_tails = set(extract_tails(hist[1])) if len(hist) > 1 else set()
     
@@ -188,10 +188,10 @@ def calculate(target_dt):
             gp[n] * WEIGHT_GAP
         )
         
-        # Cơ chế Phạt nhẹ giúp tránh hiện tượng cố định 1 con số (như 34) quá nhiều ngày
+        # Hệ số phạt điều chỉnh mềm dẻo tránh bám dính 1 số
         penalty = 1.0
         if n in day1_tails:
-            penalty *= 0.82
+            penalty *= 0.80
         if n in day2_tails:
             penalty *= 0.90
             
@@ -268,7 +268,7 @@ def test_prediction_accuracy(target_date_str):
                         if isinstance(r, dict):
                             actual_record = r
                         elif isinstance(r, (list, tuple)):
-                            actual_record = {"date": clean_str(r_date), "numbers": r[1] if len(r) > 1 else []}
+                            actual_record = {"date": clean_text(r_date), "numbers": r[1] if len(r) > 1 else []}
                     break
             except Exception:
                 continue
@@ -295,21 +295,25 @@ def test_prediction_accuracy(target_date_str):
     top5_hits = [num for num in top5 if num in actual_tails]
     top10_hits = [num for num in top10 if num in actual_tails]
 
-    str_stl = f"({', '.join(stl_hits)})" if stl_hits else "(Không trúng)"
-    str_top5 = f"({', '.join(top5_hits)})" if top5_hits else "(Không)"
-    str_top10 = f"({', '.join(top10_hits)})" if top10_hits else "(Không)"
+    # Xây dựng chuỗi văn bản không khoảng trắng rớt
+    stl_detail = f"({', '.join(stl_hits)})" if stl_hits else "(Không trúng)"
+    top5_detail = f"({', '.join(top5_hits)})" if top5_hits else "(Không)"
+    top10_detail = f"({', '.join(top10_hits)})" if top10_hits else "(Không)"
 
-    # Format báo cáo siêu sạch, ép nối dòng không khoảng trắng rớt
-    lines = [
-        f"🧪 *BÁO CÁO TEST ĐỘ CHÍNH XÁC NGÀY {normalized_target_str}*",
-        "------------------------------------",
-        f"🔥 **Bạch Thủ Lô ({bTL}):** {'✅ TRÚNG' if btl_hit else '❌ TRƯỢT'}",
-        f"👯 **Song Thủ Lô ({sTL[0]}, {sTL[1]}):** Trúng `{len(stl_hits)}/2` lô {str_stl}",
-        f"🌟 **Top 5 Lô đẹp:** Trúng `{len(top5_hits)}/5` lô {str_top5}",
-        f"📊 **Top 10 Lô đẹp:** Trúng `{len(top10_hits)}/10` lô {str_top10}",
-        "",
-        f"📝 *Tổng số giải lô về ngày đó:* `{len(actual_tails)}` đầu số.",
+    line_btl = f"🔥 **Bạch Thủ Lô ({bTL}):** {'✅ TRÚNG' if btl_hit else '❌ TRƯỢT'}"
+    line_stl = f"👯 **Song Thủ Lô ({sTL[0]}, {sTL[1]}):** Trúng {len(stl_hits)}/2 lô {stl_detail}"
+    line_top5 = f"🌟 **Top 5 Lô đẹp:** Trúng {len(top5_hits)}/5 lô {top5_detail}"
+    line_top10 = f"📊 **Top 10 Lô đẹp:** Trúng {len(top10_hits)}/10 lô {top10_detail}"
+
+    report = (
+        f"🧪 *BÁO CÁO TEST ĐỘ CHÍNH XÁC NGÀY {normalized_target_str}*\n"
+        "------------------------------------\n"
+        f"{line_btl}\n"
+        f"{line_stl}\n"
+        f"{line_top5}\n"
+        f"{line_top10}\n\n"
+        f"📝 *Tổng số giải lô về ngày đó:* {len(actual_tails)} đầu số.\n"
         f"ℹ️ _Lưu ý: Thuật toán chỉ sử dụng dữ liệu trước ngày {normalized_target_str} để phân tích._"
-    ]
+    )
 
-    return "\n".join(lines).strip()
+    return report.strip()

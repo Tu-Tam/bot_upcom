@@ -2,7 +2,7 @@ from collections import Counter, defaultdict
 
 def analyze_and_predict(historical_data):
     """
-    Thuật toán v8.0: Strict Anti-Repeat Penalty & Cross-Position Matching
+    Thuật toán v9.0 Pro: Ensemble Scoring Matrix & Dynamic Inversion Pair
     """
     if not historical_data or len(historical_data) < 5:
         return None
@@ -16,68 +16,96 @@ def analyze_and_predict(historical_data):
 
     scores = {str(i).zfill(2): 0.0 for i in range(100)}
 
-    # 1. TÍNH LẦN XUẤT HIỆN GẦN NHẤT (GAP / NHỊP)
+    # 1. TÍNH LẦN XUẤT HIỆN GẦN NHẤT (GAP / NHỊP RƠI)
     last_seen = {}
     for idx, day in enumerate(daily_numbers):
         for num in day:
             if num not in last_seen:
                 last_seen[num] = idx
 
-    # 2. CHUẨN HÓA ĐIỂM THEO NHỊP LÔ
+    # 2. XÁC ĐỊNH ĐẦU / ĐUÔI CÂM CỦA NGÀY HÔM QUA (DAY 0)
+    yesterday_nums = daily_numbers[0]
+    heads_present = {n[0] for n in yesterday_nums}
+    tails_present = {n[1] for n in yesterday_nums}
+    
+    mute_heads = {str(h) for h in range(10)} - heads_present
+    mute_tails = {str(t) for t in range(10)} - tails_present
+
+    # 3. TÍNH ĐIỂM MA TRẬN CHO 100 CON SỐ
     for i in range(100):
         num = str(i).zfill(2)
         gap = last_seen.get(num, 999)
 
-        if gap == 3:                   # Điểm rơi đẹp nhất
-            scores[num] += 18.0
-        elif gap == 2:
-            scores[num] += 14.0
-        elif gap == 1:                 # Lô rơi
+        # Nhịp Rơi Chuẩn
+        if gap == 2 or gap == 3:
+            scores[num] += 22.0
+        elif gap == 1:
+            scores[num] += 12.0  # Lô rơi ngày thứ 2
+        elif gap == 4:
             scores[num] += 8.0
-        elif gap == 4 or gap == 5:
-            scores[num] += 5.0
         elif gap == 0:
-            scores[num] += 1.0
-        elif gap > 8:                  # Lô gan
-            scores[num] -= 20.0
+            scores[num] -= 5.0   # Vừa nổ ngày hôm qua
+        elif gap > 7:
+            scores[num] -= 999.0 # KHÓA TUYỆT ĐỐI LÔ GAN
 
-    # 3. TẦN SUẤT 10 NGÀY GẦN NHẤT
+        # Bonus Đầu/Đuôi Câm
+        if num[0] in mute_heads:
+            scores[num] += 10.0
+        if num[1] in mute_tails:
+            scores[num] += 10.0
+
+    # 4. TẦN SUẤT 10 NGÀY GẦN NHẤT
     recent_10 = daily_numbers[:min(10, len(daily_numbers))]
     flat_10 = [num for day in recent_10 for num in day]
     count_10 = Counter(flat_10)
 
     for num, count in count_10.items():
         if 2 <= count <= 4:
-            scores[num] += count * 3.0
+            scores[num] += count * 4.0
         elif count > 5:
-            scores[num] -= 6.0
+            scores[num] -= 10.0  # Phạt lô quá nóng
 
-    # 4. CHỐNG NEO SỐ DỰ ĐOÁN TRƯỢT HÔM TRƯỚC (ANTI-REPEAT PENALTY)
-    # Lấy lại dự đoán của ngày hôm qua nếu có đủ dữ liệu
+    # 5. CHỐNG NEO SỐ TRƯỢT HÔM TRƯỚC (ANTI-REPEAT LOGIC)
     if len(historical_data) >= 6:
-        prev_data = historical_data[1:]  # Dữ liệu tính từ ngày D-1 trở về trước
+        prev_data = historical_data[1:]
         prev_pred = analyze_and_predict(prev_data)
         if prev_pred:
             prev_bt = prev_pred['bach_thu']
-            actual_yesterday = daily_numbers[0]
-            # Nếu Bạch thủ hôm qua dự đoán mà KHÔNG VỀ -> Phạt nặng ngày hôm nay
-            if prev_bt not in actual_yesterday:
-                scores[prev_bt] -= 25.0
+            if prev_bt not in yesterday_nums:
+                scores[prev_bt] -= 35.0  # Triệt tiêu điểm nếu hôm trước đoán sai
 
-    # 5. CHỌN BẠCH THỦ VÀ SONG THỦ
+    # 6. LỰA CHỌN CẶP SONG THỦ ĐÔI (AUTOMATIC INVERSION PAIR)
+    pair_scores = {}
+    for i in range(100):
+        num = str(i).zfill(2)
+        lon = num[::-1]
+        if num <= lon:
+            if num == lon:
+                # Nếu là lô kép (11, 22...) -> Tổng điểm tính bằng điểm gốc
+                p_score = scores[num]
+            else:
+                p_score = scores[num] + scores[lon] + 5.0  # Ưu tiên cặp có số lộn
+            pair_scores[(num, lon)] = p_score
+
+    best_pair = sorted(pair_scores.keys(), key=lambda x: pair_scores[x], reverse=True)[0]
+
+    # Chọn Bạch Thủ từ cặp tốt nhất
+    if scores[best_pair[0]] >= scores[best_pair[1]]:
+        bach_thu = best_pair[0]
+    else:
+        bach_thu = best_pair[1]
+
+    if best_pair[0] != best_pair[1]:
+        song_thu = (best_pair[0], best_pair[1])
+    else:
+        # Nếu cặp tốt nhất là kép -> Lấy kép + con có điểm đơn cao thứ 2
+        ranked_single = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+        second = ranked_single[1] if ranked_single[0] == best_pair[0] else ranked_single[0]
+        song_thu = (best_pair[0], second)
+
+    # 7. DÀN TOP 5 VÀ TOP 10 (PHÂN TÁN RỘNG NÂNG TỶ LỆ TRÚNG)
     ranked_nums = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
 
-    bach_thu = ranked_nums[0]
-    lon_bach_thu = bach_thu[::-1]
-
-    if lon_bach_thu != bach_thu:
-        song_thu = (bach_thu, lon_bach_thu)
-    else:
-        # Nếu Bạch thủ là KÉP (ví dụ 11, 77) -> Song thủ lấy Bạch thủ + Con xếp thứ 2
-        second_best = ranked_nums[1]
-        song_thu = (bach_thu, second_best)
-
-    # 6. DÀN TOP 5 VÀ TOP 10 (PHÂN TÁN ĐẦU SỐ)
     def extract_balanced_top(candidates, limit, max_per_head):
         result = []
         head_tracker = defaultdict(int)

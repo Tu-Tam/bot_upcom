@@ -148,13 +148,22 @@ if __name__ == "__main__":
     init_db()
     print("🚀 Khởi động Flask & Bot Telegram...")
 
-    # Chạy khởi tạo dữ liệu trong thread
+    # Tiến trình khởi tạo dữ liệu chạy ngầm + Báo tin nhắn Telegram
     def khoi_tao_du_lieu():
         with db_lock:
             try:
                 print("📦 Bắt đầu xây dựng kho dữ liệu 90 ngày...")
                 so_ngay = tai_90_ngay_gan_nhat()
                 print(f"✅ Đã xây dựng xong: {so_ngay} ngày hợp lệ!")
+                
+                # Tự động gửi thông báo về Telegram khi sẵn sàng
+                if CHAT_ID:
+                    bot.send_message(
+                        CHAT_ID,
+                        f"🚀 **BOT XSMB ĐÃ KHỞI ĐỘNG CẢI TIẾN!**\n"
+                        f"📂 Dữ liệu sẵn sàng: {so_ngay} ngày.\n"
+                        f"Gõ /stats hoặc /help để kiểm tra."
+                    )
             except Exception as err:
                 print(f"⚠️ Quá trình nền gặp lỗi: {err}")
 
@@ -173,7 +182,7 @@ if __name__ == "__main__":
     while True:
         try:
             bot.remove_webhook()
-            bot.skip_pending()  # Bỏ qua các tin nhắn đọng cũ
+            bot.skip_pending()  # Bỏ qua tin nhắn cũ đọng lại
             time.sleep(2)
             
             bot.infinity_polling(

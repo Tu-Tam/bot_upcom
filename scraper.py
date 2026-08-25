@@ -9,13 +9,13 @@ HEADERS = {
 }
 
 def lay_ket_qua_ngay(date_str):
-    """Cào kết quả XSMB theo ngày (YYYY-MM-DD)"""
+    """Cào kết quả XSMB theo ngày (YYYY-MM-DD) sử dụng xoso.com.vn (Hỗ trợ 365+ ngày)"""
     try:
         d_obj = datetime.strptime(date_str, "%Y-%m-%d")
         formatted_date = d_obj.strftime("%d-%m-%Y")
         
-        url = f"https://xosodaiphat.com/xsmb-{formatted_date}.html"
-        response = requests.get(url, headers=HEADERS, timeout=5)
+        url = f"https://xoso.com.vn/ket-qua-theo-ngay.html?date={formatted_date}"
+        response = requests.get(url, headers=HEADERS, timeout=6)
         
         if response.status_code != 200:
             return None
@@ -23,8 +23,10 @@ def lay_ket_qua_ngay(date_str):
         soup = BeautifulSoup(response.text, 'html.parser')
         numbers = []
         
-        for cell in soup.select('.table-xsmb span, .table-xsmb td'):
-            txt = cell.text.strip()
+        # Bắt các class thẻ chứa giải thưởng của xoso.com.vn
+        cells = soup.find_all('span', class_=['v-gdb', 'v-g1', 'v-g2', 'v-g3', 'v-g4', 'v-g5', 'v-g6', 'v-g7'])
+        for cell in cells:
+            txt = cell.get_text(strip=True)
             if txt.isdigit() and len(txt) >= 2:
                 numbers.append(txt)
 
@@ -37,8 +39,8 @@ def lay_ket_qua_ngay(date_str):
         print(f"Lỗi cào ngày {date_str}: {e}", flush=True)
         return None
 
-def scrape_past_days(days=90):
-    """Quét dữ liệu lịch sử X ngày (Đã alias tên hàm để tương thích hoàn toàn với bot.py)"""
+def scrape_past_days(days=365):
+    """Quét dữ liệu lịch sử X ngày (Mặc định 365 ngày)"""
     print(f"🚀 Bắt đầu quét dữ liệu {days} ngày...", flush=True)
     start_date = datetime.now() - timedelta(days=1)
     thanh_cong = 0
@@ -55,7 +57,7 @@ def scrape_past_days(days=90):
         else:
             print(f"  └─ ❌ Không tìm thấy hoặc lỗi dữ liệu.", flush=True)
 
-        time.sleep(0.3)
+        time.sleep(0.2)
 
     print(f"🎉 Hoàn tất! Đã lưu tổng cộng {thanh_cong} ngày.", flush=True)
     return count_results()
@@ -69,5 +71,5 @@ def scrape_today():
         return True
     return False
 
-# Giữ lại tên hàm cũ để tránh đứt gãy nếu có module khác gọi
+# Alias để giữ tính tương thích
 tai_90_ngay_gan_nhat = scrape_past_days

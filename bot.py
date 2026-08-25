@@ -148,7 +148,7 @@ if __name__ == "__main__":
     init_db()
     print("🚀 Khởi động Flask & Bot Telegram...")
 
-    # Chạy đồng bộ cào dữ liệu ban đầu thay vì Thread riêng để tránh xung đột
+    # Chạy khởi tạo dữ liệu trong thread
     def khoi_tao_du_lieu():
         with db_lock:
             try:
@@ -167,27 +167,26 @@ if __name__ == "__main__":
 
     Thread(target=run_web, daemon=True).start()
 
-    # Xóa webhook triệt để trước khi Polling
-    try:
-        bot.remove_webhook()
-        time.sleep(1)
-    except Exception as e:
-        print("Xóa webhook thất bại:", e)
-
     print("🤖 Bot đang lắng nghe lệnh...")
 
+    # Vòng lặp Polling chuẩn cú pháp telebot
     while True:
         try:
+            bot.remove_webhook()
+            bot.skip_pending()  # Bỏ qua các tin nhắn đọng cũ
+            time.sleep(2)
+            
             bot.infinity_polling(
                 timeout=30,
                 long_polling_timeout=20,
-                skip_pending_updates=True
+                none_stop=True
             )
         except apihelper.ApiTelegramException as e:
             if '409' in str(e):
-                print("Lỗi 409: Trùng lặp Polling. Thử lại sau 15 giây...")
-                time.sleep(15)
+                print("Lỗi 409: Trùng lặp Polling. Chờ 20s xả phiên...")
+                time.sleep(20)
             else:
+                print("Lỗi Telegram API:", e)
                 time.sleep(5)
         except Exception as e:
             print("Lỗi hệ thống Polling:", e)

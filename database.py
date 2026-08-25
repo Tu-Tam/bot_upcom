@@ -57,6 +57,10 @@ def get_results(limit=90):
             print(f"⚠️ Lỗi lấy dữ liệu CSDL: {e}", flush=True)
             return []
 
+def get_full(limit=90):
+    """Alias cho get_results để tương thích với predictor.py"""
+    return get_results(limit=limit)
+
 def get_date_range():
     """Lấy ngày cũ nhất và mới nhất có trong CSDL"""
     with db_lock:
@@ -87,5 +91,5 @@ def count_results():
             print(f"⚠️ Lỗi đếm CSDL: {e}", flush=True)
             return 0
 
-# Tự động khởi tạo DB khi module được load
+# Tự động khởi tạo DB khi module được import
 init_db()

@@ -15,7 +15,7 @@ def lay_ket_qua_ngay(date_str):
         formatted_date = d_obj.strftime("%d-%m-%Y")
         
         url = f"https://xosodaiphat.com/xsmb-{formatted_date}.html"
-        response = requests.get(url, headers=HEADERS, timeout=4)
+        response = requests.get(url, headers=HEADERS, timeout=5)
         
         if response.status_code != 200:
             return None
@@ -34,21 +34,21 @@ def lay_ket_qua_ngay(date_str):
         return None
 
     except Exception as e:
+        print(f"Lỗi cào ngày {date_str}: {e}", flush=True)
         return None
 
-def tai_90_ngay_gan_nhat():
-    """Quét dữ liệu 90 ngày tính từ ngày hôm qua"""
-    print("🚀 Bắt đầu quét dữ liệu 90 ngày...", flush=True)
+def scrape_past_days(days=90):
+    """Quét dữ liệu lịch sử X ngày (Đã alias tên hàm để tương thích hoàn toàn với bot.py)"""
+    print(f"🚀 Bắt đầu quét dữ liệu {days} ngày...", flush=True)
     start_date = datetime.now() - timedelta(days=1)
     thanh_cong = 0
 
-    for i in range(90):
+    for i in range(days):
         current_date = (start_date - timedelta(days=i)).strftime("%Y-%m-%d")
         print(f"🔍 Đang quét ngày {current_date}...", flush=True)
         
         data = lay_ket_qua_ngay(current_date)
         if data:
-            # Gọi hàm với đúng 2 tham số: date_str và numbers
             save_result(current_date, data)
             thanh_cong += 1
             print(f"  └─ ✅ Đã lưu thành công!", flush=True)
@@ -59,3 +59,15 @@ def tai_90_ngay_gan_nhat():
 
     print(f"🎉 Hoàn tất! Đã lưu tổng cộng {thanh_cong} ngày.", flush=True)
     return count_results()
+
+def scrape_today():
+    """Hàm cào kết quả hôm nay cho bot.py"""
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    data = lay_ket_qua_ngay(today_str)
+    if data:
+        save_result(today_str, data)
+        return True
+    return False
+
+# Giữ lại tên hàm cũ để tránh đứt gãy nếu có module khác gọi
+tai_90_ngay_gan_nhat = scrape_past_days

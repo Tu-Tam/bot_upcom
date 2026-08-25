@@ -37,7 +37,6 @@ def fetch_initial_data():
     """Tự động cào dữ liệu 90 ngày gần nhất khi ứng dụng khởi động"""
     print("📦 Bắt đầu xây dựng kho dữ liệu 90 ngày...", flush=True)
     try:
-        # Kiểm tra linh hoạt hàm có sẵn trong file scraper.py
         if hasattr(scraper, 'scrape_past_days'):
             scraper.scrape_past_days(90)
         elif hasattr(scraper, 'scrape_history'):
@@ -71,7 +70,6 @@ def send_welcome(message):
 def handle_prediction(message):
     msg = bot.reply_to(message, "⏳ Đang phân tích thuật toán thống kê, vui lòng đợi giây lát...")
     
-    # Kiểm tra và tự cập nhật nếu thiếu dữ liệu mới
     today_str = datetime.now().strftime("%Y-%m-%d")
     recent = db.get_results(limit=1) if hasattr(db, 'get_results') else []
     if not recent or recent[0]['date'] != today_str:
@@ -142,7 +140,7 @@ def handle_stats(message):
 if __name__ == '__main__':
     print("🚀 Khởi động Flask & Bot Telegram...", flush=True)
     
-    # 1. Chạy Web Server trong Thread riêng để Render giữ service live
+    # 1. Chạy Web Server trong Thread riêng
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
@@ -150,21 +148,19 @@ if __name__ == '__main__':
     data_thread = threading.Thread(target=fetch_initial_data, daemon=True)
     data_thread.start()
 
-    # 3. Dọn dẹp Webhook chuẩn cho pyTelegramBotAPI
+    # 3. Dọn dẹp Webhook cũ & trễ 2 giây để Telegram kịp đồng bộ giải phóng kết nối
     try:
         bot.remove_webhook()
+        time.sleep(2)
     except Exception as e:
         print(f"⚠️ Lỗi dọn dẹp Webhook: {e}", flush=True)
 
-    # Bỏ qua tin nhắn cũ tồn đọng khi ngắt kết nối
-    bot.skip_pending = True
-
     print("🤖 Bot đang lắng nghe lệnh...", flush=True)
 
-    # 4. Vòng lặp Polling an toàn
+    # 4. Vòng lặp Polling với skip_pending=True tránh xung đột tin nhắn tồn đọng
     while True:
         try:
-            bot.infinity_polling(timeout=20, long_polling_timeout=10)
+            bot.infinity_polling(timeout=20, long_polling_timeout=10, skip_pending=True)
         except Exception as e:
-            print(f"⚠️ Lỗi hệ thống Polling: {e}", flush=True)
-            time.sleep(3)
+            print(f"⚠️ Lỗi hệ thống Polling (tự kết nối lại sau 5 giây): {e}", flush=True)
+            time.sleep(5)

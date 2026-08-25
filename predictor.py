@@ -15,22 +15,29 @@ SHORT_WINDOW = 7
 MEDIUM_WINDOW = 30
 LONG_WINDOW = 90
 
-# Cấu hình lại trọng số để tránh bị lặp Bạch Thủ Lô liên tục
-WEIGHT_SHORT = 0.25
+# Điều chỉnh bộ trọng số cân bằng
+WEIGHT_SHORT = 0.20
 WEIGHT_MEDIUM = 0.25
 WEIGHT_LONG = 0.15
-WEIGHT_WEEKDAY = 0.20
+WEIGHT_WEEKDAY = 0.25
 WEIGHT_GAP = 0.15
 
 
+def clean_str(val):
+    """Làm sạch ký tự thừa, xuống dòng, khoảng trắng ẩn."""
+    if val is None:
+        return ""
+    return str(val).replace('\n', '').replace('\r', '').replace('\xa0', '').strip()
+
+
 def norm_num(n):
-    return str(n).strip().zfill(2)
+    return clean_str(n).zfill(2)
 
 
 def parse_dt(s):
     if isinstance(s, datetime):
         return s
-    return datetime.strptime(str(s).strip().split()[0], "%Y-%m-%d")
+    return datetime.strptime(clean_str(s).split()[0], "%Y-%m-%d")
 
 
 def extract_tails(rec):
@@ -40,14 +47,14 @@ def extract_tails(rec):
         return t
 
     sp = rec.get("special") or rec.get("g0")
-    if sp and len(str(sp).strip()) >= 2:
-        t.append(str(sp).strip()[-2:])
+    if sp and len(clean_str(sp)) >= 2:
+        t.append(clean_str(sp)[-2:])
 
     for key in ["g1", "g2", "g3", "g4", "g5", "g6", "g7"]:
         g_val = rec.get(key, [])
         if isinstance(g_val, list):
             for f in g_val:
-                f_str = str(f).strip()
+                f_str = clean_str(f)
                 if len(f_str) >= 2:
                     t.append(f_str[-2:])
 
@@ -63,11 +70,11 @@ def extract_tails(rec):
             
     if isinstance(nums, list):
         for num in nums:
-            n_str = str(num).strip()
+            n_str = clean_str(num)
             if len(n_str) >= 2:
                 t.append(n_str[-2:])
 
-    return [norm_num(x) for x in t if str(x).strip().isdigit()]
+    return [norm_num(x) for x in t if clean_str(x).isdigit()]
 
 
 def get_history_before(target_dt):
@@ -167,15 +174,28 @@ def calculate(target_dt):
     wd = score_weekday(hist, target_dt)
     gp = score_gap(hist)
     
-    # Trừ điểm nhẹ nếu số đó đã nổ ở ngày hôm qua để tránh trệch nhịp Bạch Thủ
-    last_day_tails = set(extract_tails(hist[0])) if hist else set()
+    # 1. Trích xuất tần suất xuất hiện trong 3 ngày gần nhất để giảm điểm lặp
+    day1_tails = set(extract_tails(hist[0])) if len(hist) > 0 else set()
+    day2_tails = set(extract_tails(hist[1])) if len(hist) > 1 else set()
     
     total = {}
     for n in [norm_num(i) for i in range(100)]:
-        score = sh[n] * WEIGHT_SHORT + md[n] * WEIGHT_MEDIUM + lg[n] * WEIGHT_LONG + wd[n] * WEIGHT_WEEKDAY + gp[n] * WEIGHT_GAP
-        if n in last_day_tails:
-            score *= 0.85  # Phạt nhẹ 15% điểm nếu vừa về ngày liền trước
-        total[n] = score
+        base_score = (
+            sh[n] * WEIGHT_SHORT + 
+            md[n] * WEIGHT_MEDIUM + 
+            lg[n] * WEIGHT_LONG + 
+            wd[n] * WEIGHT_WEEKDAY + 
+            gp[n] * WEIGHT_GAP
+        )
+        
+        # 2. Xử lý phạt chống bám đuổi (Anti-lagging Penalty)
+        penalty = 1.0
+        if n in day1_tails:
+            penalty *= 0.75  # Giảm 25% điểm nếu vừa ra ngày hôm qua
+        if n in day2_tails:
+            penalty *= 0.88  # Giảm thêm 12% nếu ra cách đây 2 ngày
+            
+        total[n] = base_score * penalty
         
     return total
 
@@ -196,7 +216,7 @@ def generate_prediction_report(results=None):
             predictions = predict(tomorrow_str, top_n=10)
         except Exception as e:
             return (
-                f"⚠️ *Thông báo hệ thống dự đoán:*\n"
+                "⚠️ *Thông báo hệ thống dự đoán:*\n"
                 f"Không thể chạy thuật toán ({e}).\n"
                 "Hãy thử bấm `/capnhat` hoặc cào thêm dữ liệu lịch sử."
             )
@@ -248,7 +268,7 @@ def test_prediction_accuracy(target_date_str):
                         if isinstance(r, dict):
                             actual_record = r
                         elif isinstance(r, (list, tuple)):
-                            actual_record = {"date": r_date, "numbers": r[1] if len(r) > 1 else []}
+                            actual_record = {"date": clean_str(r_date), "numbers": r[1] if len(r) > 1 else []}
                     break
             except Exception:
                 continue

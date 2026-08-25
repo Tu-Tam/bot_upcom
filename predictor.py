@@ -1,104 +1,95 @@
 import math
 from collections import Counter, defaultdict
 
-def calculate_z_scores(data_list):
-    """Tính chỉ số Z-score chuẩn hóa xác suất toán học"""
-    if not data_list:
-        return {}
-    counts = Counter(data_list)
-    total_samples = len(data_list)
-    mean = total_samples / 100.0
-    variance = sum((counts[str(i).zfill(2)] - mean) ** 2 for i in range(100)) / 100.0
-    std_dev = math.sqrt(variance) if variance > 0 else 1.0
-
-    z_scores = {}
-    for i in range(100):
-        num_str = str(i).zfill(2)
-        z_scores[num_str] = (counts[num_str] - mean) / std_dev
-    return z_scores
-
 def analyze_and_predict(historical_data):
     """
-    Thuật toán v4.0: Z-Score Normalization & Cross-Frequency Dynamic Filtering
+    Thuật toán v5.0: Ma Trận Nhịp Động & Khóa Lô Trượt Lặp
     """
     if not historical_data or len(historical_data) < 15:
         return None
 
-    # Trích xuất danh sách 2 số cuối theo ngày (Mới nhất -> Cũ nhất)
+    # Trích xuất dữ liệu lô 2 số cuối (Mới nhất -> Cũ nhất)
     daily_numbers = []
     for row in historical_data:
         nums = row['numbers'] if isinstance(row, dict) else row[1]
         two_digits = [str(n)[-2:].zfill(2) for n in nums]
         daily_numbers.append(two_digits)
 
-    # 1. TÍNH Z-SCORE NỔ 30 NGÀY & 90 NGÀY
-    flat_30 = [num for day in daily_numbers[:30] for num in day]
-    flat_90 = [num for day in daily_numbers[:min(90, len(daily_numbers))] for num in day]
+    scores = {str(i).zfill(2): 0.0 for i in range(100)}
 
-    z_30 = calculate_z_scores(flat_30)
-    z_90 = calculate_z_scores(flat_90)
-
-    # 2. XÁC ĐỊNH NHỊP RƠI (GAP SCORE)
+    # 1. TÍNH NHỊP RƠI VÀ THỜI GIAN VẮNG (GAP)
     last_seen = {}
     for idx, day in enumerate(daily_numbers):
         for num in day:
             if num not in last_seen:
                 last_seen[num] = idx
 
-    # 3. TỔNG HỢP MÔ HÌNH ĐIỂM
-    final_scores = {}
-    yesterday_set = set(daily_numbers[0])
+    # 2. TÍNH TẦN SUẤT 15 NGÀY GẦN NHẤT
+    recent_15 = daily_numbers[:15]
+    flat_15 = [num for day in recent_15 for num in day]
+    count_15 = Counter(flat_15)
 
+    # 3. CHUẨN HÓA ĐIỂM SỐ THEO NHỊP ĐỘNG
     for i in range(100):
         num = str(i).zfill(2)
         gap = last_seen.get(num, 999)
+        freq = count_15[num]
 
-        # Trọng số Z-Score
-        score = (z_30[num] * 2.5) + (z_90[num] * 1.2)
+        # Điểm tần suất điểm rơi chuẩn (2-4 lần / 15 ngày)
+        if 2 <= freq <= 4:
+            scores[num] += freq * 4.0
+        elif freq == 1:
+            scores[num] += 2.0
+        elif freq > 5:
+            scores[num] -= 2.0  # Phạt lô quá nóng
 
-        # Trọng số nhịp toán học (Hàm chu kỳ)
-        if gap == 0:        # Lô rơi vừa nổ ngày qua
-            score += 0.8
-        elif 1 <= gap <= 3: # Nhịp rơi lý tưởng
-            score += 3.2
-        elif 4 <= gap <= 6: # Nhịp trung bình
-            score += 1.5
-        elif 7 <= gap <= 12:# Vùng tích lũy xác suất
-            score += 0.5
-        else:               # Lô gan > 12 ngày
-            score -= 3.0
+        # Điểm nhịp vàng (Gap = 2 hoặc 3 ngày)
+        if gap == 2 or gap == 3:
+            scores[num] += 12.0
+        elif gap == 1:
+            scores[num] += 5.0
+        elif gap == 4 or gap == 5:
+            scores[num] += 6.0
+        elif gap > 8:
+            scores[num] -= 10.0  # Phạt mạnh lô gan
 
-        final_scores[num] = score
+    # 4. CHỐNG NEO SỐ (ANTI-REPEAT PENALTY)
+    # Giảm điểm mạnh nếu con số đã xuất hiện ở nhịp đoán trước nhưng bị trượt
+    yesterday_set = set(daily_numbers[0])
+    day_before_set = set(daily_numbers[1]) if len(daily_numbers) > 1 else set()
 
-    # 4. CHỌN BẠCH THỦ & SONG THỦ CÓ ĐỒNG THUẬN LỘN
-    ranked_nums = sorted(final_scores.keys(), key=lambda x: final_scores[x], reverse=True)
+    for num in scores:
+        # Nếu lô rơi liên tiếp 2 ngày -> Tạm ngưng bắt lại ngay ngày thứ 3
+        if num in yesterday_set and num in day_before_set:
+            scores[num] -= 8.0
 
-    # Ưu tiên Bạch Thủ là con số mà con lộn của nó cũng nằm trong top 20 điểm cao
+    # 5. LỌC BẠCH THỦ VÀ SONG THỦ
+    ranked_nums = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+
     bach_thu = ranked_nums[0]
-    for candidate in ranked_nums[:5]:
-        candidate_lon = candidate[::-1]
-        if candidate_lon in ranked_nums[:25]:
-            bach_thu = candidate
-            break
-
     lon_bach_thu = bach_thu[::-1]
-    song_thu = (bach_thu, lon_bach_thu) if lon_bach_thu != bach_thu else (ranked_nums[0], ranked_nums[1])
 
-    # 5. DÀN LỌC DẠNG LƯỚI CHO TOP 5 VÀ TOP 10 (Tránh cụm đầu số)
-    def extract_balanced_top(candidates, limit):
+    # Chọn Song Thủ: Nếu lộn của Bạch Thủ nằm trong Top 30 thì chọn cặp lộn, ngược lại chọn Top 2
+    if lon_bach_thu != bach_thu and lon_bach_thu in ranked_nums[:30]:
+        song_thu = (bach_thu, lon_bach_thu)
+    else:
+        song_thu = (ranked_nums[0], ranked_nums[1])
+
+    # 6. PHÂN TÁN ĐẦU SỐ CHO TOP 5 VÀ TOP 10
+    def build_balanced_top(candidates, limit, max_per_head):
         result = []
-        head_tracker = defaultdict(int)
+        head_count = defaultdict(int)
         for n in candidates:
             head = n[0]
-            if head_tracker[head] < 2:  # Giới hạn tối đa 2 con/đầu số
+            if head_count[head] < max_per_head:
                 result.append(n)
-                head_tracker[head] += 1
+                head_count[head] += 1
             if len(result) == limit:
                 break
         return result
 
-    top_5 = extract_balanced_top(ranked_nums, 5)
-    top_10 = extract_balanced_top(ranked_nums, 10)
+    top_5 = build_balanced_top(ranked_nums, 5, max_per_head=1)   # Top 5: Mỗi đầu chỉ lấy 1 con
+    top_10 = build_balanced_top(ranked_nums, 10, max_per_head=2) # Top 10: Mỗi đầu tối đa 2 con
 
     return {
         'bach_thu': bach_thu,

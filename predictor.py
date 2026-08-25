@@ -11,20 +11,19 @@ except ImportError:
     get_full = None
 
 MIN_HISTORY = 10
-SHORT_WINDOW = 5       # Thu hẹp khung ngắn hạn để phản ánh nhịp rơi nhanh
+SHORT_WINDOW = 5
 MEDIUM_WINDOW = 25
 LONG_WINDOW = 90
 
-# Trọng số tối ưu hóa cân bằng nhịp lô
-WEIGHT_SHORT = 0.30     # Tăng trọng số ngắn hạn để bắt nhịp rơi tốt hơn
-WEIGHT_MEDIUM = 0.20
+# Trọng số cân bằng nhịp lô chuẩn hóa
+WEIGHT_SHORT = 0.26
+WEIGHT_MEDIUM = 0.21
 WEIGHT_LONG = 0.15
 WEIGHT_WEEKDAY = 0.20
-WEIGHT_GAP = 0.15
+WEIGHT_GAP = 0.18
 
 
 def clean_text(val):
-    """Xóa bỏ hoàn toàn ký tự xuống dòng và khoảng trắng thừa gây lỗi giao diện Telegram."""
     if val is None:
         return ""
     return str(val).replace('\n', ' ').replace('\r', '').replace('\xa0', '').strip()
@@ -41,7 +40,6 @@ def parse_dt(s):
 
 
 def extract_tails(rec):
-    """Trích xuất danh sách 2 số cuối (lô tô) từ bản ghi dữ liệu."""
     t = []
     if not rec or not isinstance(rec, dict):
         return t
@@ -78,7 +76,6 @@ def extract_tails(rec):
 
 
 def get_history_before(target_dt):
-    """Lấy dữ liệu lịch sử trước ngày chỉ định."""
     tgt = parse_dt(target_dt)
     if not callable(get_results):
         return []
@@ -174,7 +171,7 @@ def calculate(target_dt):
     wd = score_weekday(hist, target_dt)
     gp = score_gap(hist)
     
-    # Đếm tần suất xuất hiện trong 4 ngày gần nhất để tính hệ số xả/nghỉ nhịp
+    # Đếm tần suất xuất hiện gần đây
     recent_4days_count = Counter()
     for rec in hist[:4]:
         recent_4days_count.update(set(extract_tails(rec)))
@@ -194,18 +191,18 @@ def calculate(target_dt):
         
         penalty = 1.0
         
-        # 1. Phạt nếu ra hôm qua
+        # 1. Phạt nếu đã nổ ngày hôm qua
         if n in day1_tails:
-            penalty *= 0.75
+            penalty *= 0.72
             
-        # 2. Phạt nếu ra liên tiếp 2 ngày vừa rồi
+        # 2. Phạt nặng hơn nếu nổ liên tiếp 2 ngày vừa rồi
         if n in day1_tails and n in day2_tails:
-            penalty *= 0.65
+            penalty *= 0.60
             
-        # 3. Phạt nhịp xả: Nổ >= 2 lần trong 4 ngày gần nhất thì ép nghỉ nhịp
+        # 3. Phạt xả nhịp: Nổ >= 2 lần trong 4 ngày gần nhất
         occurrences = recent_4days_count.get(n, 0)
         if occurrences >= 2:
-            penalty *= 0.70
+            penalty *= 0.68
             
         total[n] = base_score * penalty
         

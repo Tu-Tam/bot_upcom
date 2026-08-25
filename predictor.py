@@ -15,19 +15,19 @@ SHORT_WINDOW = 7
 MEDIUM_WINDOW = 30
 LONG_WINDOW = 90
 
-# Trọng số tối ưu hóa dựa trên chuỗi test thành công
-WEIGHT_SHORT = 0.22
-WEIGHT_MEDIUM = 0.24
-WEIGHT_LONG = 0.14
+# Bộ trọng số tối ưu hóa cân bằng nhịp lô
+WEIGHT_SHORT = 0.20
+WEIGHT_MEDIUM = 0.25
+WEIGHT_LONG = 0.15
 WEIGHT_WEEKDAY = 0.25
 WEIGHT_GAP = 0.15
 
 
 def clean_str(val):
-    """Xử lý triệt để ký tự xuống dòng và khoảng trắng ẩn."""
+    """Làm sạch hoàn toàn các ký tự ngắt dòng và khoảng trắng thừa."""
     if val is None:
         return ""
-    return str(val).replace('\n', '').replace('\r', '').replace('\xa0', '').strip()
+    return str(val).replace('\n', ' ').replace('\r', '').replace('\xa0', '').strip()
 
 
 def norm_num(n):
@@ -174,6 +174,7 @@ def calculate(target_dt):
     wd = score_weekday(hist, target_dt)
     gp = score_gap(hist)
     
+    # Lấy danh sách lô xuất hiện ở 2 ngày gần nhất
     day1_tails = set(extract_tails(hist[0])) if len(hist) > 0 else set()
     day2_tails = set(extract_tails(hist[1])) if len(hist) > 1 else set()
     
@@ -187,12 +188,12 @@ def calculate(target_dt):
             gp[n] * WEIGHT_GAP
         )
         
-        # Penalty nhẹ nhàng để không ép mất lô nhịp bệt
+        # Cơ chế Phạt nhẹ giúp tránh hiện tượng cố định 1 con số (như 34) quá nhiều ngày
         penalty = 1.0
         if n in day1_tails:
-            penalty *= 0.85
+            penalty *= 0.82
         if n in day2_tails:
-            penalty *= 0.92
+            penalty *= 0.90
             
         total[n] = base_score * penalty
         
@@ -298,14 +299,17 @@ def test_prediction_accuracy(target_date_str):
     str_top5 = f"({', '.join(top5_hits)})" if top5_hits else "(Không)"
     str_top10 = f"({', '.join(top10_hits)})" if top10_hits else "(Không)"
 
-    report = (
-        f"🧪 *BÁO CÁO TEST ĐỘ CHÍNH XÁC NGÀY {normalized_target_str}*\n"
-        "------------------------------------\n"
-        f"🔥 **Bạch Thủ Lô ({bTL}):** {'✅ TRÚNG' if btl_hit else '❌ TRƯỢT'}\n"
-        f"👯 **Song Thủ Lô ({sTL[0]}, {sTL[1]}):** Trúng `{len(stl_hits)}/2` lô {str_stl}\n"
-        f"🌟 **Top 5 Lô đẹp:** Trúng `{len(top5_hits)}/5` lô {str_top5}\n"
-        f"📊 **Top 10 Lô đẹp:** Trúng `{len(top10_hits)}/10` lô {str_top10}\n\n"
-        f"📝 *Tổng số giải lô về ngày đó:* `{len(actual_tails)}` đầu số.\n"
+    # Format báo cáo siêu sạch, ép nối dòng không khoảng trắng rớt
+    lines = [
+        f"🧪 *BÁO CÁO TEST ĐỘ CHÍNH XÁC NGÀY {normalized_target_str}*",
+        "------------------------------------",
+        f"🔥 **Bạch Thủ Lô ({bTL}):** {'✅ TRÚNG' if btl_hit else '❌ TRƯỢT'}",
+        f"👯 **Song Thủ Lô ({sTL[0]}, {sTL[1]}):** Trúng `{len(stl_hits)}/2` lô {str_stl}",
+        f"🌟 **Top 5 Lô đẹp:** Trúng `{len(top5_hits)}/5` lô {str_top5}",
+        f"📊 **Top 10 Lô đẹp:** Trúng `{len(top10_hits)}/10` lô {str_top10}",
+        "",
+        f"📝 *Tổng số giải lô về ngày đó:* `{len(actual_tails)}` đầu số.",
         f"ℹ️ _Lưu ý: Thuật toán chỉ sử dụng dữ liệu trước ngày {normalized_target_str} để phân tích._"
-    )
-    return report.strip()
+    ]
+
+    return "\n".join(lines).strip()

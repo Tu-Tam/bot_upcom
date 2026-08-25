@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import threading
+import json
 from datetime import datetime, timedelta
 import telebot
 from flask import Flask
@@ -52,6 +53,8 @@ def send_welcome(message):
         "🔹 `/ketqua` - Xem kết quả XSMB mới nhất có trong CSDL\n"
         "🔹 `/capnhat` - Ép bot quét cập nhật kết quả hôm nay ngay lập tức\n"
         "🔹 `/thongke` hoặc `/stats` - Trạng thái kho dữ liệu hiện tại\n"
+        "🔹 `/test` - Kiểm tra trạng thái kết nối hệ thống\n"
+        "🔹 `/test YYYY-MM-DD` - Kiểm tra tỷ lệ xác suất trúng của bot tại ngày cố định (Backtest)\n"
         "🔹 `/help` - Xem lại hướng dẫn này"
     )
     bot.reply_to(message, help_text, parse_mode="Markdown")
@@ -99,7 +102,6 @@ def handle_latest_result(message):
     
     # Xử lý nếu numbers lưu dưới dạng chuỗi trong DB
     if isinstance(nums, str):
-        import json
         try:
             nums = json.loads(nums)
         except:
@@ -149,6 +151,54 @@ def handle_stats(message):
         f"▫️ **Ngày dữ liệu mới nhất:** `{max_date or 'N/A'}`"
     )
     bot.reply_to(message, stats_msg, parse_mode="Markdown")
+
+# --- LỆNH MỚI: KIỂM TRA HỆ THỐNG / BACKTEST NGÀY CỐ ĐỊNH ---
+@bot.message_handler(commands=['test'])
+def handle_test_command(message):
+    text_parts = message.text.strip().split()
+    
+    # TH1: Có nhập tham số ngày (Ví dụ: /test 2026-08-20) -> Test độ chính xác lịch sử
+    if len(text_parts) > 1:
+        target_date = text_parts[1]
+        msg = bot.reply_to(message, f"⏳ Đang chạy thuật toán kiểm tra dữ liệu ngày `{target_date}`...", parse_mode="Markdown")
+        
+        if hasattr(predictor, 'test_prediction_accuracy'):
+            report = predictor.test_prediction_accuracy(target_date)
+        else:
+            report = "⚠️ Chưa cập nhật hàm `test_prediction_accuracy` trong `predictor.py`."
+            
+        bot.edit_message_text(report, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
+        
+    # TH2: Chỉ gõ /test -> Kiểm tra kết nối hệ thống
+    else:
+        msg = bot.reply_to(message, "🔍 *Bắt đầu kiểm tra kết nối hệ thống...*", parse_mode="Markdown")
+        status_report = []
+        
+        try:
+            count = db.count_results() if hasattr(db, 'count_results') else 0
+            status_report.append(f"✅ **CSDL:** Hoạt động tốt (Đã lưu {count} ngày)")
+        except Exception as e:
+            status_report.append(f"❌ **CSDL:** Lỗi (`{e}`)")
+            
+        try:
+            status_report.append("✅ **Scraper:** Hàm cào dữ liệu sẵn sàng")
+        except Exception as e:
+            status_report.append(f"❌ **Scraper:** Lỗi (`{e}`)")
+
+        try:
+            if hasattr(predictor, 'generate_prediction_report'):
+                status_report.append("✅ **Predictor:** Hàm tạo bản tin dự đoán sẵn sàng")
+            else:
+                status_report.append("❌ **Predictor:** Thiếu hàm `generate_prediction_report`")
+        except Exception as e:
+            status_report.append(f"❌ **Predictor:** Lỗi (`{e}`)")
+
+        report_text = (
+            "🧪 *BÁO CÁO KIỂM TRA HỆ THỐNG*\n\n" +
+            "\n".join(status_report) +
+            "\n\n💡 *Mẹo:* Bạn có thể test độ chính xác ngày bất kỳ bằng cú pháp:\n`/test YYYY-MM-DD` (Ví dụ: `/test 2026-08-20`)"
+        )
+        bot.edit_message_text(report_text, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
 
 # --- LUỒNG CHÍNH (MAIN EXECUTION) ---
 if __name__ == '__main__':

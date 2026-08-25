@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import threading
 from datetime import datetime, timedelta
@@ -10,10 +11,14 @@ import database as db
 import scraper
 import predictor
 
-# Key/Token lấy từ Environment Variables trên Render
+# Lấy Token từ Environment Variables trên Render
 TOKEN = os.getenv("TELEGRAM_TOKEN")
+
+# Kiểm tra an toàn biến môi trường
 if not TOKEN:
-    print("⚠️ CẢNH BÁO: Chưa cấu hình TELEGRAM_TOKEN trong Environment Variables!")
+    print("❌ LỖI FATAL: Chưa cấu hình TELEGRAM_TOKEN trong Environment Variables trên Render!", flush=True)
+    print("👉 Hãy truy cập Render Dashboard -> Environment -> Thêm Key 'TELEGRAM_TOKEN'.", flush=True)
+    sys.exit(1)
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
@@ -122,7 +127,7 @@ def handle_stats(message):
 if __name__ == '__main__':
     print("🚀 Khởi động Flask & Bot Telegram...", flush=True)
     
-    # 1. Chạy Web Server trong Thread riêng để Render không kill service
+    # 1. Chạy Web Server trong Thread riêng để Render giữ service live
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
@@ -130,7 +135,7 @@ if __name__ == '__main__':
     data_thread = threading.Thread(target=fetch_initial_data, daemon=True)
     data_thread.start()
 
-    # 3. Dọn dẹp Webhook cũ trước khi khởi chạy Polling (Tránh xung đột)
+    # 3. Dọn dẹp Webhook cũ trước khi khởi chạy Polling
     try:
         bot.remove_webhook()
     except Exception as e:
@@ -138,7 +143,7 @@ if __name__ == '__main__':
 
     print("🤖 Bot đang lắng nghe lệnh...", flush=True)
 
-    # 4. Vòng lặp Polling an toàn - Tự khôi phục nếu mất kết nối mạng
+    # 4. Vòng lặp Polling an toàn - Tự khôi phục nếu đứt kết nối
     while True:
         try:
             bot.infinity_polling(skip_pending_updates=True, timeout=20, long_polling_timeout=10)

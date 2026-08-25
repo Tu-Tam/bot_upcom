@@ -1,216 +1,57 @@
-import os
 import sqlite3
-import json
-from contextlib import contextmanager
-from datetime import datetime
+import threading
 
-DB_PATH = os.environ.get("DATABASE_PATH", "data.db")
+db_lock = threading.Lock()
 
-
-def _tojson(obj):
-    try:
-        return json.dumps(obj, ensure_ascii=False)
-    except Exception:
-        return json.dumps(str(obj))
-
-
-@contextmanager
-def get_conn():
-    conn = sqlite3.connect(DB_PATH, timeout=30)
-    try:
-        yield conn
-    finally:
+def init_db():
+    """Khởi tạo bảng lưu trữ kết quả xổ số"""
+    with db_lock:
+        conn = sqlite3.connect('xosomb.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS results (
+                date TEXT PRIMARY KEY,
+                numbers TEXT
+            )
+        ''')
         conn.commit()
         conn.close()
 
-
-def init_db():
-    """Create the results table if it doesn't exist."""
-    with get_conn() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS results (
-                date TEXT PRIMARY KEY,
-                special TEXT,
-                special_last2 TEXT,
-                day_of_week INTEGER,
-                g1 TEXT,
-                g2 TEXT,
-                g3 TEXT,
-                g4 TEXT,
-                g5 TEXT,
-                g6 TEXT,
-                g7 TEXT,
-                loto_head TEXT,
-                all_numbers TEXT,
-                created_at TEXT
-            )
-        """)
-
-
-def _row_to_dict(row, cols):
-    data = dict(zip(cols, row))
-    # try to decode JSON fields
-    for k in ("g1", "g2", "g3", "g4", "g5", "g6", "g7", "loto_head", "all_numbers"):
-        if data.get(k) is not None:
-            try:
-                data[k] = json.loads(data[k])
-            except Exception:
-                pass
-    return data
-
-
-def get_results(date=None):
-    """
-    If date is provided -> return full dict for that date.
-    If date is None -> return list of rows (tuples) where first element is date
-    (keeps compatibility with predictor.py which expects iterables of (date, ...)).
-    """
-    with get_conn() as conn:
-        cur = conn.cursor()
-        if date:
-            cur.execute("SELECT * FROM results WHERE date = ?", (date,))
-            row = cur.fetchone()
-            if not row:
-                return None
-            cols = [c[0] for c in cur.description]
-            return _row_to_dict(row, cols)
-        else:
-            cur.execute("SELECT date FROM results ORDER BY date ASC")
-            rows = cur.fetchall()
-            return rows
-
-
-def get_full(date):
-    """Return a record dict shaped for predictor usage.
-    Keys: date, special, g1..g7 (lists), weekday (int), all (dict with full5/tails2)
-    """
-    rec = get_results(date)
-    if not rec:
-        return None
-    # rec currently has keys including g1..g7 (possibly json decoded), all_numbers, day_of_week
-    # Normalize to predictor expected shape
-    out = {}
-    out['date'] = rec.get('date')
-    out['special'] = rec.get('special')
-    # ensure g1..g7 are lists
-    for i in range(1, 8):
-        k = f'g{i}'
-        v = rec.get(k)
-        if isinstance(v, str):
-            try:
-                v = json.loads(v)
-            except Exception:
-                v = []
-        if not isinstance(v, (list, tuple)):
-            v = []
-        out[k] = list(v)
-    # weekday
-    out['weekday'] = rec.get('day_of_week') if rec.get('day_of_week') is not None else rec.get('weekday')
-    # all -> from all_numbers column
-    all_col = rec.get('all_numbers')
-    if isinstance(all_col, str):
+def save_result(date_str, numbers):
+    """Lưu hoặc cập nhật kết quả 1 ngày (Nhận đúng 2 tham số: date_str và numbers)"""
+    with db_lock:
         try:
-            all_col = json.loads(all_col)
-        except Exception:
-            all_col = {}
-    out['all'] = all_col or {}
-    return out
-
-
-def get_date_range():
-    with get_conn() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT MIN(date), MAX(date) FROM results")
-        row = cur.fetchone()
-        return (row[0], row[1]) if row else (None, None)
-
+            conn = sqlite3.connect('xosomb.db')
+            cursor = conn.cursor()
+            
+            # Chuẩn hóa danh sách số thành chuỗi cách nhau bằng dấu phẩy
+            numbers_str = ",".join(numbers) if isinstance(numbers, list) else str(numbers)
+            
+            cursor.execute('''
+                INSERT OR REPLACE INTO results (date, numbers)
+                VALUES (?, ?)
+            ''', (date_str, numbers_str))
+            
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"⚠️ Lỗi CSDL khi lưu ngày {date_str}: {e}", flush=True)
+            return False
 
 def count_results():
-    with get_conn() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM results")
-        return cur.fetchone()[0]
+    """Đếm tổng số ngày đã lưu trong CSDL"""
+    with db_lock:
+        try:
+            conn = sqlite3.connect('xosomb.db')
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM results')
+            count = cursor.fetchone()[0]
+            conn.close()
+            return count
+        except Exception as e:
+            print(f"⚠️ Lỗi đếm CSDL: {e}", flush=True)
+            return 0
 
-
-# --- Existing save_result kept but adapted to rely on helpers above ---
-def save_result(rec):
-    sp = str(rec.get("special", "")).strip()
-    last2 = sp[-2:] if len(sp) >= 2 else ""
-
-    def norm(arr):
-        return list(arr) if isinstance(arr, (list, tuple)) else []
-
-    g1, g2, g3, g4, g5, g6, g7 = map(
-        norm,
-        [rec.get(k, []) for k in "g1 g2 g3 g4 g5 g6 g7".split()]
-    )
-
-    tails = [
-        n[-2:]
-        for n in ([sp] + g1 + g2 + g3 + g4 + g5 + g6 + g7)
-        if isinstance(n, str) and len(n) >= 2
-    ]
-
-    all_dump = _tojson({
-        "full5": [sp] + g1 + g2 + g3 + g4 + g5 + g6 + g7,
-        "tails2": tails
-    })
-
-    dow = rec.get(
-        "weekday",
-        datetime.strptime(rec["date"], "%Y-%m-%d").weekday()
-    )
-
-    now = datetime.now().isoformat(timespec="seconds")
-
-    with get_conn() as conn:
-        conn.execute("""
-            INSERT INTO results
-            (
-                date,
-                special,
-                special_last2,
-                day_of_week,
-                g1,g2,g3,g4,g5,g6,g7,
-                loto_head,
-                all_numbers,
-                created_at
-            )
-            VALUES (
-                ?,?,?,?,
-                ?,?,?,?,?,?,?,?,
-                ?,?,
-                ?
-            )
-            ON CONFLICT(date) DO UPDATE SET
-                special=excluded.special,
-                special_last2=excluded.special_last2,
-                day_of_week=excluded.day_of_week,
-                g1=excluded.g1,
-                g2=excluded.g2,
-                g3=excluded.g3,
-                g4=excluded.g4,
-                g5=excluded.g5,
-                g6=excluded.g6,
-                g7=excluded.g7,
-                loto_head=excluded.loto_head,
-                all_numbers=excluded.all_numbers,
-                created_at=excluded.created_at
-        """, (
-            rec["date"],
-            sp,
-            last2,
-            dow,
-            _tojson(g1),
-            _tojson(g2),
-            _tojson(g3),
-            _tojson(g4),
-            _tojson(g5),
-            _tojson(g6),
-            _tojson(g7),
-            _tojson(rec.get("loto_by_head", {})),
-            all_dump,
-            now
-        ))
-
-    return True
+# Tự động khởi tạo database khi import file
+init_db()

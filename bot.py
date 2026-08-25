@@ -1,208 +1,147 @@
 import os
-import re
-import json
 import time
+import threading
 from datetime import datetime, timedelta
-from collections import defaultdict, Counter
-from threading import Thread, Lock
-from flask import Flask
 import telebot
-from telebot import apihelper
-import requests
+from flask import Flask
 
-# === NHẬP CSDL ===
-from database import (
-    init_db, save_result, get_results, get_date_range,
-    count_results
-)
-from scraper import tai_90_ngay_gan_nhat
-from predictor import predict
+# Import các module nội bộ
+import database as db
+import scraper
+import predictor
 
-# Biến khóa luồng CSDL tránh ghi đè/xung đột SQLite
-db_lock = Lock()
+# Key/Token lấy từ Environment Variables trên Render
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+if not TOKEN:
+    print("⚠️ CẢNH BÁO: Chưa cấu hình TELEGRAM_TOKEN trong Environment Variables!")
 
-# === WEB GIỮ SỐNG ===
+bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
+# --- WEB SERVER GIỮ SERVICE LIVE TRÊN RENDER ---
 @app.route('/')
-def keep_alive():
-    try:
-        total = count_results()
-        min_date, max_date = get_date_range()
-        return (
-            f"✅ Bot XSMB ĐANG CHẠY ỔN!\n"
-            f"📂 Dữ liệu: {total} ngày\n"
-            f"📅 Khoảng: {min_date or '—'} → {max_date or '—'}"
-        )
-    except Exception:
-        return "🤖 Bot hoạt động — Dữ liệu đang được chuẩn bị..."
+def home():
+    return "Bot Xổ Số MB đang chạy tốt!", 200
 
-# === TOKEN & CONFIG ===
-BOT_TOKEN = os.environ.get(
-    "BOT_TOKEN",
-    "8520938638:AAF3KD6Qj8k7nPLaq8uJs25ZhSw_D8OTCY0"
-)
-CHAT_ID = int(os.environ.get("CHAT_ID", "7064473358"))
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
 
-bot = telebot.TeleBot(BOT_TOKEN)
+# --- BACKGROUND TASK: QUÉT DỮ LIỆU LỊCH SỬ ---
+def fetch_initial_data():
+    """Tự động cào dữ liệu 90 ngày gần nhất khi ứng dụng khởi động"""
+    print("📦 Bắt đầu xây dựng kho dữ liệu 90 ngày...", flush=True)
+    scraper.scrape_past_days(days=90)
+    print("✅ Đã hoàn tất khởi tạo kho dữ liệu!", flush=True)
 
-# === HANDLERS ===
+# --- TELEGRAM BOT HANDLERS ---
 @bot.message_handler(commands=['start', 'help'])
-def cmd_start(message):
-    bot.send_message(
-        message.chat.id,
-        "🤖 BOT XỔ SỐ MIỀN BẮC TỰ ĐỘNG:\n"
-        "/stats — Trạng thái dữ liệu\n"
-        "/top3 [YYYY-MM-DD] — Dự đoán đuôi mạnh nhất\n"
-        "/top10 [YYYY-MM-DD] — Danh sách 10 số\n"
-        "/backtest [số_ngày] — Kiểm chứng độ chính xác\n"
-        "/update — Tải cập nhật lịch sử & ngày mới"
+def send_welcome(message):
+    help_text = (
+        "🤖 *BOT DỰ ĐOÁN XỔ SỐ MIỀN BẮC (XSMB)*\n\n"
+        "Các câu lệnh khả dụng:\n"
+        "🔹 `/dudoan` - Nhận dự đoán lô đẹp cho ngày hôm nay\n"
+        "🔹 `/ketqua` - Xem kết quả XSMB mới nhất có trong CSDL\n"
+        "🔹 `/capnhat` - Ép bot quét cập nhật kết quả hôm nay ngay lập tức\n"
+        "🔹 `/thongke` - Trạng thái kho dữ liệu hiện tại\n"
+        "🔹 `/help` - Xem lại hướng dẫn này"
     )
+    bot.reply_to(message, help_text, parse_mode="Markdown")
 
-@bot.message_handler(commands=['stats'])
-def cmd_stats(message):
+@bot.message_handler(commands=['dudoan'])
+def handle_prediction(message):
+    msg = bot.reply_to(message, "⏳ Đang phân tích thuật toán thống kê, vui lòng đợi giây lát...")
+    
+    # Kiểm tra và tự cập nhật nếu thiếu dữ liệu mới
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    recent = db.get_results(limit=1)
+    if not recent or recent[0]['date'] != today_str:
+        scraper.scrape_today()
+
+    results = db.get_full(limit=90)
+    if not results:
+        bot.edit_message_text("⚠️ Chưa có đủ dữ liệu trong CSDL để phân tích. Hãy thử `/capnhat` trước!", 
+                              chat_id=message.chat.id, message_id=msg.message_id)
+        return
+
+    pred_text = predictor.generate_prediction_report(results)
+    bot.edit_message_text(pred_text, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
+
+@bot.message_handler(commands=['ketqua'])
+def handle_latest_result(message):
+    results = db.get_results(limit=1)
+    if not results:
+        bot.reply_to(message, "⚠️ Chưa có dữ liệu kết quả nào trong CSDL.")
+        return
+    
+    latest = results[0]
+    date_str = latest['date']
+    nums = latest['numbers']
+    
+    if not nums:
+        bot.reply_to(message, f"📅 Ngày `{date_str}`: Chưa có kết quả.", parse_mode="Markdown")
+        return
+        
+    db_val = nums[0] if len(nums) > 0 else "---"
+    g1_val = nums[1] if len(nums) > 1 else "---"
+    lotto_list = ", ".join(nums[1:]) if len(nums) > 1 else "Không có"
+    
+    res_msg = (
+        f"📊 *KẾT QUẢ XSMB NGÀY {date_str}*\n\n"
+        f"🏆 **Giải Đặc Biệt:** `{db_val}`\n"
+        f"🥇 **Giải Nhất:** `{g1_val}`\n"
+        f"🎲 **Lô tô về ({len(nums)} giải):**\n`{lotto_list}`"
+    )
+    bot.reply_to(message, res_msg, parse_mode="Markdown")
+
+@bot.message_handler(commands=['capnhat'])
+def handle_manual_update(message):
+    msg = bot.reply_to(message, "🔍 Đang tiến hành quét kết quả XSMB mới nhất...")
+    success = scraper.scrape_today()
+    if success:
+        bot.edit_message_text("✅ Đã cập nhật thành công kết quả mới nhất vào CSDL!", 
+                              chat_id=message.chat.id, message_id=msg.message_id)
+    else:
+        bot.edit_message_text("⚠️ Không tìm thấy kết quả mới hoặc chưa đến giờ quay thưởng (18h15).", 
+                              chat_id=message.chat.id, message_id=msg.message_id)
+
+@bot.message_handler(commands=['thongke'])
+def handle_stats(message):
+    count = db.count_results()
+    min_date, max_date = db.get_date_range()
+    
+    stats_msg = (
+        "📈 *THỐNG KÊ KHO DỮ LIỆU CSDL*\n\n"
+        f"▫️ **Tổng số ngày đã lưu:** `{count}` ngày\n"
+        f"▫️ **Ngày dữ liệu cũ nhất:** `{min_date or 'N/A'}`\n"
+        f"▫️ **Ngày dữ liệu mới nhất:** `{max_date or 'N/A'}`"
+    )
+    bot.reply_to(message, stats_msg, parse_mode="Markdown")
+
+# --- LUỒNG CHÍNH (MAIN EXECUTION) ---
+if __name__ == '__main__':
+    print("🚀 Khởi động Flask & Bot Telegram...", flush=True)
+    
+    # 1. Chạy Web Server trong Thread riêng để Render không kill service
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+
+    # 2. Chạy tiến trình cào dữ liệu lịch sử trong Thread riêng
+    data_thread = threading.Thread(target=fetch_initial_data, daemon=True)
+    data_thread.start()
+
+    # 3. Dọn dẹp Webhook cũ trước khi khởi chạy Polling (Tránh xung đột)
     try:
-        init_db()
-        total = count_results()
-        min_d, max_d = get_date_range()
-        bot.send_message(
-            message.chat.id,
-            f"📂 THÔNG TIN DỮ LIỆU:\n"
-            f"• Tổng ngày: {total}\n"
-            f"• Từ: {min_d or 'chưa có'}\n"
-            f"• Đến: {max_d or 'chưa có'}"
-        )
+        bot.remove_webhook()
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Lỗi: {str(e)}")
+        print(f"⚠️ Lỗi dọn dẹp Webhook: {e}", flush=True)
 
-@bot.message_handler(commands=['top3'])
-def cmd_top3(message):
-    args = message.text.split()
-    target_date = datetime.now().strftime("%Y-%m-%d")
-    if len(args) >= 2:
-        target_date = args[1]
-    try:
-        top_list = predict(target_date, limit=3)
-        text = f"🎯 TOP 3 NGÀY {target_date}:\n"
-        for idx, (num, score) in enumerate(top_list, 1):
-            text += f"{idx}. {num} — điểm: {score:.3f}\n"
-        bot.send_message(message.chat.id, text)
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Không tính được: {str(e)}")
+    print("🤖 Bot đang lắng nghe lệnh...", flush=True)
 
-@bot.message_handler(commands=['top10'])
-def cmd_top10(message):
-    args = message.text.split()
-    target_date = datetime.now().strftime("%Y-%m-%d")
-    if len(args) >= 2:
-        target_date = args[1]
-    try:
-        top_list = predict(target_date, limit=10)
-        text = f"📋 TOP 10 NGÀY {target_date}:\n"
-        for idx, (num, score) in enumerate(top_list, 1):
-            text += f"{idx:2d}. {num} — {score:.3f}\n"
-        bot.send_message(message.chat.id, text)
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Lỗi: {str(e)}")
-
-@bot.message_handler(commands=['backtest'])
-def cmd_backtest(message):
-    args = message.text.split()
-    days = 30
-    if len(args) >= 2 and args[1].isdigit():
-        days = int(args[1])
-    bot.send_message(message.chat.id, f"🔍 Đang kiểm chứng {days} ngày... vui lòng chờ!")
-    try:
-        from backtest import run_backtest, summarize
-        result_list = run_backtest(days)
-        summary = summarize(result_list)
-        txt = (
-            f"📊 KẾT QUẢ KIỂM CHỨNG {summary.get('days', 0)} NGÀY:\n"
-            f"✅ Trúng: {summary.get('hits')} / {summary.get('days')}\n"
-            f"🎯 Tỷ lệ chung: {summary.get('hit_rate',0)*100:.2f}%\n"
-            f"🥇 Top1: {summary.get('top1',0)*100:.2f}% | 🥉 Top3: {summary.get('top3',0)*100:.2f}%\n"
-            f"📌 Top10: {summary.get('top10',0)*100:.2f}%"
-        )
-        bot.send_message(message.chat.id, txt)
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Lỗi kiểm tra: {repr(e)}")
-
-@bot.message_handler(commands=['update'])
-def cmd_update(message):
-    bot.send_message(message.chat.id, "🔄 Đang quét & cập nhật CSDL... chờ lát nhé!")
-    def background():
-        with db_lock:
-            try:
-                init_db()
-                ok = tai_90_ngay_gan_nhat()
-                bot.send_message(
-                    message.chat.id,
-                    f"✅ Hoàn tất cập nhật! Hiện có {ok} ngày chuẩn trong kho."
-                )
-            except Exception as e:
-                bot.send_message(message.chat.id, f"❌ Lỗi cập nhật: {str(e)}")
-    Thread(target=background, daemon=True).start()
-
-# === MAIN RUNNER ===
-if __name__ == "__main__":
-    init_db()
-    print("🚀 Khởi động Flask & Bot Telegram...")
-
-    # Tiến trình khởi tạo dữ liệu chạy ngầm + Báo tin nhắn Telegram
-    def khoi_tao_du_lieu():
-        with db_lock:
-            try:
-                print("📦 Bắt đầu xây dựng kho dữ liệu 90 ngày...")
-                so_ngay = tai_90_ngay_gan_nhat()
-                print(f"✅ Đã xây dựng xong: {so_ngay} ngày hợp lệ!")
-                
-                # Tự động gửi thông báo về Telegram khi khởi tạo xong
-                if CHAT_ID:
-                    bot.send_message(
-                        CHAT_ID,
-                        f"🚀 **BOT XSMB ĐÃ KHỞI ĐỘNG CẢI TIẾN!**\n"
-                        f"📂 Dữ liệu sẵn sàng: {so_ngay} ngày.\n"
-                        f"Gõ /stats hoặc /help để kiểm tra."
-                    )
-            except Exception as err:
-                print(f"⚠️ Quá trình cào dữ liệu gặp lỗi: {err}")
-                if CHAT_ID:
-                    bot.send_message(
-                        CHAT_ID, 
-                        f"⚠️ Bot đã bật nhưng tiến trình cào dữ liệu bị lỗi:\n`{str(err)}`",
-                        parse_mode="Markdown"
-                    )
-
-    Thread(target=khoi_tao_du_lieu, daemon=True).start()
-
-    # Web Server
-    def run_web():
-        cong = int(os.environ.get("PORT", 8080))
-        app.run(host="0.0.0.0", port=cong, use_reloader=False)
-
-    Thread(target=run_web, daemon=True).start()
-
-    print("🤖 Bot đang lắng nghe lệnh...")
-
-    # Vòng lặp Polling chuẩn cú pháp telebot
+    # 4. Vòng lặp Polling an toàn - Tự khôi phục nếu mất kết nối mạng
     while True:
         try:
-            bot.remove_webhook()
-            bot.skip_pending()  # Bỏ qua tin nhắn cũ đọng lại
-            time.sleep(2)
-            
-            bot.infinity_polling(
-                timeout=30,
-                long_polling_timeout=20,
-                none_stop=True
-            )
-        except apihelper.ApiTelegramException as e:
-            if '409' in str(e):
-                print("Lỗi 409: Trùng lặp Polling. Chờ 20s xả phiên...")
-                time.sleep(20)
-            else:
-                print("Lỗi Telegram API:", e)
-                time.sleep(5)
+            bot.infinity_polling(skip_pending_updates=True, timeout=20, long_polling_timeout=10)
         except Exception as e:
-            print("Lỗi hệ thống Polling:", e)
-            time.sleep(5)
+            print(f"⚠️ Lỗi hệ thống Polling: {e}", flush=True)
+            time.sleep(3)

@@ -15,16 +15,15 @@ SHORT_WINDOW = 7
 MEDIUM_WINDOW = 30
 LONG_WINDOW = 90
 
-# Bộ trọng số cân bằng chuẩn
-WEIGHT_SHORT = 0.20
-WEIGHT_MEDIUM = 0.25
+# Trọng số tối ưu hóa
+WEIGHT_SHORT = 0.22
+WEIGHT_MEDIUM = 0.23
 WEIGHT_LONG = 0.15
 WEIGHT_WEEKDAY = 0.25
 WEIGHT_GAP = 0.15
 
 
 def clean_text(val):
-    """Xóa bỏ hoàn toàn ký tự xuống dòng và khoảng trắng thừa gây lỗi giao diện Telegram."""
     if val is None:
         return ""
     return str(val).replace('\n', ' ').replace('\r', '').replace('\xa0', '').strip()
@@ -41,7 +40,6 @@ def parse_dt(s):
 
 
 def extract_tails(rec):
-    """Trích xuất danh sách 2 số cuối (lô tô) từ bản ghi dữ liệu."""
     t = []
     if not rec or not isinstance(rec, dict):
         return t
@@ -78,7 +76,6 @@ def extract_tails(rec):
 
 
 def get_history_before(target_dt):
-    """Lấy dữ liệu lịch sử trước ngày chỉ định."""
     tgt = parse_dt(target_dt)
     if not callable(get_results):
         return []
@@ -174,9 +171,10 @@ def calculate(target_dt):
     wd = score_weekday(hist, target_dt)
     gp = score_gap(hist)
     
-    # Lấy danh sách lô xuất hiện trong 2 ngày gần nhất
+    # Lấy danh sách lô xuất hiện ở 3 ngày gần nhất để tính phạt lũy tiến
     day1_tails = set(extract_tails(hist[0])) if len(hist) > 0 else set()
     day2_tails = set(extract_tails(hist[1])) if len(hist) > 1 else set()
+    day3_tails = set(extract_tails(hist[2])) if len(hist) > 2 else set()
     
     total = {}
     for n in [norm_num(i) for i in range(100)]:
@@ -188,12 +186,14 @@ def calculate(target_dt):
             gp[n] * WEIGHT_GAP
         )
         
-        # Hệ số phạt điều chỉnh mềm dẻo tránh bám dính 1 số
+        # Hệ số phạt chống bám số (Chỉ phạt nếu số đó đã nổ ở các ngày vừa qua)
         penalty = 1.0
         if n in day1_tails:
-            penalty *= 0.80
+            penalty *= 0.78  # Phạt vừa ra ngày hôm qua
         if n in day2_tails:
-            penalty *= 0.90
+            penalty *= 0.88  # Phạt ra cách đây 2 ngày
+        if n in day1_tails and n in day2_tails:
+            penalty *= 0.70  # Phạt nặng nếu ra liên tiếp cả 2 ngày
             
         total[n] = base_score * penalty
         
@@ -295,7 +295,6 @@ def test_prediction_accuracy(target_date_str):
     top5_hits = [num for num in top5 if num in actual_tails]
     top10_hits = [num for num in top10 if num in actual_tails]
 
-    # Xây dựng chuỗi văn bản không khoảng trắng rớt
     stl_detail = f"({', '.join(stl_hits)})" if stl_hits else "(Không trúng)"
     top5_detail = f"({', '.join(top5_hits)})" if top5_hits else "(Không)"
     top10_detail = f"({', '.join(top10_hits)})" if top10_hits else "(Không)"

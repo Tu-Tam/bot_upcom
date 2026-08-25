@@ -11,19 +11,20 @@ except ImportError:
     get_full = None
 
 MIN_HISTORY = 10
-SHORT_WINDOW = 7
-MEDIUM_WINDOW = 30
+SHORT_WINDOW = 5       # Thu hẹp khung ngắn hạn để phản ánh nhịp rơi nhanh
+MEDIUM_WINDOW = 25
 LONG_WINDOW = 90
 
-# Trọng số tối ưu hóa
-WEIGHT_SHORT = 0.22
-WEIGHT_MEDIUM = 0.23
+# Trọng số tối ưu hóa cân bằng nhịp lô
+WEIGHT_SHORT = 0.30     # Tăng trọng số ngắn hạn để bắt nhịp rơi tốt hơn
+WEIGHT_MEDIUM = 0.20
 WEIGHT_LONG = 0.15
-WEIGHT_WEEKDAY = 0.25
+WEIGHT_WEEKDAY = 0.20
 WEIGHT_GAP = 0.15
 
 
 def clean_text(val):
+    """Xóa bỏ hoàn toàn ký tự xuống dòng và khoảng trắng thừa gây lỗi giao diện Telegram."""
     if val is None:
         return ""
     return str(val).replace('\n', ' ').replace('\r', '').replace('\xa0', '').strip()
@@ -40,6 +41,7 @@ def parse_dt(s):
 
 
 def extract_tails(rec):
+    """Trích xuất danh sách 2 số cuối (lô tô) từ bản ghi dữ liệu."""
     t = []
     if not rec or not isinstance(rec, dict):
         return t
@@ -76,6 +78,7 @@ def extract_tails(rec):
 
 
 def get_history_before(target_dt):
+    """Lấy dữ liệu lịch sử trước ngày chỉ định."""
     tgt = parse_dt(target_dt)
     if not callable(get_results):
         return []
@@ -171,10 +174,13 @@ def calculate(target_dt):
     wd = score_weekday(hist, target_dt)
     gp = score_gap(hist)
     
-    # Lấy danh sách lô xuất hiện ở 3 ngày gần nhất để tính phạt lũy tiến
+    # Đếm tần suất xuất hiện trong 4 ngày gần nhất để tính hệ số xả/nghỉ nhịp
+    recent_4days_count = Counter()
+    for rec in hist[:4]:
+        recent_4days_count.update(set(extract_tails(rec)))
+    
     day1_tails = set(extract_tails(hist[0])) if len(hist) > 0 else set()
     day2_tails = set(extract_tails(hist[1])) if len(hist) > 1 else set()
-    day3_tails = set(extract_tails(hist[2])) if len(hist) > 2 else set()
     
     total = {}
     for n in [norm_num(i) for i in range(100)]:
@@ -186,14 +192,20 @@ def calculate(target_dt):
             gp[n] * WEIGHT_GAP
         )
         
-        # Hệ số phạt chống bám số (Chỉ phạt nếu số đó đã nổ ở các ngày vừa qua)
         penalty = 1.0
+        
+        # 1. Phạt nếu ra hôm qua
         if n in day1_tails:
-            penalty *= 0.78  # Phạt vừa ra ngày hôm qua
-        if n in day2_tails:
-            penalty *= 0.88  # Phạt ra cách đây 2 ngày
+            penalty *= 0.75
+            
+        # 2. Phạt nếu ra liên tiếp 2 ngày vừa rồi
         if n in day1_tails and n in day2_tails:
-            penalty *= 0.70  # Phạt nặng nếu ra liên tiếp cả 2 ngày
+            penalty *= 0.65
+            
+        # 3. Phạt nhịp xả: Nổ >= 2 lần trong 4 ngày gần nhất thì ép nghỉ nhịp
+        occurrences = recent_4days_count.get(n, 0)
+        if occurrences >= 2:
+            penalty *= 0.70
             
         total[n] = base_score * penalty
         

@@ -1,3 +1,4 @@
+
 import os
 import sys
 import time
@@ -35,11 +36,12 @@ def run_flask():
 
 # --- BACKGROUND TASK: QUÉT DỮ LIỆU LỊCH SỬ ---
 def fetch_initial_data():
-    """Tự động cào dữ liệu 90 ngày gần nhất khi ứng dụng khởi động"""
-    print("📦 Bắt đầu xây dựng kho dữ liệu 90 ngày...", flush=True)
+    """Tự động cào dữ liệu 365 ngày gần nhất khi ứng dụng khởi động"""
+    print("📦 Bắt đầu kiểm tra và xây dựng kho dữ liệu 365 ngày...", flush=True)
     try:
-        scraper.scrape_past_days(days=90)
-        print("✅ Đã hoàn tất khởi tạo kho dữ liệu!", flush=True)
+        if hasattr(scraper, 'scrape_past_days'):
+            scraper.scrape_past_days(days=365)
+        print("✅ Đã hoàn tất khởi tạo kho dữ liệu 365 ngày!", flush=True)
     except Exception as e:
         print(f"⚠️ Lỗi khi khởi tạo dữ liệu: {e}", flush=True)
 
@@ -70,11 +72,11 @@ def handle_prediction(message):
     if not recent or (isinstance(recent, list) and len(recent) > 0 and recent[0].get('date') != today_str):
         scraper.scrape_today()
 
-    # Lấy dữ liệu phân tích
+    # Lấy dữ liệu phân tích (Đã nâng lên 365 ngày)
     if hasattr(db, 'get_full'):
-        results = db.get_full(limit=90)
+        results = db.get_full(limit=365)
     elif hasattr(db, 'get_results'):
-        results = db.get_results(limit=90)
+        results = db.get_results(limit=365)
     else:
         results = []
 

@@ -246,13 +246,22 @@ def test_prediction_accuracy(target_date_str):
     if not rows:
         return "⚠️ Cơ sở dữ liệu hiện đang rỗng."
     
-    # Chuẩn hóa ngày trong DB để so sánh chính xác tuyệt đối
+    # Duyệt tìm ngày và áp dụng cơ chế fallback an toàn
     for r in rows:
         r_date = r.get('date') if isinstance(r, dict) else (r[0] if isinstance(r, (list, tuple)) else None)
         if r_date:
             try:
                 if parse_dt(r_date).strftime("%Y-%m-%d") == normalized_target_str:
-                    actual_record = get_full(r_date) if callable(get_full) else r
+                    # Thử lấy qua get_full trước
+                    if callable(get_full):
+                        actual_record = get_full(r_date) or get_full(normalized_target_str)
+                    
+                    # Nếu get_full trả về None hoặc rỗng, dùng trực tiếp bản ghi r
+                    if not actual_record:
+                        if isinstance(r, dict):
+                            actual_record = r
+                        elif isinstance(r, (list, tuple)):
+                            actual_record = {"date": r_date, "numbers": r[1] if len(r) > 1 else []}
                     break
             except Exception:
                 continue

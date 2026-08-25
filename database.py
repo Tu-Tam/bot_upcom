@@ -38,8 +38,8 @@ def save_result(date_str, numbers):
             print(f"⚠️ Lỗi CSDL khi lưu ngày {date_str}: {e}", flush=True)
             return False
 
-def get_results(limit=90):
-    """Lấy danh sách kết quả xổ số gần nhất từ CSDL"""
+def get_results(limit=365):
+    """Lấy danh sách kết quả xổ số gần nhất từ CSDL (Mặc định 365 ngày)"""
     with db_lock:
         try:
             conn = sqlite3.connect('xosomb.db')
@@ -57,7 +57,7 @@ def get_results(limit=90):
             print(f"⚠️ Lỗi lấy dữ liệu CSDL: {e}", flush=True)
             return []
 
-def get_full(limit=90):
+def get_full(limit=365):
     """Alias cho get_results để tương thích với predictor.py"""
     return get_results(limit=limit)
 

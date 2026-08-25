@@ -47,24 +47,6 @@ def init_db():
         """)
 
 
-def get_results(date=None):
-    """Return one result dict if date provided, otherwise list of all results (as dicts)."""
-    with get_conn() as conn:
-        cur = conn.cursor()
-        if date:
-            cur.execute("SELECT * FROM results WHERE date = ?", (date,))
-            row = cur.fetchone()
-            if not row:
-                return None
-            cols = [c[0] for c in cur.description]
-            return _row_to_dict(row, cols)
-        else:
-            cur.execute("SELECT * FROM results ORDER BY date ASC")
-            rows = cur.fetchall()
-            cols = [c[0] for c in cur.description]
-            return [_row_to_dict(r, cols) for r in rows]
-
-
 def _row_to_dict(row, cols):
     data = dict(zip(cols, row))
     # try to decode JSON fields
@@ -75,6 +57,64 @@ def _row_to_dict(row, cols):
             except Exception:
                 pass
     return data
+
+
+def get_results(date=None):
+    """
+    If date is provided -> return full dict for that date.
+    If date is None -> return list of rows (tuples) where first element is date
+    (keeps compatibility with predictor.py which expects iterables of (date, ...)).
+    """
+    with get_conn() as conn:
+        cur = conn.cursor()
+        if date:
+            cur.execute("SELECT * FROM results WHERE date = ?", (date,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            cols = [c[0] for c in cur.description]
+            return _row_to_dict(row, cols)
+        else:
+            cur.execute("SELECT date FROM results ORDER BY date ASC")
+            rows = cur.fetchall()
+            return rows
+
+
+def get_full(date):
+    """Return a record dict shaped for predictor usage.
+    Keys: date, special, g1..g7 (lists), weekday (int), all (dict with full5/tails2)
+    """
+    rec = get_results(date)
+    if not rec:
+        return None
+    # rec currently has keys including g1..g7 (possibly json decoded), all_numbers, day_of_week
+    # Normalize to predictor expected shape
+    out = {}
+    out['date'] = rec.get('date')
+    out['special'] = rec.get('special')
+    # ensure g1..g7 are lists
+    for i in range(1, 8):
+        k = f'g{i}'
+        v = rec.get(k)
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except Exception:
+                v = []
+        if not isinstance(v, (list, tuple)):
+            v = []
+        out[k] = list(v)
+    # weekday
+    out['weekday'] = rec.get('day_of_week') if rec.get('day_of_week') is not None else rec.get('weekday')
+    # all -> from all_numbers column
+    all_col = rec.get('all_numbers')
+    if isinstance(all_col, str):
+        try:
+            all_col = json.loads(all_col)
+        except Exception:
+            all_col = {}
+    out['all'] = all_col or {}
+    return out
 
 
 def get_date_range():

@@ -1,5 +1,5 @@
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 import math
 import json
 
@@ -220,4 +220,67 @@ def generate_prediction_report(results=None):
         report += f"▫️ Hạng {rank:02d}: Lô `{num}` (Điểm: `{score:.2f}`)\n"
         
     report += "\n⚠️ *Lưu ý:* _Kết quả dựa trên thuật toán thống kê trọng số (Chu kỳ, Thứ, Khoảng cách gan)._"
+    return report
+
+
+# --- HÀM BỔ SUNG: TEST ĐỘ CHÍNH XÁC NGÀY CỐ ĐỊNH (BACKTEST) ---
+def test_prediction_accuracy(target_date_str):
+    """
+    Kiểm tra độ chính xác dự đoán tại một ngày cố định trong lịch sử.
+    Chỉ dùng dữ liệu TRƯỚC ngày target_date_str để tính toán dự đoán và đối soát với kết quả thực tế.
+    """
+    try:
+        parse_dt(target_date_str)
+    except Exception:
+        return "⚠️ Định dạng ngày không hợp lệ. Vui lòng sử dụng định dạng `YYYY-MM-DD` (Ví dụ: `/test 2026-08-20`)."
+
+    # 1. Lấy kết quả thực tế của ngày test từ CSDL
+    if not callable(get_results):
+        return "⚠️ Không thể kết nối CSDL."
+
+    rows = get_results()
+    actual_record = None
+    
+    for r in rows:
+        r_date = r.get('date') if isinstance(r, dict) else (r[0] if isinstance(r, (list, tuple)) else None)
+        if r_date == target_date_str:
+            actual_record = get_full(r_date) if callable(get_full) else r
+            break
+
+    if not actual_record:
+        return f"⚠️ Không tìm thấy dữ liệu kết quả thực tế của ngày `{target_date_str}` trong CSDL để đối soát."
+
+    # Lấy danh sách lô thực tế đã về trong ngày test
+    actual_tails = set(extract_tails(actual_record))
+    if not actual_tails:
+        return f"⚠️ Dữ liệu kết quả ngày `{target_date_str}` bị rỗng hoặc không hợp lệ."
+
+    # 2. Chạy thuật toán dự đoán (chỉ dùng dữ liệu TRƯỚC ngày test)
+    try:
+        predictions = predict(target_date_str, top_n=10)
+    except Exception as e:
+        return f"⚠️ Không thể chạy dự đoán cho ngày `{target_date_str}`: {e}"
+
+    # 3. Phân tích kết quả so sánh
+    bTL = predictions[0][0]
+    sTL = [predictions[0][0], predictions[1][0]]
+    top5 = [p[0] for p in predictions[:5]]
+    top10 = [p[0] for p in predictions[:10]]
+
+    btl_hit = bTL in actual_tails
+    stl_hits = [num for num in sTL if num in actual_tails]
+    top5_hits = [num for num in top5 if num in actual_tails]
+    top10_hits = [num for num in top10 if num in actual_tails]
+
+    # 4. Tạo báo cáo chi tiết
+    report = (
+        f"🧪 *BÁO CÁO TEST ĐỘ CHÍNH XÁC NGÀY {target_date_str}*\n"
+        "------------------------------------\n"
+        f"🔥 **Bạch Thủ Lô (`{bTL}`):** {'✅ TRÚNG' if btl_hit else '❌ TRƯỢT'}\n"
+        f"👯 **Song Thủ Lô (`{', '.join(sTL)}`):** Trúng `{len(stl_hits)}/2` lô ({', '.join(stl_hits) if stl_hits else 'Không trúng'})\n"
+        f"🌟 **Top 5 Lô đẹp:** Trúng `{len(top5_hits)}/5` lô ({', '.join(top5_hits) if top5_hits else 'Không'})\n"
+        f"📊 **Top 10 Lô đẹp:** Trúng `{len(top10_hits)}/10` lô ({', '.join(top10_hits) if top10_hits else 'Không'})\n\n"
+        f"📝 *Tổng số giải lô về ngày đó:* `{len(actual_tails)}` đầu số.\n"
+        f"ℹ️ _Lưu ý: Thuật toán chỉ sử dụng dữ liệu trước ngày {target_date_str} để phân tích._"
+    )
     return report

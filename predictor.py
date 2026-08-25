@@ -22,8 +22,9 @@ WEIGHT_WEEKDAY = 0.15
 WEIGHT_GAP = 0.15
 
 
-def norm_num(n): 
+def norm_num(n):
     return str(n).zfill(2)
+
 
 def parse_dt(s):
     if isinstance(s, datetime):
@@ -54,7 +55,7 @@ def extract_tails(rec):
                     t.append(str(f)[-2:])
                     
     # 3. Trích xuất nếu có cấu trúc dict "all"
-    if isinstance(rec.get("all"), dict): 
+    if isinstance(rec.get("all"), dict):
         t.extend(rec["all"].get("tails2", []))
 
     # 4. Trích xuất nếu dữ liệu lưu mảng "numbers" phẳng
@@ -105,29 +106,29 @@ def get_history_before(target_dt):
             except Exception:
                 continue
 
-    return sorted(hist, key=lambda x: x.get("date", ""), reverse=True)
+    return sorted(hist, key=lambda x: str(x.get("date", "")), reverse=True)
 
 
 def freq_window(hist, win):
     c = Counter()
-    for r in hist[:win]: 
+    for r in hist[:win]:
         c.update(extract_tails(r))
     return {norm_num(i): c.get(norm_num(i), 0) for i in range(100)}
 
 
 def score_recency(hist, win):
     sc = {norm_num(i): 0.0 for i in range(100)}
-    if not hist: 
+    if not hist:
         return sc
     for idx, rec in enumerate(hist[:win]):
         w = math.exp(-idx / max(win / 3, 1))
-        for tail in extract_tails(rec): 
+        for tail in extract_tails(rec):
             sc[tail] += w
     return sc
 
 
 def norm_score(dic):
-    if not dic: 
+    if not dic:
         return dic
     vals = list(dic.values())
     lo, hi = min(vals), max(vals)
@@ -142,7 +143,7 @@ def score_weekday(hist, target_dt):
         if r_date:
             try:
                 w_day = rec.get("weekday", parse_dt(r_date).weekday())
-                if w_day == dow: 
+                if w_day == dow:
                     c.update(extract_tails(rec))
             except Exception:
                 continue
@@ -155,7 +156,7 @@ def score_gap(hist):
     for num in [norm_num(i) for i in range(100)]:
         g = len(hist)
         for idx, rec in enumerate(hist):
-            if num in extract_tails(rec): 
+            if num in extract_tails(rec):
                 g = idx
                 break
         sc[num] = math.log1p(g)
@@ -164,7 +165,7 @@ def score_gap(hist):
 
 def calculate(target_dt):
     hist = get_history_before(target_dt)
-    if len(hist) < MIN_HISTORY: 
+    if len(hist) < MIN_HISTORY:
         raise ValueError(f"Cần ít nhất {MIN_HISTORY} ngày lịch sử (Hiện có: {len(hist)} ngày)")
     
     sh = norm_score(score_recency(hist, SHORT_WINDOW))
@@ -230,7 +231,8 @@ def test_prediction_accuracy(target_date_str):
     Chỉ dùng dữ liệu TRƯỚC ngày target_date_str để tính toán dự đoán và đối soát với kết quả thực tế.
     """
     try:
-        parse_dt(target_date_str)
+        tgt_dt = parse_dt(target_date_str)
+        normalized_target_str = tgt_dt.strftime("%Y-%m-%d")
     except Exception:
         return "⚠️ Định dạng ngày không hợp lệ. Vui lòng sử dụng định dạng `YYYY-MM-DD` (Ví dụ: `/test 2026-08-20`)."
 
@@ -241,25 +243,33 @@ def test_prediction_accuracy(target_date_str):
     rows = get_results()
     actual_record = None
     
+    if not rows:
+        return "⚠️ Cơ sở dữ liệu hiện đang rỗng."
+    
+    # Chuẩn hóa ngày trong DB để so sánh chính xác tuyệt đối
     for r in rows:
         r_date = r.get('date') if isinstance(r, dict) else (r[0] if isinstance(r, (list, tuple)) else None)
-        if r_date == target_date_str:
-            actual_record = get_full(r_date) if callable(get_full) else r
-            break
+        if r_date:
+            try:
+                if parse_dt(r_date).strftime("%Y-%m-%d") == normalized_target_str:
+                    actual_record = get_full(r_date) if callable(get_full) else r
+                    break
+            except Exception:
+                continue
 
     if not actual_record:
-        return f"⚠️ Không tìm thấy dữ liệu kết quả thực tế của ngày `{target_date_str}` trong CSDL để đối soát."
+        return f"⚠️ Không tìm thấy dữ liệu kết quả thực tế của ngày `{normalized_target_str}` trong CSDL để đối soát.\n👉 Hãy thử bấm `/thongke` để kiểm tra các ngày hiện có."
 
     # Lấy danh sách lô thực tế đã về trong ngày test
     actual_tails = set(extract_tails(actual_record))
     if not actual_tails:
-        return f"⚠️ Dữ liệu kết quả ngày `{target_date_str}` bị rỗng hoặc không hợp lệ."
+        return f"⚠️ Dữ liệu kết quả ngày `{normalized_target_str}` bị rỗng hoặc không hợp lệ."
 
     # 2. Chạy thuật toán dự đoán (chỉ dùng dữ liệu TRƯỚC ngày test)
     try:
-        predictions = predict(target_date_str, top_n=10)
+        predictions = predict(normalized_target_str, top_n=10)
     except Exception as e:
-        return f"⚠️ Không thể chạy dự đoán cho ngày `{target_date_str}`: {e}"
+        return f"⚠️ Không thể chạy dự đoán cho ngày `{normalized_target_str}`: {e}"
 
     # 3. Phân tích kết quả so sánh
     bTL = predictions[0][0]
@@ -274,13 +284,13 @@ def test_prediction_accuracy(target_date_str):
 
     # 4. Tạo báo cáo chi tiết
     report = (
-        f"🧪 *BÁO CÁO TEST ĐỘ CHÍNH XÁC NGÀY {target_date_str}*\n"
+        f"🧪 *BÁO CÁO TEST ĐỘ CHÍNH XÁC NGÀY {normalized_target_str}*\n"
         "------------------------------------\n"
         f"🔥 **Bạch Thủ Lô (`{bTL}`):** {'✅ TRÚNG' if btl_hit else '❌ TRƯỢT'}\n"
         f"👯 **Song Thủ Lô (`{', '.join(sTL)}`):** Trúng `{len(stl_hits)}/2` lô ({', '.join(stl_hits) if stl_hits else 'Không trúng'})\n"
         f"🌟 **Top 5 Lô đẹp:** Trúng `{len(top5_hits)}/5` lô ({', '.join(top5_hits) if top5_hits else 'Không'})\n"
         f"📊 **Top 10 Lô đẹp:** Trúng `{len(top10_hits)}/10` lô ({', '.join(top10_hits) if top10_hits else 'Không'})\n\n"
         f"📝 *Tổng số giải lô về ngày đó:* `{len(actual_tails)}` đầu số.\n"
-        f"ℹ️ _Lưu ý: Thuật toán chỉ sử dụng dữ liệu trước ngày {target_date_str} để phân tích._"
+        f"ℹ️ _Lưu ý: Thuật toán chỉ sử dụng dữ liệu trước ngày {normalized_target_str} để phân tích._"
     )
     return report

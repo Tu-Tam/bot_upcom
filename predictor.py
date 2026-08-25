@@ -22,8 +22,6 @@ def analyze_and_predict(historical_data):
         daily_numbers.append(two_digits)
         all_dates.append(d_str)
 
-    total_days = len(daily_numbers)
-    
     # 2. Tính toán các chỉ số thống kê
     scores = {str(i).zfill(2): 0.0 for i in range(100)}
     
@@ -38,7 +36,6 @@ def analyze_and_predict(historical_data):
             scores[num] += 2.0
 
     # Factor B: Nhịp Gan/Biên độ vắng (Trọng số 30%)
-    # Tìm ngày xuất hiện gần nhất của từng con số
     last_seen = {}
     for idx, day in enumerate(daily_numbers):
         for num in day:
@@ -84,4 +81,40 @@ def analyze_and_predict(historical_data):
         'song_thu': song_thu,
         'top_5': top_5,
         'top_10': top_10
+    }
+
+def test_prediction_accuracy(historical_data, actual_numbers):
+    """
+    Hàm kiểm tra độ chính xác của thuật toán cho lệnh /test
+    """
+    pred = analyze_and_predict(historical_data)
+    if not pred:
+        return None
+
+    # Lấy 2 số cuối của kết quả thực tế ngày hôm đó
+    actual_2d = [str(n)[-2:].zfill(2) for n in actual_numbers]
+    actual_set = set(actual_2d)
+
+    bt = pred['bach_thu']
+    st1, st2 = pred['song_thu']
+    t5 = pred['top_5']
+    t10 = pred['top_10']
+
+    # Kiểm tra kết quả trúng/trượt
+    bt_hit = bt in actual_set
+    st_hits = sum(1 for x in (st1, st2) if x in actual_set)
+    t5_hits = sum(1 for x in t5 if x in actual_set)
+    t10_hits = sum(1 for x in t10 if x in actual_set)
+
+    return {
+        'bach_thu': bt,
+        'bach_thu_hit': bt_hit,
+        'song_thu': (st1, st2),
+        'song_thu_hits': st_hits,
+        'top_5': t5,
+        'top_5_hits': t5_hits,
+        'top_10': t10,
+        'top_10_hits': t10_hits,
+        'actual_count': len(actual_2d),
+        'actual_numbers': actual_2d
     }

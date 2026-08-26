@@ -1,5 +1,9 @@
 from collections import Counter, defaultdict
 
+# =========================================================
+# 1. LOGIC SOI LÔ (BẠCH THỦ, SONG THỦ, TOP 5, TOP 10) - GIỮ NGUYÊN
+# =========================================================
+
 def analyze_and_predict(historical_data):
     """
     Thuật toán v10.0: Ensemble Multi-Bridge & Adaptive Threshold Matrix
@@ -40,12 +44,10 @@ def analyze_and_predict(historical_data):
             scores[num] -= 999.0 # LÔ GAN - KHÓA TẬN GỐC
 
     # 2. CẦU VỊ TRÍ ĐẠI DIỆN (BRIDGE MATCHING)
-    # Soi cầu chạy liên kết từ giải Đặc Biệt (G0) và Giải Nhất (G1) ngày gần nhất
     if len(full_results) > 0 and len(full_results[0]) >= 2:
         g0 = full_results[0][0] # Giải Đặc biệt
         g1 = full_results[0][1] # Giải Nhất
         
-        # Tạo số từ vị trí đầu G0 + cuối G1
         bridge_num1 = (g0[0] + g1[-1])[-2:].zfill(2)
         bridge_num2 = (g1[0] + g0[-1])[-2:].zfill(2)
         
@@ -61,7 +63,7 @@ def analyze_and_predict(historical_data):
             if prev_bt not in daily_numbers[0]:
                 scores[prev_bt] -= 50.0  # Trừ điểm nặng nếu đã đoán trượt ngày trước
 
-    # 4. CHỌN BẠCH THỦ VÀ SONG THỦ (CẶP LỘN CÓ ĐIỂM TỔNG CAO NHẤT)
+    # 4. CHỌN BẠCH THỦ VÀ SONG THỦ
     pair_scores = {}
     for i in range(100):
         num = str(i).zfill(2)
@@ -72,7 +74,6 @@ def analyze_and_predict(historical_data):
 
     best_pair = sorted(pair_scores.keys(), key=lambda x: pair_scores[x], reverse=True)[0]
 
-    # Phân định Bạch thủ từ cặp tối ưu
     if scores[best_pair[0]] >= scores[best_pair[1]]:
         bach_thu = best_pair[0]
     else:
@@ -134,4 +135,95 @@ def test_prediction_accuracy(historical_data, actual_numbers):
         'top_10_hits': sum(1 for x in t10 if x in actual_set),
         'actual_count': len(actual_2d),
         'actual_numbers': actual_2d
+    }
+
+
+# =========================================================
+# 2. LOGIC MỚI: DỰ ĐOÁN GIẢI ĐẶC BIỆT (ĐỀ ĐUÔI DÀN 10 SỐ)
+# =========================================================
+
+def analyze_and_predict_db(historical_data):
+    """
+    Thuật toán dự đoán Dàn 10 số có xác suất cao nhất về Giải Đặc Biệt (Đề đuôi).
+    Chỉ khai thác dữ liệu 2 số cuối của Giải Đặc Biệt (phần tử đầu tiên trong danh sách giải).
+    """
+    if not historical_data or len(historical_data) < 5:
+        return None
+
+    db_history = []
+    for row in historical_data:
+        nums = row['numbers'] if isinstance(row, dict) else row[1]
+        if nums and len(nums) > 0:
+            # Lấy 2 số cuối của Giải Đặc Biệt (G0)
+            db_num = str(nums[0])[-2:].zfill(2)
+            db_history.append(db_num)
+
+    if not db_history:
+        return None
+
+    scores = {str(i).zfill(2): 0.0 for i in range(100)}
+
+    # A. Thống kê nhịp vắng riêng của Giải Đặc Biệt (Gap Analysis)
+    last_seen = {}
+    for idx, num in enumerate(db_history):
+        if num not in last_seen:
+            last_seen[num] = idx
+
+    for i in range(100):
+        num = str(i).zfill(2)
+        gap = last_seen.get(num, 999)
+
+        if 3 <= gap <= 15:
+            scores[num] += 20.0  # Nhịp rơi trung bình rất đẹp của Đề
+        elif gap == 1 or gap == 2:
+            scores[num] += 10.0  # Đề bệt / nhịp ngắn
+        elif gap > 30:
+            scores[num] -= 50.0  # Hạ điểm đề gan dài ngày
+
+    # B. Xu hướng Chạm & Đuôi xuất hiện nhiều trong 10 ngày qua
+    recent_db = db_history[:min(10, len(db_history))]
+    head_counter = Counter([n[0] for n in recent_db])
+    tail_counter = Counter([n[1] for n in recent_db])
+
+    for i in range(100):
+        num = str(i).zfill(2)
+        h, t = num[0], num[1]
+        scores[num] += head_counter.get(h, 0) * 3.0
+        scores[num] += tail_counter.get(t, 0) * 4.0
+
+    # C. Cầu Tổng & Đảo Chạm từ ngày gần nhất
+    if len(db_history) > 0:
+        last_db = db_history[0]
+        last_sum = (int(last_db[0]) + int(last_db[1])) % 10
+        for i in range(100):
+            num = str(i).zfill(2)
+            curr_sum = (int(num[0]) + int(num[1])) % 10
+            if curr_sum == last_sum:
+                scores[num] += 5.0  # Cùng tổng đề
+            if num[1] == last_db[0]:
+                scores[num] += 8.0  # Đuôi hôm nay là Đầu hôm qua
+
+    # Lấy Top 10 số có tổng điểm cao nhất
+    top_10_db = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)[:10]
+
+    return {
+        'top_10_db': sorted(top_10_db)
+    }
+
+def test_db_accuracy(historical_data, actual_numbers):
+    """
+    Hàm test kiểm tra độ chính xác dự đoán Giải Đặc Biệt cho lệnh /testdb
+    """
+    pred = analyze_and_predict_db(historical_data)
+    if not pred or not actual_numbers:
+        return None
+
+    # Lấy 2 số cuối Giải Đặc Biệt thực tế của ngày quay đó
+    actual_db = str(actual_numbers[0])[-2:].zfill(2)
+    top_10 = pred['top_10_db']
+
+    return {
+        'predicted_10': top_10,
+        'actual_db': actual_db,
+        'is_hit': actual_db in top_10
     }

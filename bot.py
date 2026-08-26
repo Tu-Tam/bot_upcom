@@ -96,7 +96,7 @@ def send_welcome(message):
         "🤖 *BOT DỰ ĐOÁN XỔ SỐ MIỀN BẮC (XSMB)*\n\n"
         "Các câu lệnh khả dụng:\n"
         "🔹 `/dudoan` - Nhận dự đoán lô đẹp cho ngày hôm nay\n"
-        "🔹 `/dudoandb` - Dự đoán dàn 10 số Giải Đặc Biệt (Đề đuôi) ngày tiếp theo\n"
+        "🔹 `/dudoandb` - Dự đoán dàn 10, 20, 36 số Giải Đặc Biệt (Đề đuôi) ngày tiếp theo\n"
         "🔹 `/ketqua` - Xem kết quả XSMB mới nhất có trong CSDL\n"
         "🔹 `/capnhat` - Ép bot quét cập nhật kết quả hôm nay ngay lập tức\n"
         "🔹 `/thongke` hoặc `/stats` - Trạng thái kho dữ liệu hiện tại\n"
@@ -142,8 +142,8 @@ def handle_prediction(message):
 
 @bot.message_handler(commands=['dudoandb'])
 def handle_prediction_db(message):
-    """Xử lý lệnh dự đoán Dàn 10 số Giải Đặc Biệt"""
-    msg = bot.reply_to(message, "👑 Đang phân tích thuật toán Giải Đặc Biệt, vui lòng đợi giây lát...")
+    """Xử lý lệnh dự đoán Dàn 10, 20, 36 số Giải Đặc Biệt"""
+    msg = bot.reply_to(message, "👑 Đang phân tích ma trận Giải Đặc Biệt, vui lòng đợi giây lát...")
     
     today_str = datetime.now().strftime("%Y-%m-%d")
     recent = db.get_results(limit=1) if hasattr(db, 'get_results') else None
@@ -165,14 +165,18 @@ def handle_prediction_db(message):
                 bot.edit_message_text("❌ Không thể tính toán dàn ĐB.", chat_id=message.chat.id, message_id=msg.message_id)
                 return
 
-            list_str = ", ".join(pred_db['top_10_db'])
+            list_10 = ", ".join(pred_db.get('top_10_db', []))
+            list_20 = ", ".join(pred_db.get('top_20_db', []))
+            list_36 = ", ".join(pred_db.get('top_36_db', []))
+
             report = (
                 f"🔮 *DỰ ĐOÁN GIẢI ĐẶC BIỆT (ĐỀ ĐUÔI) - KỲ TỚI*\n"
                 f"📊 _(Phân tích ma trận nhịp rơi & chạm hot từ CSDL {len(results)} ngày)_\n"
                 f"------------------------------------\n"
-                f"👑 *Dàn 10 số ĐB xác suất cao nhất:*\n"
-                f"👉 🔥 `{list_str}` 🔥\n\n"
-                f"💡 *Gợi ý:* Dàn 10 số tối ưu cho việc nuôi khung 2-3 ngày."
+                f"🎯 *Dàn 10 số (Trọng tâm):*\n`{list_10}`\n\n"
+                f"🎯 *Dàn 20 số (Tối ưu):*\n`{list_20}`\n\n"
+                f"🎯 *Dàn 36 số (Bao phủ):*\n`{list_36}`\n\n"
+                f"💡 *Gợi ý:* Khuyên dùng dàn 20 hoặc 36 số để nuôi khung 2-3 ngày đạt tỷ lệ nổ cao nhất."
             )
             bot.edit_message_text(report, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
         else:
@@ -183,10 +187,10 @@ def handle_prediction_db(message):
 
 @bot.message_handler(commands=['testdb'])
 def handle_test_db_command(message):
-    """Xử lý lệnh kiểm thử xác suất trúng Giải Đặc Biệt quá khứ"""
+    """Xử lý lệnh kiểm thử xác suất trúng Giải Đặc Biệt quá khứ cho cả 3 dàn (10, 20, 36 số)"""
     text_parts = message.text.strip().split()
     if len(text_parts) <= 1:
-        bot.reply_to(message, "⚠️ Vui lòng nhập ngày theo cú pháp: `/testdb YYYY-MM-DD`\n_(Ví dụ: `/testdb 2026-08-20`)_", parse_mode="Markdown")
+        bot.reply_to(message, "⚠️ Vui lòng nhập ngày theo cú pháp: `/testdb YYYY-MM-DD`\n_(Ví dụ: `/testdb 2026-08-18`)_", parse_mode="Markdown")
         return
 
     target_date = text_parts[1].strip()
@@ -217,15 +221,26 @@ def handle_test_db_command(message):
                 bot.edit_message_text("❌ Không đủ dữ liệu lịch sử để phân tích.", chat_id=message.chat.id, message_id=msg.message_id)
                 return
 
-            status = "✅ TRÚNG" if res['is_hit'] else "❌ TRƯỢT"
-            list_str = ", ".join(res['predicted_10'])
+            # Kiểm tra trạng thái trúng/trượt cho từng dàn
+            status_10 = "✅ TRÚNG" if res.get('is_hit_10', res.get('is_hit', False)) else "❌ TRƯỢT"
+            status_20 = "✅ TRÚNG" if res.get('is_hit_20', False) else "❌ TRƯỢT"
+            status_36 = "✅ TRÚNG" if res.get('is_hit_36', False) else "❌ TRƯỢT"
+
+            list_10 = ", ".join(res.get('predicted_10', []))
+            list_20 = ", ".join(res.get('predicted_20', []))
+            list_36 = ", ".join(res.get('predicted_36', []))
 
             report = (
                 f"👑 *BÁO CÁO TEST GIẢI ĐẶC BIỆT NGÀY {target_date}*\n"
                 f"------------------------------------\n"
-                f"🎯 *Dàn 10 số dự đoán:* `{list_str}`\n"
-                f"🎰 *Kết quả ĐB thực tế:* `{res['actual_db']}`\n"
-                f"📌 *Trạng thái:* {status}\n\n"
+                f"🎯 *Dàn 10 số (Trọng tâm):* {list_10}\n"
+                f"📌 *Trạng thái 10 số:* {status_10}\n\n"
+                f"🎯 *Dàn 20 số (Tối ưu):* {list_20}\n"
+                f"📌 *Trạng thái 20 số:* {status_20}\n\n"
+                f"🎯 *Dàn 36 số (Bao phủ):* {list_36}\n"
+                f"📌 *Trạng thái 36 số:* {status_36}\n\n"
+                f"🎰 *Kết quả ĐB thực tế:* {res['actual_db']}\n"
+                f"------------------------------------\n"
                 f"📝 *Tổng số giải lô về ngày đó:* {len(actual_numbers)} đầu số.\n"
                 f"ℹ️ *Lưu ý:* Thuật toán chỉ sử dụng dữ liệu trước ngày {target_date} để phân tích."
             )

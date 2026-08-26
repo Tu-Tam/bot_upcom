@@ -1,11 +1,10 @@
 from collections import Counter, defaultdict
-import math
 
 # =========================================================
-# 1. LOGIC SOI LÔ (BẠCH THỦ, SONG THỦ, TOP 5, TOP 10) - v10.0 (GIỮ NGUYÊN)
+# 1. LOGIC SOI LÔ (BẠCH THỦ, SONG THỦ, TOP 5, TOP 10)
 # =========================================================
 
-def analyze_and_predict(historical_data, is_recursive=False):
+def analyze_and_predict(historical_data):
     """
     Thuật toán SOI LÔ v10.0: Ensemble Multi-Bridge & Adaptive Threshold Matrix
     """
@@ -56,9 +55,9 @@ def analyze_and_predict(historical_data, is_recursive=False):
         scores[bridge_num2] += 15.0
 
     # 3. CHỐNG NEO SỐ TRƯỢT
-    if not is_recursive and len(historical_data) >= 6:
+    if len(historical_data) >= 6:
         prev_data = historical_data[1:]
-        prev_pred = analyze_and_predict(prev_data, is_recursive=True)
+        prev_pred = analyze_and_predict(prev_data)
         if prev_pred:
             prev_bt = prev_pred['bach_thu']
             if prev_bt not in daily_numbers[0]:
@@ -140,17 +139,17 @@ def test_prediction_accuracy(historical_data, actual_numbers):
 
 
 # =========================================================
-# 2. LOGIC SOI ĐỀ v18.0: PURE STATISTICAL DYNAMIC MATRIX
+# 2. LOGIC ĐỀ v10.0: ADAPTIVE DYNAMIC MATRIX & EXPANDED COVERS
 # =========================================================
 
 def analyze_and_predict_db(historical_data):
     """
-    Thuật toán SOI ĐỀ v18.0:
-    - Loại bỏ điểm số cộng/trừ cảm tính.
-    - Sử dụng Tần suất Xuất hiện + Chu kỳ Nhịp vắng (Gap Analysis) chuẩn Thống kê.
-    - Lấy trực tiếp Top 36 con có xác suất cao nhất toàn bảng.
+    Thuật toán ĐỀ v10.0:
+    - Trả về Dàn 10 số (Trọng tâm)
+    - Trả về Dàn 20 số (Tối ưu)
+    - Trả về Dàn 36 số (Bao phủ an toàn)
     """
-    if not historical_data or len(historical_data) < 7:
+    if not historical_data or len(historical_data) < 5:
         return None
 
     db_history = []
@@ -163,77 +162,89 @@ def analyze_and_predict_db(historical_data):
     if not db_history:
         return None
 
-    total_days = min(len(db_history), 60)
-    recent_db = db_history[:total_days]
+    scores = {str(i).zfill(2): 0.0 for i in range(100)}
 
-    # 1. Tính Khoảng cách Nhịp vắng (Gap) của từng con đề (00-99)
-    last_seen_db = {}
-    for idx, num in enumerate(recent_db):
-        if num not in last_seen_db:
-            last_seen_db[num] = idx
+    # Lấy dữ liệu ĐB 3 ngày gần nhất
+    last_db = db_history[0]
+    h1, t1 = int(last_db[0]), int(last_db[1])
+    
+    prev_db = db_history[1] if len(db_history) > 1 else last_db
+    h2, t2 = int(prev_db[0]), int(prev_db[1])
 
-    # 2. Thống kê tần suất Đầu, Đuôi, Tổng
-    head_freq = defaultdict(int)
-    tail_freq = defaultdict(int)
-    sum_freq = defaultdict(int)
+    prev_db_2 = db_history[2] if len(db_history) > 2 else prev_db
+    h3, t3 = int(prev_db_2[0]), int(prev_db_2[1])
 
-    for num in recent_db:
-        h, t = int(num[0]), int(num[1])
-        s = (h + t) % 10
-        head_freq[h] += 1
-        tail_freq[t] += 1
-        sum_freq[s] += 1
+    # Tập hợp các Chạm Hot (Chính + Bóng Dương + Bóng Âm)
+    hot_chams = {
+        h1, t1, 
+        (h1 + 5) % 10, (t1 + 5) % 10, # Bóng Dương
+        h2, t2,
+        (h2 + 5) % 10, (t2 + 5) % 10
+    }
 
-    # 3. Tính điểm Xác suất Thống kê cho 100 con số
-    probs = {}
     for i in range(100):
         s_str = f"{i:02d}"
         h, t = int(s_str[0]), int(s_str[1])
-        s = (h + t) % 10
+        score = 0.0
 
-        gap = last_seen_db.get(s_str, 99)
+        # 1. Điểm Chạm Trọng Tâm
+        if h in hot_chams: score += 8.0
+        if t in hot_chams: score += 8.0
 
-        # Trọng số Tần suất Đầu/Đuôi/Tổng trong ngắn hạn (30 ngày)
-        h_prob = head_freq[h] / total_days
-        t_prob = tail_freq[t] / total_days
-        s_prob = sum_freq[s] / total_days
+        # 2. Cầu Chuyền / Ghép Cầu Đa Tầng
+        if h == t1: score += 12.0  # Đuôi hôm qua -> Đầu hôm nay
+        if t == h1: score += 10.0  # Đầu hôm qua -> Đuôi hôm nay
+        if h == h1: score += 7.0   # Bệt Đầu
+        if t == t1: score += 7.0   # Bệt Đuôi
 
-        # Điểm nhịp vắng đề (Nhịp rơi phong độ 2-10 ngày có tỷ lệ nổ cao nhất)
-        if 2 <= gap <= 8:
-            gap_weight = 2.5
-        elif gap == 1:
-            gap_weight = 1.2
-        elif gap == 0:  # Đề vừa về hôm qua (bệt đề nguyên con cực hiếm)
-            gap_weight = 0.1
-        elif 9 <= gap <= 15:
-            gap_weight = 1.5
-        else:  # Đề gan quá 15 ngày
-            gap_weight = 0.5
+        # 3. Cầu Bộ Đề / Bóng Số / Lộn
+        if s_str == f"{t1}{h1}": score += 15.0  # Lộn chính xác
+        if h == (h1 + 5) % 10 and t == (t1 + 5) % 10: score += 12.0 # Bóng kép
+        if h == (t1 + 5) % 10 or t == (h1 + 5) % 10: score += 8.0
 
-        # Bắt bóng & chạm chuyền từ giải đặc biệt ngày hôm qua
-        last_h, last_t = int(recent_db[0][0]), int(recent_db[0][1])
-        bridge_bonus = 1.0
-        if h == last_t or t == last_h:  # Chạm lộn
-            bridge_bonus += 0.5
-        if h == (last_h + 5) % 10 or t == (last_t + 5) % 10:  # Bóng dương
-            bridge_bonus += 0.4
+        # 4. Trọng số nhịp bệt lại từ 3 ngày gần nhất
+        if h in {h1, h2, h3} and t in {t1, t2, t3}:
+            score += 10.0
 
-        # Tổng hợp điểm xác suất
-        final_score = (h_prob * 0.35 + t_prob * 0.35 + s_prob * 0.30) * gap_weight * bridge_bonus
-        probs[s_str] = final_score
+        # Trừ điểm nhẹ nếu trùng chính xác con đề ngày gần nhất
+        if s_str == last_db:
+            score -= 10.0
 
-    # 4. Sắp xếp 100 con số theo Xác suất giảm dần
-    ranked_db = sorted(probs.keys(), key=lambda x: probs[x], reverse=True)
+        scores[s_str] = score
 
-    # 5. Lấy Dàn 10, 20, 36 thuần túy từ Top Xác suất cao nhất
-    top_10_db = sorted(ranked_db[:10])
-    top_20_db = sorted(ranked_db[:20])
-    top_36_db = sorted(ranked_db[:36])
+    # Sắp xếp danh sách theo điểm số giảm dần
+    sorted_numbers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    all_ranked = [num_str for num_str, _ in sorted_numbers]
+
+    # --- LỌC DÀN 10 SỐ TRỌNG TÂM ---
+    top_10_db = []
+    head_tracker_10 = defaultdict(int)
+
+    for num_str in all_ranked:
+        h = num_str[0]
+        if head_tracker_10[h] < 3:
+            top_10_db.append(num_str)
+            head_tracker_10[h] += 1
+        if len(top_10_db) == 10:
+            break
+
+    if len(top_10_db) < 10:
+        for num_str in all_ranked:
+            if num_str not in top_10_db:
+                top_10_db.append(num_str)
+            if len(top_10_db) == 10:
+                break
+
+    # --- LỌC DÀN 20 SỐ TỐI ƯU ---
+    top_20_db = all_ranked[:20]
+
+    # --- LỌC DÀN 36 SỐ BAO PHỦ ---
+    top_36_db = all_ranked[:36]
 
     return {
-        'top_10_db': top_10_db,
-        'top_20_db': top_20_db,
-        'top_36_db': top_36_db
+        'top_10_db': sorted(top_10_db),
+        'top_20_db': sorted(top_20_db),
+        'top_36_db': sorted(top_36_db)
     }
 
 def test_db_accuracy(historical_data, actual_numbers):
@@ -242,9 +253,9 @@ def test_db_accuracy(historical_data, actual_numbers):
         return None
 
     actual_db = str(actual_numbers[0])[-2:].zfill(2)
-    top_10 = pred.get('top_10_db', [])
-    top_20 = pred.get('top_20_db', [])
-    top_36 = pred.get('top_36_db', [])
+    top_10 = pred['top_10_db']
+    top_20 = pred['top_20_db']
+    top_36 = pred['top_36_db']
 
     return {
         'predicted_10': top_10,
@@ -254,5 +265,5 @@ def test_db_accuracy(historical_data, actual_numbers):
         'is_hit_10': actual_db in top_10,
         'is_hit_20': actual_db in top_20,
         'is_hit_36': actual_db in top_36,
-        'is_hit': actual_db in top_10
+        'is_hit': actual_db in top_10  # Giữ tương thích ngược với bot
     }

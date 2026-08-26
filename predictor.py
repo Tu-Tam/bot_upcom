@@ -1,13 +1,11 @@
 from collections import Counter, defaultdict
+from datetime import datetime, timedelta
 
 # =========================================================
-# 1. LOGIC SOI LÔ (BẠCH THỦ, SONG THỦ, TOP 5, TOP 10)
+# 1. LOGIC SOI LÔ v10.0 (GIỮ NGUYÊN)
 # =========================================================
 
-def analyze_and_predict(historical_data):
-    """
-    Thuật toán SOI LÔ v10.0: Ensemble Multi-Bridge & Adaptive Threshold Matrix
-    """
+def analyze_and_predict(historical_data, is_recursive=False):
     if not historical_data or len(historical_data) < 5:
         return None
 
@@ -21,7 +19,6 @@ def analyze_and_predict(historical_data):
 
     scores = {str(i).zfill(2): 0.0 for i in range(100)}
 
-    # 1. TÍNH NHỊP VẮNG (GAP ANALYSIS)
     last_seen = {}
     for idx, day in enumerate(daily_numbers):
         for num in day:
@@ -31,53 +28,31 @@ def analyze_and_predict(historical_data):
     for i in range(100):
         num = str(i).zfill(2)
         gap = last_seen.get(num, 999)
+        if gap in (2, 3): scores[num] += 25.0
+        elif gap == 1: scores[num] += 10.0
+        elif gap == 4: scores[num] += 6.0
+        elif gap == 0: scores[num] -= 10.0
+        elif gap > 6: scores[num] -= 999.0
 
-        if gap == 2 or gap == 3:
-            scores[num] += 25.0
-        elif gap == 1:
-            scores[num] += 10.0
-        elif gap == 4:
-            scores[num] += 6.0
-        elif gap == 0:
-            scores[num] -= 10.0
-        elif gap > 6:
-            scores[num] -= 999.0
-
-    # 2. CẦU VỊ TRÍ ĐẠI DIỆN
     if len(full_results) > 0 and len(full_results[0]) >= 2:
-        g0 = full_results[0][0]
-        g1 = full_results[0][1]
-        
-        bridge_num1 = (g0[0] + g1[-1])[-2:].zfill(2)
-        bridge_num2 = (g1[0] + g0[-1])[-2:].zfill(2)
-        
-        scores[bridge_num1] += 15.0
-        scores[bridge_num2] += 15.0
+        g0, g1 = full_results[0][0], full_results[0][1]
+        scores[(g0[0] + g1[-1])[-2:].zfill(2)] += 15.0
+        scores[(g1[0] + g0[-1])[-2:].zfill(2)] += 15.0
 
-    # 3. CHỐNG NEO SỐ TRƯỢT
-    if len(historical_data) >= 6:
-        prev_data = historical_data[1:]
-        prev_pred = analyze_and_predict(prev_data)
-        if prev_pred:
-            prev_bt = prev_pred['bach_thu']
-            if prev_bt not in daily_numbers[0]:
-                scores[prev_bt] -= 50.0
+    if not is_recursive and len(historical_data) >= 6:
+        prev_pred = analyze_and_predict(historical_data[1:], is_recursive=True)
+        if prev_pred and prev_pred['bach_thu'] not in daily_numbers[0]:
+            scores[prev_pred['bach_thu']] -= 50.0
 
-    # 4. CHỌN BẠCH THỦ VÀ SONG THỦ
     pair_scores = {}
     for i in range(100):
         num = str(i).zfill(2)
         lon = num[::-1]
         if num <= lon:
-            p_score = scores[num] if num == lon else scores[num] + scores[lon]
-            pair_scores[(num, lon)] = p_score
+            pair_scores[(num, lon)] = scores[num] if num == lon else scores[num] + scores[lon]
 
     best_pair = sorted(pair_scores.keys(), key=lambda x: pair_scores[x], reverse=True)[0]
-
-    if scores[best_pair[0]] >= scores[best_pair[1]]:
-        bach_thu = best_pair[0]
-    else:
-        bach_thu = best_pair[1]
+    bach_thu = best_pair[0] if scores[best_pair[0]] >= scores[best_pair[1]] else best_pair[1]
 
     if best_pair[0] != best_pair[1]:
         song_thu = (best_pair[0], best_pair[1])
@@ -86,184 +61,149 @@ def analyze_and_predict(historical_data):
         second = ranked_single[1] if ranked_single[0] == best_pair[0] else ranked_single[0]
         song_thu = (best_pair[0], second)
 
-    # 5. DÀN TOP 5 VÀ TOP 10 PHÂN TÁN ĐẦU SỐ
     ranked_nums = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
-
     def extract_balanced_top(candidates, limit, max_per_head):
-        result = []
-        head_tracker = defaultdict(int)
+        result, head_tracker = [], defaultdict(int)
         for n in candidates:
-            head = n[0]
-            if head_tracker[head] < max_per_head:
+            if head_tracker[n[0]] < max_per_head:
                 result.append(n)
-                head_tracker[head] += 1
-            if len(result) == limit:
-                break
+                head_tracker[n[0]] += 1
+            if len(result) == limit: break
         return result
-
-    top_5 = extract_balanced_top(ranked_nums, 5, max_per_head=1)
-    top_10 = extract_balanced_top(ranked_nums, 10, max_per_head=2)
 
     return {
         'bach_thu': bach_thu,
         'song_thu': song_thu,
-        'top_5': top_5,
-        'top_10': top_10
+        'top_5': extract_balanced_top(ranked_nums, 5, 1),
+        'top_10': extract_balanced_top(ranked_nums, 10, 2)
     }
 
 def test_prediction_accuracy(historical_data, actual_numbers):
     pred = analyze_and_predict(historical_data)
-    if not pred:
-        return None
-
+    if not pred: return None
     actual_2d = [str(n)[-2:].zfill(2) for n in actual_numbers]
     actual_set = set(actual_2d)
-
-    bt = pred['bach_thu']
-    st1, st2 = pred['song_thu']
-    t5 = pred['top_5']
-    t10 = pred['top_10']
-
     return {
-        'bach_thu': bt,
-        'bach_thu_hit': bt in actual_set,
-        'song_thu': (st1, st2),
-        'song_thu_hits': sum(1 for x in (st1, st2) if x in actual_set),
-        'top_5': t5,
-        'top_5_hits': sum(1 for x in t5 if x in actual_set),
-        'top_10': t10,
-        'top_10_hits': sum(1 for x in t10 if x in actual_set),
+        'bach_thu': pred['bach_thu'],
+        'bach_thu_hit': pred['bach_thu'] in actual_set,
+        'song_thu': pred['song_thu'],
+        'song_thu_hits': sum(1 for x in pred['song_thu'] if x in actual_set),
+        'top_5': pred['top_5'],
+        'top_5_hits': sum(1 for x in pred['top_5'] if x in actual_set),
+        'top_10': pred['top_10'],
+        'top_10_hits': sum(1 for x in pred['top_10'] if x in actual_set),
         'actual_count': len(actual_2d),
         'actual_numbers': actual_2d
     }
 
 
 # =========================================================
-# 2. LOGIC ĐỀ v10.0: ADAPTIVE DYNAMIC MATRIX & EXPANDED COVERS
+# 2. LOGIC SOI ĐỀ v19.0: DYNAMIC TOUCH & SUM MATRIX
 # =========================================================
 
 def analyze_and_predict_db(historical_data):
-    """
-    Thuật toán ĐỀ v10.0:
-    - Trả về Dàn 10 số (Trọng tâm)
-    - Trả về Dàn 20 số (Tối ưu)
-    - Trả về Dàn 36 số (Bao phủ an toàn)
-    """
-    if not historical_data or len(historical_data) < 5:
+    if not historical_data or len(historical_data) < 7:
         return None
 
     db_history = []
     for row in historical_data:
         nums = row['numbers'] if isinstance(row, dict) else row[1]
         if nums and len(nums) > 0:
-            db_num = str(nums[0])[-2:].zfill(2)
-            db_history.append(db_num)
+            db_history.append(str(nums[0])[-2:].zfill(2))
 
-    if not db_history:
-        return None
+    if not db_history: return None
 
-    scores = {str(i).zfill(2): 0.0 for i in range(100)}
+    recent_30 = db_history[:30]
 
-    # Lấy dữ liệu ĐB 3 ngày gần nhất
-    last_db = db_history[0]
-    h1, t1 = int(last_db[0]), int(last_db[1])
-    
-    prev_db = db_history[1] if len(db_history) > 1 else last_db
-    h2, t2 = int(prev_db[0]), int(prev_db[1])
+    # 1. Thống kê điểm Chạm & Tổng
+    cham_scores = defaultdict(float)
+    sum_scores = defaultdict(float)
 
-    prev_db_2 = db_history[2] if len(db_history) > 2 else prev_db
-    h3, t3 = int(prev_db_2[0]), int(prev_db_2[1])
+    for idx, num in enumerate(recent_30):
+        h, t = int(num[0]), int(num[1])
+        s = (h + t) % 10
+        weight = 1.0 / (idx + 1)**0.5  # Ưu tiên các ngày gần nhất
 
-    # Tập hợp các Chạm Hot (Chính + Bóng Dương + Bóng Âm)
-    hot_chams = {
-        h1, t1, 
-        (h1 + 5) % 10, (t1 + 5) % 10, # Bóng Dương
-        h2, t2,
-        (h2 + 5) % 10, (t2 + 5) % 10
-    }
+        cham_scores[h] += weight * 1.5
+        cham_scores[t] += weight * 1.5
+        sum_scores[s] += weight * 2.0
+
+    # Phạt nhẹ nếu chạm vừa về 2 ngày liên tiếp
+    recent_4_chams = []
+    for num in db_history[:2]:
+        recent_4_chams.extend([int(num[0]), int(num[1])])
+    for c, cnt in Counter(recent_4_chams).items():
+        if cnt >= 2:
+            cham_scores[c] *= 0.5
+
+    # Lấy Top Chạm và Top Tổng mạnh nhất
+    top_chams = [c for c, _ in sorted(cham_scores.items(), key=lambda x: x[1], reverse=True)[:5]]
+    top_sums = [s for s, _ in sorted(sum_scores.items(), key=lambda x: x[1], reverse=True)[:5]]
+
+    # 2. Chấm điểm 100 con số
+    number_scores = {}
+    last_seen_gap = {}
+    for idx, num in enumerate(recent_30):
+        if num not in last_seen_gap:
+            last_seen_gap[num] = idx
 
     for i in range(100):
         s_str = f"{i:02d}"
         h, t = int(s_str[0]), int(s_str[1])
+        s = (h + t) % 10
+
         score = 0.0
+        if h in top_chams: score += cham_scores[h]
+        if t in top_chams: score += cham_scores[t]
+        if s in top_sums: score += sum_scores[s]
 
-        # 1. Điểm Chạm Trọng Tâm
-        if h in hot_chams: score += 8.0
-        if t in hot_chams: score += 8.0
+        # Nhịp rơi nhịp vắng lý tưởng (2 - 8 ngày)
+        gap = last_seen_gap.get(s_str, 99)
+        if 2 <= gap <= 8:
+            score *= 1.4
+        elif gap == 0:
+            score *= 0.1  # Né bệt lại nguyên con
 
-        # 2. Cầu Chuyền / Ghép Cầu Đa Tầng
-        if h == t1: score += 12.0  # Đuôi hôm qua -> Đầu hôm nay
-        if t == h1: score += 10.0  # Đầu hôm qua -> Đuôi hôm nay
-        if h == h1: score += 7.0   # Bệt Đầu
-        if t == t1: score += 7.0   # Bệt Đuôi
+        number_scores[s_str] = score
 
-        # 3. Cầu Bộ Đề / Bóng Số / Lộn
-        if s_str == f"{t1}{h1}": score += 15.0  # Lộn chính xác
-        if h == (h1 + 5) % 10 and t == (t1 + 5) % 10: score += 12.0 # Bóng kép
-        if h == (t1 + 5) % 10 or t == (h1 + 5) % 10: score += 8.0
+    ranked = sorted(number_scores.keys(), key=lambda x: number_scores[x], reverse=True)
 
-        # 4. Trọng số nhịp bệt lại từ 3 ngày gần nhất
-        if h in {h1, h2, h3} and t in {t1, t2, t3}:
-            score += 10.0
+    # Dàn 36: Kết hợp ưu tiên các số thuộc Top Chạm và Top Tổng
+    set_36 = set()
+    for num_str in ranked:
+        h, t = int(num_str[0]), int(num_str[1])
+        s = (h + t) % 10
+        if (h in top_chams or t in top_chams) and s in top_sums:
+            set_36.add(num_str)
+        if len(set_36) >= 36: break
 
-        # Trừ điểm nhẹ nếu trùng chính xác con đề ngày gần nhất
-        if s_str == last_db:
-            score -= 10.0
+    # Bổ sung nếu chưa đủ 36 con
+    if len(set_36) < 36:
+        for num_str in ranked:
+            set_36.add(num_str)
+            if len(set_36) == 36: break
 
-        scores[s_str] = score
-
-    # Sắp xếp danh sách theo điểm số giảm dần
-    sorted_numbers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    all_ranked = [num_str for num_str, _ in sorted_numbers]
-
-    # --- LỌC DÀN 10 SỐ TRỌNG TÂM ---
-    top_10_db = []
-    head_tracker_10 = defaultdict(int)
-
-    for num_str in all_ranked:
-        h = num_str[0]
-        if head_tracker_10[h] < 3:
-            top_10_db.append(num_str)
-            head_tracker_10[h] += 1
-        if len(top_10_db) == 10:
-            break
-
-    if len(top_10_db) < 10:
-        for num_str in all_ranked:
-            if num_str not in top_10_db:
-                top_10_db.append(num_str)
-            if len(top_10_db) == 10:
-                break
-
-    # --- LỌC DÀN 20 SỐ TỐI ƯU ---
-    top_20_db = all_ranked[:20]
-
-    # --- LỌC DÀN 36 SỐ BAO PHỦ ---
-    top_36_db = all_ranked[:36]
+    top_36_db = sorted(list(set_36))
+    top_20_db = sorted(sorted(top_36_db, key=lambda x: number_scores[x], reverse=True)[:20])
+    top_10_db = sorted(sorted(top_20_db, key=lambda x: number_scores[x], reverse=True)[:10])
 
     return {
-        'top_10_db': sorted(top_10_db),
-        'top_20_db': sorted(top_20_db),
-        'top_36_db': sorted(top_36_db)
+        'top_10_db': top_10_db,
+        'top_20_db': top_20_db,
+        'top_36_db': top_36_db
     }
 
 def test_db_accuracy(historical_data, actual_numbers):
     pred = analyze_and_predict_db(historical_data)
-    if not pred or not actual_numbers:
-        return None
-
+    if not pred or not actual_numbers: return None
     actual_db = str(actual_numbers[0])[-2:].zfill(2)
-    top_10 = pred['top_10_db']
-    top_20 = pred['top_20_db']
-    top_36 = pred['top_36_db']
-
     return {
-        'predicted_10': top_10,
-        'predicted_20': top_20,
-        'predicted_36': top_36,
+        'predicted_10': pred['top_10_db'],
+        'predicted_20': pred['top_20_db'],
+        'predicted_36': pred['top_36_db'],
         'actual_db': actual_db,
-        'is_hit_10': actual_db in top_10,
-        'is_hit_20': actual_db in top_20,
-        'is_hit_36': actual_db in top_36,
-        'is_hit': actual_db in top_10  # Giữ tương thích ngược với bot
+        'is_hit_10': actual_db in pred['top_10_db'],
+        'is_hit_20': actual_db in pred['top_20_db'],
+        'is_hit_36': actual_db in pred['top_36_db'],
+        'is_hit': actual_db in pred['top_10_db']
     }

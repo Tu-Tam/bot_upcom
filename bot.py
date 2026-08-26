@@ -96,11 +96,13 @@ def send_welcome(message):
         "🤖 *BOT DỰ ĐOÁN XỔ SỐ MIỀN BẮC (XSMB)*\n\n"
         "Các câu lệnh khả dụng:\n"
         "🔹 `/dudoan` - Nhận dự đoán lô đẹp cho ngày hôm nay\n"
+        "🔹 `/dudoandb` - Dự đoán dàn 10 số Giải Đặc Biệt (Đề đuôi) ngày tiếp theo\n"
         "🔹 `/ketqua` - Xem kết quả XSMB mới nhất có trong CSDL\n"
         "🔹 `/capnhat` - Ép bot quét cập nhật kết quả hôm nay ngay lập tức\n"
         "🔹 `/thongke` hoặc `/stats` - Trạng thái kho dữ liệu hiện tại\n"
         "🔹 `/test` - Kiểm tra trạng thái kết nối hệ thống\n"
-        "🔹 `/test YYYY-MM-DD` - Kiểm tra tỷ lệ xác suất trúng của bot tại ngày cố định (Backtest)\n"
+        "🔹 `/test YYYY-MM-DD` - Backtest tỷ lệ trúng LÔ ngày cố định\n"
+        "🔹 `/testdb YYYY-MM-DD` - Backtest tỷ lệ trúng GIẢI ĐẶC BIỆT ngày cố định\n"
         "🔹 `/help` - Xem lại hướng dẫn này"
     )
     bot.reply_to(message, help_text, parse_mode="Markdown")
@@ -109,14 +111,12 @@ def send_welcome(message):
 def handle_prediction(message):
     msg = bot.reply_to(message, "⏳ Đang phân tích thuật toán thống kê, vui lòng đợi giây lát...")
     
-    # Kiểm tra và tự cập nhật nếu thiếu dữ liệu mới
     today_str = datetime.now().strftime("%Y-%m-%d")
     recent = db.get_results(limit=1) if hasattr(db, 'get_results') else None
     
     if not recent or (isinstance(recent, list) and len(recent) > 0 and recent[0].get('date') != today_str):
         scraper.scrape_today()
 
-    # Lấy dữ liệu phân tích 365 ngày
     if hasattr(db, 'get_full'):
         results = db.get_full(limit=365)
     elif hasattr(db, 'get_results'):
@@ -130,7 +130,6 @@ def handle_prediction(message):
         return
 
     try:
-        # Nếu predictor có hàm generate_prediction_report thì dùng, không thì tự format
         if hasattr(predictor, 'generate_prediction_report'):
             pred_text = predictor.generate_prediction_report(results)
         else:
@@ -140,6 +139,105 @@ def handle_prediction(message):
         bot.edit_message_text(pred_text, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
     except Exception as e:
         bot.edit_message_text(f"⚠️ Lỗi khi tạo bản tin dự đoán: {e}", chat_id=message.chat.id, message_id=msg.message_id)
+
+@bot.message_handler(commands=['dudoandb'])
+def handle_prediction_db(message):
+    """Xử lý lệnh dự đoán Dàn 10 số Giải Đặc Biệt"""
+    msg = bot.reply_to(message, "👑 Đang phân tích thuật toán Giải Đặc Biệt, vui lòng đợi giây lát...")
+    
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    recent = db.get_results(limit=1) if hasattr(db, 'get_results') else None
+    
+    if not recent or (isinstance(recent, list) and len(recent) > 0 and recent[0].get('date') != today_str):
+        scraper.scrape_today()
+
+    results = db.get_results(limit=365) if hasattr(db, 'get_results') else []
+
+    if not results:
+        bot.edit_message_text("⚠️ Chưa có đủ dữ liệu trong CSDL để phân tích. Hãy bấm `/capnhat` trước!", 
+                              chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
+        return
+
+    try:
+        if hasattr(predictor, 'analyze_and_predict_db'):
+            pred_db = predictor.analyze_and_predict_db(results)
+            if not pred_db:
+                bot.edit_message_text("❌ Không thể tính toán dàn ĐB.", chat_id=message.chat.id, message_id=msg.message_id)
+                return
+
+            list_str = ", ".join(pred_db['top_10_db'])
+            report = (
+                f"🔮 *DỰ ĐOÁN GIẢI ĐẶC BIỆT (ĐỀ ĐUÔI) - KỲ TỚI*\n"
+                f"📊 _(Phân tích ma trận nhịp rơi & chạm hot từ CSDL {len(results)} ngày)_\n"
+                f"------------------------------------\n"
+                f"👑 *Dàn 10 số ĐB xác suất cao nhất:*\n"
+                f"👉 🔥 `{list_str}` 🔥\n\n"
+                f"💡 *Gợi ý:* Dàn 10 số tối ưu cho việc nuôi khung 2-3 ngày."
+            )
+            bot.edit_message_text(report, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
+        else:
+            bot.edit_message_text("⚠️ File `predictor.py` chưa bổ sung hàm `analyze_and_predict_db`.", 
+                                  chat_id=message.chat.id, message_id=msg.message_id)
+    except Exception as e:
+        bot.edit_message_text(f"⚠️ Lỗi khi phân tích Giải Đặc Biệt: {e}", chat_id=message.chat.id, message_id=msg.message_id)
+
+@bot.message_handler(commands=['testdb'])
+def handle_test_db_command(message):
+    """Xử lý lệnh kiểm thử xác suất trúng Giải Đặc Biệt quá khứ"""
+    text_parts = message.text.strip().split()
+    if len(text_parts) <= 1:
+        bot.reply_to(message, "⚠️ Vui lòng nhập ngày theo cú pháp: `/testdb YYYY-MM-DD`\n_(Ví dụ: `/testdb 2026-08-20`)_", parse_mode="Markdown")
+        return
+
+    target_date = text_parts[1].strip()
+    msg = bot.reply_to(message, f"⏳ Đang chạy thuật toán kiểm tra Giải Đặc Biệt ngày `{target_date}`...", parse_mode="Markdown")
+
+    try:
+        all_data = db.get_results(limit=365) if hasattr(db, 'get_results') else []
+        
+        # 1. Dữ liệu lịch sử TRƯỚC ngày target_date
+        historical_data = [r for r in all_data if r.get('date', '') < target_date]
+        
+        # 2. Kết quả thực tế CỦA NGÀY target_date
+        actual_row = next((r for r in all_data if r.get('date', '') == target_date), None)
+
+        if not actual_row:
+            bot.edit_message_text(f"❌ Không tìm thấy dữ liệu XSMB ngày **{target_date}** trong CSDL!", 
+                                  chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
+            return
+
+        actual_numbers = actual_row.get('numbers', [])
+        if isinstance(actual_numbers, str):
+            try: actual_numbers = json.loads(actual_numbers)
+            except: actual_numbers = actual_numbers.split(',')
+
+        if hasattr(predictor, 'test_db_accuracy'):
+            res = predictor.test_db_accuracy(historical_data, actual_numbers)
+            if not res:
+                bot.edit_message_text("❌ Không đủ dữ liệu lịch sử để phân tích.", chat_id=message.chat.id, message_id=msg.message_id)
+                return
+
+            status = "✅ TRÚNG" if res['is_hit'] else "❌ TRƯỢT"
+            list_str = ", ".join(res['predicted_10'])
+
+            report = (
+                f"👑 *BÁO CÁO TEST GIẢI ĐẶC BIỆT NGÀY {target_date}*\n"
+                f"------------------------------------\n"
+                f"🎯 *Dàn 10 số dự đoán:* `{list_str}`\n"
+                f"🎰 *Kết quả ĐB thực tế:* `{res['actual_db']}`\n"
+                f"📌 *Trạng thái:* {status}\n\n"
+                f"📝 *Tổng số giải lô về ngày đó:* {len(actual_numbers)} đầu số.\n"
+                f"ℹ️ *Lưu ý:* Thuật toán chỉ sử dụng dữ liệu trước ngày {target_date} để phân tích."
+            )
+            bot.edit_message_text(report, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
+        else:
+            bot.edit_message_text("⚠️ Chưa cập nhật hàm `test_db_accuracy` trong `predictor.py`.", 
+                                  chat_id=message.chat.id, message_id=msg.message_id)
+
+    except Exception as e:
+        print(f"❌ Lỗi lệnh /testdb {target_date}: {e}", flush=True)
+        bot.edit_message_text(f"⚠️ Lỗi khi kiểm tra ĐB ngày {target_date}: `{str(e)}`", 
+                              chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
 
 @bot.message_handler(commands=['ketqua'])
 def handle_latest_result(message):
@@ -152,7 +250,6 @@ def handle_latest_result(message):
     date_str = latest.get('date', 'N/A')
     nums = latest.get('numbers', [])
     
-    # Xử lý nếu numbers lưu dưới dạng chuỗi trong DB
     if isinstance(nums, str):
         try:
             nums = json.loads(nums)
@@ -213,7 +310,6 @@ def handle_test_command(message):
         msg = bot.reply_to(message, f"⏳ Đang chạy thuật toán kiểm tra dữ liệu ngày `{target_date}`...", parse_mode="Markdown")
         
         try:
-            # Lấy toàn bộ CSDL để phân tách dữ liệu trước và đúng ngày test
             all_data = db.get_results(limit=365) if hasattr(db, 'get_results') else []
             
             # 1. Dữ liệu lịch sử TRƯỚC ngày target_date
@@ -294,7 +390,7 @@ def handle_test_command(message):
         report_text = (
             "🧪 *BÁO CÁO KIỂM TRA HỆ THỐNG*\n\n" +
             "\n".join(status_report) +
-            "\n\n💡 *Mẹo:* Bạn có thể test độ chính xác ngày bất kỳ bằng cú pháp:\n`/test YYYY-MM-DD` (Ví dụ: `/test 2026-08-20`)"
+            "\n\n💡 *Mẹo:* Bạn có thể test độ chính xác ngày bất kỳ bằng cú pháp:\n`/test YYYY-MM-DD` hoặc `/testdb YYYY-MM-DD`"
         )
         bot.edit_message_text(report_text, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
 

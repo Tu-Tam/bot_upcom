@@ -1,7 +1,7 @@
 from collections import Counter, defaultdict
 
 # =========================================================
-# 1. LOGIC SOI LÔ (BẠCH THỦ, SONG THỦ, TOP 5, TOP 10) - v10.0
+# 1. LOGIC SOI LÔ (BẠCH THỦ, SONG THỦ, TOP 5, TOP 10) - v10.0 (GIỮ NGUYÊN)
 # =========================================================
 
 def analyze_and_predict(historical_data, is_recursive=False):
@@ -54,7 +54,7 @@ def analyze_and_predict(historical_data, is_recursive=False):
         scores[bridge_num1] += 15.0
         scores[bridge_num2] += 15.0
 
-    # 3. CHỐNG NEO SỐ TRƯỢT (Dùng cờ is_recursive để tránh đệ quy vô hạn)
+    # 3. CHỐNG NEO SỐ TRƯỢT (Tránh đệ quy vô hạn bằng is_recursive)
     if not is_recursive and len(historical_data) >= 6:
         prev_data = historical_data[1:]
         prev_pred = analyze_and_predict(prev_data, is_recursive=True)
@@ -139,15 +139,15 @@ def test_prediction_accuracy(historical_data, actual_numbers):
 
 
 # =========================================================
-# 2. LOGIC SOI ĐỀ v12.0: MULTI-LAYER MATRIX & DYNAMIC FILTER
+# 2. LOGIC SOI ĐỀ v12.1: DYNAMIC ADAPTIVE MATRIX & ANTI-OVERFIT
 # =========================================================
 
 def analyze_and_predict_db(historical_data):
     """
-    Thuật toán SOI ĐỀ v12.0:
-    - Bảng chấm điểm đa nhân tố: Tần suất Đầu/Đuôi/Tổng + Bóng Âm Dương + Ghép Cầu Đa Tầng
-    - Khống chế Lô Gan Đề (>60 ngày chưa ra)
-    - Phân bổ thông minh cho Dàn 10, 20, 36 số
+    Thuật toán SOI ĐỀ v12.1:
+    - Cập nhật cơ chế Dynamic Weighting chống trượt chuỗi do 'ngộ độc chạm'
+    - Tự động hạ trọng số nếu bệt chạm > 3 lần trong 3 ngày
+    - Cân bằng lại cầu chuyền, bóng âm dương và rút dàn trực tiếp theo thực tế
     """
     if not historical_data or len(historical_data) < 5:
         return None
@@ -164,7 +164,7 @@ def analyze_and_predict_db(historical_data):
 
     scores = {str(i).zfill(2): 0.0 for i in range(100)}
 
-    # Dữ liệu ĐB 3 ngày gần nhất
+    # Dữ liệu ĐB 4 ngày gần nhất
     last_db = db_history[0]
     h1, t1 = int(last_db[0]), int(last_db[1])
     
@@ -174,7 +174,10 @@ def analyze_and_predict_db(historical_data):
     prev_db_2 = db_history[2] if len(db_history) > 2 else prev_db
     h3, t3 = int(prev_db_2[0]), int(prev_db_2[1])
 
-    # 1. Thống kê tần suất Đầu/Đuôi/Tổng trong 30 & 60 ngày gần nhất
+    prev_db_3 = db_history[3] if len(db_history) > 3 else prev_db_2
+    h4, t4 = int(prev_db_3[0]), int(prev_db_3[1])
+
+    # 1. Thống kê tần suất Đầu/Đuôi/Tổng
     recent_30 = db_history[:30]
     recent_60 = db_history[:60] if len(db_history) >= 60 else db_history
 
@@ -189,55 +192,56 @@ def analyze_and_predict_db(historical_data):
         tail_counts[t] += 1
         sum_counts[s] += 1
 
-    # 2. Tập hợp các Chạm Hot v12.0 (Chính + Bóng Dương + Bóng Âm)
+    # Kiểm tra nhịp bệt chạm trong 3 ngày gần nhất để phạt Overfit
+    recent_chams = [h1, t1, h2, t2, h3, t3]
+    cham_counter = Counter(recent_chams)
+
+    # 2. Tập hợp Chạm Hot linh hoạt (Chính + Bóng Dương + Bóng Âm)
     hot_chams = {
         h1, t1, 
         (h1 + 5) % 10, (t1 + 5) % 10,  # Bóng Dương
         (h1 + 7) % 10, (t1 + 7) % 10,  # Bóng Âm
-        h2, t2,
-        (h2 + 5) % 10, (t2 + 5) % 10
+        h2, t2
     }
 
-    # 3. Ma trận chấm điểm đa tầng v12.0 cho từng số từ 00 đến 99
+    # 3. Ma trận chấm điểm đa tầng v12.1
     for i in range(100):
         s_str = f"{i:02d}"
         h, t = int(s_str[0]), int(s_str[1])
         s = (h + t) % 10
         score = 0.0
 
-        # a. Tần suất xuất hiện gần đây
-        score += (head_counts[h] * 1.8) + (tail_counts[t] * 1.8) + (sum_counts[s] * 1.2)
+        # a. Tần suất xuất hiện chuẩn hóa
+        score += (head_counts[h] * 1.2) + (tail_counts[t] * 1.2) + (sum_counts[s] * 1.0)
 
-        # b. Điểm Chạm Trọng Tâm & Bóng Số
-        if h in hot_chams: score += 6.0
-        if t in hot_chams: score += 6.0
+        # b. Điểm Chạm Trọng Tâm (Cân bằng lại còn 3.5 điểm để tránh thiên vị quá đà)
+        if h in hot_chams: score += 3.5
+        if t in hot_chams: score += 3.5
 
         # c. Cầu Chuyền / Ghép Cầu Đa Tầng
-        if h == t1: score += 10.0  # Đuôi hôm qua -> Đầu hôm nay
-        if t == h1: score += 8.0   # Đầu hôm qua -> Đuôi hôm nay
-        if h == h1: score += 5.0   # Bệt Đầu
-        if t == t1: score += 5.0   # Bệt Đuôi
+        if h == t1: score += 8.0   # Đuôi hôm qua -> Đầu hôm nay
+        if t == h1: score += 7.0   # Đầu hôm qua -> Đuôi hôm nay
+        if h == h2: score += 5.0   # Cầu cách ngày Đầu
+        if t == t2: score += 5.0   # Cầu cách ngày Đuôi
 
-        # d. Cầu Bộ Đề / Bóng Số / Lộn
-        if s_str == f"{t1}{h1}": score += 12.0  # Lộn chính xác
-        if h == (h1 + 5) % 10 and t == (t1 + 5) % 10: score += 10.0 # Bóng kép
-        if h == (t1 + 5) % 10 or t == (h1 + 5) % 10: score += 6.0
+        # d. Cầu Bộ Đề / Bóng Kép / Lộn
+        if s_str == f"{t1}{h1}": score += 9.0
+        if h == (h1 + 5) % 10 and t == (t1 + 5) % 10: score += 8.0 # Bóng kép
+        if h == (t1 + 5) % 10 or t == (h1 + 5) % 10: score += 4.5
 
-        # e. Trọng số nhịp bệt từ 3 ngày gần nhất
-        if h in {h1, h2, h3} and t in {t1, t2, t3}:
-            score += 8.0
+        # e. Cơ chế Phạt Bệt Quá Tải (Nếu chạm đã ra > 3 lần trong 3 ngày qua)
+        if cham_counter[h] >= 3: score -= 4.0
+        if cham_counter[t] >= 3: score -= 4.0
 
-        # f. Thưởng điểm Kép
-        if h == t: score += 2.0
-        elif abs(h - t) == 5: score += 1.5
+        # f. Thưởng điểm Kép / Sát kép
+        if h == t: score += 3.0
+        elif abs(h - t) == 1 or abs(h - t) == 9: score += 2.0
 
-        # g. Trừ điểm nhẹ nếu trùng chính xác con đề vừa ra ngày hôm qua
-        if s_str == last_db:
-            score -= 10.0
+        # g. Trừ điểm con đề vừa ra ngày hôm qua
+        if s_str == last_db: score -= 12.0
 
-        # h. Khống chế Đề Gan (>60 ngày chưa ra)
-        if s_str not in recent_60:
-            score -= 4.0
+        # h. Trừ điểm Đề Gan (>60 ngày)
+        if s_str not in recent_60: score -= 5.0
 
         scores[s_str] = score
 
@@ -245,29 +249,9 @@ def analyze_and_predict_db(historical_data):
     sorted_numbers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     all_ranked = [num_str for num_str, _ in sorted_numbers]
 
-    # --- LỌC DÀN 10 SỐ TRỌNG TÂM (Đảm bảo phân tán đầu số hợp lý) ---
-    top_10_db = []
-    head_tracker_10 = defaultdict(int)
-
-    for num_str in all_ranked:
-        h = num_str[0]
-        if head_tracker_10[h] < 3:
-            top_10_db.append(num_str)
-            head_tracker_10[h] += 1
-        if len(top_10_db) == 10:
-            break
-
-    if len(top_10_db) < 10:
-        for num_str in all_ranked:
-            if num_str not in top_10_db:
-                top_10_db.append(num_str)
-            if len(top_10_db) == 10:
-                break
-
-    # --- LỌC DÀN 20 SỐ TỐI ƯU ---
+    # Rút gọn dàn trực tiếp theo xếp hạng điểm số tối ưu
+    top_10_db = all_ranked[:10]
     top_20_db = all_ranked[:20]
-
-    # --- LỌC DÀN 36 SỐ BAO PHỦ ---
     top_36_db = all_ranked[:36]
 
     return {

@@ -139,113 +139,89 @@ def test_prediction_accuracy(historical_data, actual_numbers):
 
 
 # =========================================================
-# 2. LOGIC V7.0: THUẬT TOÁN MA TRẬN TƯƠNG QUAN 4 LỚP CHO GIẢI ĐẶC BIỆT
+# 2. LOGIC V8.0: SOI ĐỀ TỪ LÔ CỰC TẦN VÀ CẦU GHÉP VỊ TRÍ G0-G1
 # =========================================================
 
 def analyze_and_predict_db(historical_data):
     """
-    Thuật toán v7.0: Bắt Dàn Đề 10 số Tối Ưu Tỷ Lệ Trúng bằng Ma Trận 4 Lớp & Phân Bổ Cân Bằng Bóng-Chạm
+    Thuật toán v8.0: Dự đoán Giải Đặc Biệt dựa trên Lô Cực Tần & Cầu Vị Trí
     """
     if not historical_data or len(historical_data) < 5:
         return None
 
-    db_history = []
-    for row in historical_data:
-        nums = row['numbers'] if isinstance(row, dict) else row[1]
-        if nums and len(nums) > 0:
-            db_num = str(nums[0])[-2:].zfill(2)
-            db_history.append(db_num)
-
-    if not db_history:
+    # Lấy dữ liệu giải đặc biệt và toàn bộ kết quả lô ngày gần nhất
+    latest_row = historical_data[0]
+    nums = latest_row['numbers'] if isinstance(latest_row, dict) else latest_row[1]
+    
+    if not nums:
         return None
+
+    full_nums = [str(n).zfill(2) for n in nums]
+    last_db = full_nums[0][-2:].zfill(2)
+    last_g1 = full_nums[1][-2:].zfill(2) if len(full_nums) > 1 else "00"
+
+    # Thống kê Đầu/Đuôi xuất hiện nhiều nhất trong 27 giải ngày hôm qua
+    head_counter = Counter()
+    tail_counter = Counter()
+    for num in full_nums:
+        2d = num[-2:].zfill(2)
+        head_counter[2d[0]] += 1
+        tail_counter[2d[1]] += 1
+
+    top_heads = [h for h, _ in head_counter.most_common(3)]
+    top_tails = [t for t, _ in tail_counter.most_common(3)]
 
     scores = {str(i).zfill(2): 0.0 for i in range(100)}
 
-    # Lấy thông tin 3 kỳ ĐB gần nhất
-    last_db = db_history[0]
-    last_h, last_t = int(last_db[0]), int(last_db[1])
-    last_sum = (last_h + last_t) % 10
+    # 1. CẦU VỊ TRÍ CỐ ĐỊNH (GĐB & GIẢI NHẤT)
+    # Ghép Đầu GĐB + Đuôi GĐB / Đuôi G1
+    bridge_1 = (last_db[0] + last_g1[-1]).zfill(2)
+    bridge_2 = (last_g1[0] + last_db[-1]).zfill(2)
+    bridge_3 = (last_db[1] + last_db[0]).zfill(2) # Số lộn ĐB
+    
+    scores[bridge_1] += 20.0
+    scores[bridge_2] += 20.0
+    scores[bridge_3] += 15.0
 
-    prev_db = db_history[1] if len(db_history) > 1 else last_db
-    prev_h, prev_t = int(prev_db[0]), int(prev_db[1])
-
-    # 1. Thống kê tần suất Chạm trong 10 kỳ gần nhất
-    recent_10 = db_history[:min(10, len(db_history))]
-    cham_counts = Counter()
-    for num in recent_10:
-        cham_counts[int(num[0])] += 1
-        cham_counts[int(num[1])] += 1
-
-    top_chams = [c[0] for c in cham_counts.most_common(3)]
-
-    # 2. Tạo tập các Chạm Tiềm Năng (Chạm gốc + Chạm Bóng Dương + Chạm Chuyền)
-    target_chams = set()
-    target_chams.add(last_h)
-    target_chams.add(last_t)
-    target_chams.add((last_h + 5) % 10)  # Bóng Dương Đầu
-    target_chams.add((last_t + 5) % 10)  # Bóng Dương Đuôi
-    target_chams.add(prev_t)
-
-    # Chấm điểm ma trận 100 số
+    # 2. TÍNH ĐIỂM THEO LÔ CỰC TẦN
     for i in range(100):
         s_str = f"{i:02d}"
-        h, t = int(s_str[0]), int(s_str[1])
-        s_sum = (h + t) % 10
+        h, t = s_str[0], s_str[1]
 
-        score = 0.0
+        if h in top_heads: scores[s_str] += 8.0
+        if t in top_tails: scores[s_str] += 8.0
 
-        # Điểm Chạm Mục Tiêu (Gốc & Bóng)
-        if h in target_chams: score += 6.0
-        if t in target_chams: score += 6.0
+        # Cầu Chuyền Đuôi ĐB hôm qua sang Đầu/Đuôi hôm nay
+        if h == last_db[1]: scores[s_str] += 10.0
+        if t == last_db[1]: scores[s_str] += 7.0
 
-        # Cầu Chuyền Trực Tiếp (Đuôi hôm trước về Đầu/Đuôi hôm nay)
-        if h == last_t: score += 8.0
-        if t == last_h: score += 7.0
+        # Cầu Bóng Dương Đuôi ĐB
+        bong_tail = str((int(last_db[1]) + 5) % 10)
+        if t == bong_tail or h == bong_tail:
+            scores[s_str] += 6.0
 
-        # Cầu Cặp Số Đồng Dạng / Lộn Của ĐB Gần Nhất
-        if s_str == f"{last_t}{last_h}": score += 10.0  # Số lộn
-        if h == (last_h + 5) % 10 and t == (last_t + 5) % 10: score += 8.0 # Bóng toàn phần
-
-        # Điểm Tần Suất Chạm Hot
-        if h in top_chams: score += 3.0
-        if t in top_chams: score += 3.0
-
-        # Điểm Cầu Tổng (Cùng Tổng hoặc Tổng Bóng)
-        if s_sum == last_sum: score += 5.0
-        elif s_sum == (last_sum + 5) % 10: score += 4.0
-
-        # Trừ điểm số đã ra hôm qua để tránh trúng lặp chính xác
+        # Phạt chính con đề vừa ra hôm qua
         if s_str == last_db:
-            score -= 30.0
+            scores[s_str] -= 40.0
 
-        scores[s_str] = score
-
-    # 3. BỘ LỌC PHÂN TÁN THÔNG MINH (Tối đa 2 số/Đầu, Tối đa 2 số/Đuôi, Tối đa 3 số/Chạm)
+    # 3. CHỌN TOP 10 PHÂN TÁN (Mỗi Đầu max 2 số)
     sorted_numbers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
     top_10_db = []
     head_tracker = defaultdict(int)
-    tail_tracker = defaultdict(int)
 
     for num_str, score in sorted_numbers:
-        h, t = num_str[0], num_str[1]
-        
-        # Chỉ nhận nếu chưa vượt quá giới hạn phân tán
-        if head_tracker[h] < 2 and tail_tracker[t] < 2:
+        h = num_str[0]
+        if head_tracker[h] < 2:
             top_10_db.append(num_str)
             head_tracker[h] += 1
-            tail_tracker[t] += 1
-
         if len(top_10_db) == 10:
             break
 
-    # Nếu quy tắc phân tán quá ngặt chưa đủ 10 con, thả lỏng điều kiện Đuôi
     if len(top_10_db) < 10:
         for num_str, score in sorted_numbers:
-            h = num_str[0]
-            if num_str not in top_10_db and head_tracker[h] < 3:
+            if num_str not in top_10_db:
                 top_10_db.append(num_str)
-                head_tracker[h] += 1
             if len(top_10_db) == 10:
                 break
 

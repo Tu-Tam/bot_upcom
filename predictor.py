@@ -253,9 +253,9 @@ def test_db_accuracy(historical_data, actual_numbers):
         return None
 
     actual_db = str(actual_numbers[0])[-2:].zfill(2)
-    top_10 = pred['top_10_db']
-    top_20 = pred['top_20_db']
-    top_36 = pred['top_36_db']
+    top_10 = pred.get('top_10_db', [])
+    top_20 = pred.get('top_20_db', [])
+    top_36 = pred.get('top_36_db', [])
 
     return {
         'predicted_10': top_10,

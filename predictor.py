@@ -139,12 +139,12 @@ def test_prediction_accuracy(historical_data, actual_numbers):
 
 
 # =========================================================
-# 2. LOGIC NÂNG CẤP: DỰ ĐOÁN GIẢI ĐẶC BIỆT (ĐỀ ĐUÔI DÀN 10 SỐ)
+# 2. LOGIC NÂNG CẤP V4.0: DỰ ĐOÁN GIẢI ĐẶC BIỆT (ĐỀ ĐUÔI DÀN 10 SỐ)
 # =========================================================
 
 def analyze_and_predict_db(historical_data):
     """
-    Thuật toán v3.0: Dự đoán Đề đuôi dựa trên Tương quan Chạm Hot + Cầu Tổng/Bóng + Phân tán Đầu/Đuôi.
+    Thuật toán v4.0: Bắt Đề đuôi tối ưu theo Chạm Chuyền, Cầu Bóng Kép & Ma Trận Phân Tán
     """
     if not historical_data or len(historical_data) < 5:
         return None
@@ -161,19 +161,19 @@ def analyze_and_predict_db(historical_data):
 
     scores = {str(i).zfill(2): 0.0 for i in range(100)}
 
-    # 1. Thống kê tần suất Chạm (0-9) trong 10 kỳ gần nhất
+    # 1. Thống kê Chạm Hot trong 10 ngày gần nhất
     recent_10 = db_history[:min(10, len(db_history))]
     cham_counts = Counter()
     for num in recent_10:
         cham_counts[int(num[0])] += 1
         cham_counts[int(num[1])] += 1
 
-    top_cham = [c[0] for c in cham_counts.most_common(3)]
-
-    # 2. Phân tích ĐB ngày gần nhất
+    # 2. Lấy thông tin ĐB ngày gần nhất (Dữ liệu quan trọng nhất để bắt Chạm Chuyền)
     last_db = db_history[0]
     last_h, last_t = int(last_db[0]), int(last_db[1])
     last_sum = (last_h + last_t) % 10
+    last_bong_h = (last_h + 5) % 10
+    last_bong_t = (last_t + 5) % 10
 
     # Chấm điểm toàn bộ 100 số
     for i in range(100):
@@ -183,29 +183,33 @@ def analyze_and_predict_db(historical_data):
 
         score = 0.0
 
-        # Trọng số Chạm hot
-        if h in top_cham: score += 5.0
-        if t in top_cham: score += 5.0
+        # Trọng số Chạm Xu Hướng (Thống kê)
+        score += cham_counts[h] * 2.0
+        score += cham_counts[t] * 2.5
 
-        # Cầu Bóng & Cầu Chuyền (Đầu sang Đuôi / Đuôi sang Đầu)
-        if h == last_t or t == last_h:
-            score += 7.0
-        if h == (last_t + 5) % 10 or t == (last_h + 5) % 10:
-            score += 4.0
+        # CẦU TẠO ĐỘT PHÁ: CHẠM CHUYỀN & BỆT
+        # - Đuôi hôm qua biến thành Đầu/Đuôi hôm nay
+        if h == last_t: score += 9.0
+        if t == last_t: score += 7.0
+        # - Đầu hôm qua biến thành Đầu/Đuôi hôm nay
+        if h == last_h: score += 6.0
+        if t == last_h: score += 5.0
 
-        # Cầu Tổng & Tổng Bóng
-        if s_sum == last_sum:
-            score += 6.0
-        elif s_sum == (last_sum + 5) % 10:
-            score += 4.0
+        # CẦU BÓNG DƯƠNG (Cộng 5)
+        if h == last_bong_t or t == last_bong_t: score += 5.0
+        if h == last_bong_h or t == last_bong_h: score += 4.0
 
-        # Phạt nặng các số vừa về trong 4 ngày vừa qua (Tránh bệt quá ngắn)
-        if s_str in db_history[:4]:
-            score -= 25.0
+        # CẦU TỔNG (Cùng tổng hoặc tổng bóng)
+        if s_sum == last_sum: score += 6.0
+        elif s_sum == (last_sum + 5) % 10: score += 4.0
+
+        # Hạ phạt xuống còn -15.0 để cho phép bắt lại các số có nhịp bệt lại đẹp
+        if s_str in db_history[:3]:
+            score -= 15.0
 
         scores[s_str] = score
 
-    # 3. Lọc Top 10 với bộ lọc phân tán đa dạng (Tối đa 2 số/Đầu và 2 số/Đuôi)
+    # 3. Lọc Top 10 số ưu tiên phủ đều ma trận (Max 2 số/Đầu, Max 2 số/Đuôi)
     sorted_numbers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
     top_10_db = []
@@ -221,7 +225,7 @@ def analyze_and_predict_db(historical_data):
         if len(top_10_db) == 10:
             break
 
-    # Bù thêm số nếu chưa đủ 10 con
+    # Nếu lọc ngặt chưa đủ 10 con thì bổ sung số có điểm cao tiếp theo
     if len(top_10_db) < 10:
         for num_str, score in sorted_numbers:
             if num_str not in top_10_db:

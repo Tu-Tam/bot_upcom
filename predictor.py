@@ -1,7 +1,7 @@
 from collections import Counter, defaultdict
 
 # =========================================================
-# 1. LOGIC SOI LÔ (BẠCH THỦ, SONG THỦ, TOP 5, TOP 10) - GIỮ NGUYÊN
+# 1. LOGIC SOI LÔ (BẠCH THỦ, SONG THỦ, TOP 5, TOP 10)
 # =========================================================
 
 def analyze_and_predict(historical_data):
@@ -33,20 +33,20 @@ def analyze_and_predict(historical_data):
         gap = last_seen.get(num, 999)
 
         if gap == 2 or gap == 3:
-            scores[num] += 25.0  # Điểm nhịp vàng
+            scores[num] += 25.0
         elif gap == 1:
-            scores[num] += 10.0  # Lô rơi nhịp nhẹ
+            scores[num] += 10.0
         elif gap == 4:
             scores[num] += 6.0
         elif gap == 0:
-            scores[num] -= 10.0  # Vừa về hôm qua, hạ ưu tiên
+            scores[num] -= 10.0
         elif gap > 6:
-            scores[num] -= 999.0 # LÔ GAN - KHÓA TẬN GỐC
+            scores[num] -= 999.0
 
-    # 2. CẦU VỊ TRÍ ĐẠI DIỆN (BRIDGE MATCHING)
+    # 2. CẦU VỊ TRÍ ĐẠI DIỆN
     if len(full_results) > 0 and len(full_results[0]) >= 2:
-        g0 = full_results[0][0] # Giải Đặc biệt
-        g1 = full_results[0][1] # Giải Nhất
+        g0 = full_results[0][0]
+        g1 = full_results[0][1]
         
         bridge_num1 = (g0[0] + g1[-1])[-2:].zfill(2)
         bridge_num2 = (g1[0] + g0[-1])[-2:].zfill(2)
@@ -54,14 +54,14 @@ def analyze_and_predict(historical_data):
         scores[bridge_num1] += 15.0
         scores[bridge_num2] += 15.0
 
-    # 3. CHỐNG NEO SỐ TRƯỢT (ANTI-REPEAT LOGIC)
+    # 3. CHỐNG NEO SỐ TRƯỢT
     if len(historical_data) >= 6:
         prev_data = historical_data[1:]
         prev_pred = analyze_and_predict(prev_data)
         if prev_pred:
             prev_bt = prev_pred['bach_thu']
             if prev_bt not in daily_numbers[0]:
-                scores[prev_bt] -= 50.0  # Trừ điểm nặng nếu đã đoán trượt ngày trước
+                scores[prev_bt] -= 50.0
 
     # 4. CHỌN BẠCH THỦ VÀ SONG THỦ
     pair_scores = {}
@@ -139,17 +139,16 @@ def test_prediction_accuracy(historical_data, actual_numbers):
 
 
 # =========================================================
-# 2. LOGIC V8.0: SOI ĐỀ TỪ LÔ CỰC TẦN VÀ CẦU GHÉP VỊ TRÍ G0-G1
+# 2. LOGIC V8.1 (FIXED): GIẢI ĐẶC BIỆT LÔ CỰC TẦN & CẦU VỊ TRÍ G0-G1
 # =========================================================
 
 def analyze_and_predict_db(historical_data):
     """
-    Thuật toán v8.0: Dự đoán Giải Đặc Biệt dựa trên Lô Cực Tần & Cầu Vị Trí
+    Thuật toán v8.1: Dự đoán Giải Đặc Biệt chuẩn định dạng Python, sửa lỗi cú pháp biến tên
     """
     if not historical_data or len(historical_data) < 5:
         return None
 
-    # Lấy dữ liệu giải đặc biệt và toàn bộ kết quả lô ngày gần nhất
     latest_row = historical_data[0]
     nums = latest_row['numbers'] if isinstance(latest_row, dict) else latest_row[1]
     
@@ -160,30 +159,27 @@ def analyze_and_predict_db(historical_data):
     last_db = full_nums[0][-2:].zfill(2)
     last_g1 = full_nums[1][-2:].zfill(2) if len(full_nums) > 1 else "00"
 
-    # Thống kê Đầu/Đuôi xuất hiện nhiều nhất trong 27 giải ngày hôm qua
     head_counter = Counter()
     tail_counter = Counter()
     for num in full_nums:
-        2d = num[-2:].zfill(2)
-        head_counter[2d[0]] += 1
-        tail_counter[2d[1]] += 1
+        two_d = num[-2:].zfill(2)  # Sửa lại tên biến ở đây
+        head_counter[two_d[0]] += 1
+        tail_counter[two_d[1]] += 1
 
     top_heads = [h for h, _ in head_counter.most_common(3)]
     top_tails = [t for t, _ in tail_counter.most_common(3)]
 
     scores = {str(i).zfill(2): 0.0 for i in range(100)}
 
-    # 1. CẦU VỊ TRÍ CỐ ĐỊNH (GĐB & GIẢI NHẤT)
-    # Ghép Đầu GĐB + Đuôi GĐB / Đuôi G1
+    # Cầu vị trí cố định
     bridge_1 = (last_db[0] + last_g1[-1]).zfill(2)
     bridge_2 = (last_g1[0] + last_db[-1]).zfill(2)
-    bridge_3 = (last_db[1] + last_db[0]).zfill(2) # Số lộn ĐB
+    bridge_3 = (last_db[1] + last_db[0]).zfill(2)
     
     scores[bridge_1] += 20.0
     scores[bridge_2] += 20.0
     scores[bridge_3] += 15.0
 
-    # 2. TÍNH ĐIỂM THEO LÔ CỰC TẦN
     for i in range(100):
         s_str = f"{i:02d}"
         h, t = s_str[0], s_str[1]
@@ -191,20 +187,16 @@ def analyze_and_predict_db(historical_data):
         if h in top_heads: scores[s_str] += 8.0
         if t in top_tails: scores[s_str] += 8.0
 
-        # Cầu Chuyền Đuôi ĐB hôm qua sang Đầu/Đuôi hôm nay
         if h == last_db[1]: scores[s_str] += 10.0
         if t == last_db[1]: scores[s_str] += 7.0
 
-        # Cầu Bóng Dương Đuôi ĐB
         bong_tail = str((int(last_db[1]) + 5) % 10)
         if t == bong_tail or h == bong_tail:
             scores[s_str] += 6.0
 
-        # Phạt chính con đề vừa ra hôm qua
         if s_str == last_db:
             scores[s_str] -= 40.0
 
-    # 3. CHỌN TOP 10 PHÂN TÁN (Mỗi Đầu max 2 số)
     sorted_numbers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
     top_10_db = []
@@ -230,9 +222,6 @@ def analyze_and_predict_db(historical_data):
     }
 
 def test_db_accuracy(historical_data, actual_numbers):
-    """
-    Hàm test kiểm tra độ chính xác dự đoán Giải Đặc Biệt cho lệnh /testdb
-    """
     pred = analyze_and_predict_db(historical_data)
     if not pred or not actual_numbers:
         return None

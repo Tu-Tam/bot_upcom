@@ -1,7 +1,7 @@
 from collections import Counter, defaultdict
 
 # =========================================================
-# 1. LOGIC SOI LÔ (BẠCH THỦ, SONG THỦ, TOP 5, TOP 10)
+# 1. LOGIC SOI LÔ (BẠCH THỦ, SONG THỦ, TOP 5, TOP 10) - GIỮ NGUYÊN
 # =========================================================
 
 def analyze_and_predict(historical_data):
@@ -139,64 +139,68 @@ def test_prediction_accuracy(historical_data, actual_numbers):
 
 
 # =========================================================
-# 2. LOGIC V8.1 (FIXED): GIẢI ĐẶC BIỆT LÔ CỰC TẦN & CẦU VỊ TRÍ G0-G1
+# 2. LOGIC V9.0: BẮT ĐỀ ĐUÔI DÀN 10 SỐ MA TRẬN BÓNG & BỘ ĐỀ ĐA TẦNG
 # =========================================================
 
 def analyze_and_predict_db(historical_data):
     """
-    Thuật toán v8.1: Dự đoán Giải Đặc Biệt chuẩn định dạng Python, sửa lỗi cú pháp biến tên
+    Thuật toán v9.0: Ma Trận Bắt Toàn Diện Cầu Bóng & Chạm Chuyền Đa Tầng
     """
     if not historical_data or len(historical_data) < 5:
         return None
 
-    latest_row = historical_data[0]
-    nums = latest_row['numbers'] if isinstance(latest_row, dict) else latest_row[1]
-    
-    if not nums:
+    db_history = []
+    for row in historical_data:
+        nums = row['numbers'] if isinstance(row, dict) else row[1]
+        if nums and len(nums) > 0:
+            db_num = str(nums[0])[-2:].zfill(2)
+            db_history.append(db_num)
+
+    if not db_history:
         return None
-
-    full_nums = [str(n).zfill(2) for n in nums]
-    last_db = full_nums[0][-2:].zfill(2)
-    last_g1 = full_nums[1][-2:].zfill(2) if len(full_nums) > 1 else "00"
-
-    head_counter = Counter()
-    tail_counter = Counter()
-    for num in full_nums:
-        two_d = num[-2:].zfill(2)  # Sửa lại tên biến ở đây
-        head_counter[two_d[0]] += 1
-        tail_counter[two_d[1]] += 1
-
-    top_heads = [h for h, _ in head_counter.most_common(3)]
-    top_tails = [t for t, _ in tail_counter.most_common(3)]
 
     scores = {str(i).zfill(2): 0.0 for i in range(100)}
 
-    # Cầu vị trí cố định
-    bridge_1 = (last_db[0] + last_g1[-1]).zfill(2)
-    bridge_2 = (last_g1[0] + last_db[-1]).zfill(2)
-    bridge_3 = (last_db[1] + last_db[0]).zfill(2)
+    # Phân tích 3 ngày gần nhất
+    last_db = db_history[0]
+    h1, t1 = int(last_db[0]), int(last_db[1])
     
-    scores[bridge_1] += 20.0
-    scores[bridge_2] += 20.0
-    scores[bridge_3] += 15.0
+    prev_db = db_history[1] if len(db_history) > 1 else last_db
+    h2, t2 = int(prev_db[0]), int(prev_db[1])
+
+    # Xác định các Chạm Trọng Tâm (Gốc + Bóng Dương + Bóng Âm)
+    hot_chams = {
+        h1, t1, 
+        (h1 + 5) % 10, (t1 + 5) % 10, # Bóng Dương
+        h2, t2
+    }
 
     for i in range(100):
         s_str = f"{i:02d}"
-        h, t = s_str[0], s_str[1]
+        h, t = int(s_str[0]), int(s_str[1])
+        score = 0.0
 
-        if h in top_heads: scores[s_str] += 8.0
-        if t in top_tails: scores[s_str] += 8.0
+        # 1. Điểm Chạm Trọng Tâm
+        if h in hot_chams: score += 7.0
+        if t in hot_chams: score += 7.0
 
-        if h == last_db[1]: scores[s_str] += 10.0
-        if t == last_db[1]: scores[s_str] += 7.0
+        # 2. Cầu Chuyền Nối Đuôi Trực Tiếp
+        if h == t1: score += 10.0  # Đuôi hôm qua về Đầu hôm nay
+        if t == h1: score += 9.0   # Đầu hôm qua về Đuôi hôm nay
+        if h == h1: score += 6.0   # Bệt Đầu
+        if t == t1: score += 6.0   # Bệt Đuôi
 
-        bong_tail = str((int(last_db[1]) + 5) % 10)
-        if t == bong_tail or h == bong_tail:
-            scores[s_str] += 6.0
+        # 3. Cầu Bộ Số Đề (Các cặp lộn và bóng của ngày gần nhất)
+        if s_str == f"{t1}{h1}": score += 12.0  # Lộn chính xác
+        if h == (h1 + 5) % 10 and t == (t1 + 5) % 10: score += 10.0 # Bóng kép toàn phần
 
+        # 4. Trừ điểm nhẹ nếu trùng chính xác con đề hôm qua
         if s_str == last_db:
-            scores[s_str] -= 40.0
+            score -= 15.0
 
+        scores[s_str] = score
+
+    # Lọc Top 10 linh hoạt (Tối đa 3 số/Đầu để không bỏ sót bộ bóng)
     sorted_numbers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
     top_10_db = []
@@ -204,7 +208,7 @@ def analyze_and_predict_db(historical_data):
 
     for num_str, score in sorted_numbers:
         h = num_str[0]
-        if head_tracker[h] < 2:
+        if head_tracker[h] < 3:
             top_10_db.append(num_str)
             head_tracker[h] += 1
         if len(top_10_db) == 10:

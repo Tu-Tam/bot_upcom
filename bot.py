@@ -95,7 +95,7 @@ def send_welcome(message):
         "🔹 `/thongke` hoặc `/stats` - Trạng thái kho dữ liệu hiện tại\n"
         "🔹 `/test YYYY-MM-DD` - Backtest tỷ lệ trúng LÔ ngày cố định\n"
         "🔹 `/testdb YYYY-MM-DD` - Backtest GIẢI ĐẶC BIỆT ngày cố định\n"
-        "🔹 `/testdb YYYY-MM-DD=>DD` - Backtest GIẢI ĐẶC BIỆT theo khoảng ngày\n"
+        "🔹 `/testdb YYYY-MM-DD => DD` - Backtest GIẢI ĐẶC BIỆT theo khoảng ngày\n"
         "🔹 `/help` - Xem lại hướng dẫn này"
     )
     bot.reply_to(message, help_text, parse_mode="Markdown")
@@ -198,13 +198,13 @@ def handle_test_db_command(message):
                 if curr.day == end_day:
                     break
                 curr += timedelta(days=1)
-                if (curr - start_date).days > 31: # Mẫu bảo vệ lặp vô tận
+                if (curr - start_date).days > 31: # Chống lặp vô tận
                     break
         except Exception as e:
             bot.reply_to(message, f"❌ Lỗi định dạng ngày: `{e}`", parse_mode="Markdown")
             return
 
-    # 2. Bắt cú pháp 2 ngày chuẩn đầy đủ: 2026-08-01 2026-08-25
+    # 2. Bắt cú pháp 2 ngày đầy đủ: 2026-08-01 2026-08-25
     elif len(text_parts) >= 3 and re.match(r'^\d{4}-\d{2}-\d{2}$', text_parts[1]) and re.match(r'^\d{4}-\d{2}-\d{2}$', text_parts[2]):
         try:
             start_date = datetime.strptime(text_parts[1], "%Y-%m-%d")
@@ -217,7 +217,7 @@ def handle_test_db_command(message):
             bot.reply_to(message, f"❌ Lỗi định dạng khoảng ngày: `{e}`", parse_mode="Markdown")
             return
 
-    # 3. Bắt cú pháp 1 ngày duy nhất
+    # 3. Bắt cú pháp 1 ngày duy nhất: 2026-08-19
     elif re.match(r'^\d{4}-\d{2}-\d{2}$', text_parts[1]):
         dates_to_test.append(text_parts[1])
 
@@ -225,7 +225,7 @@ def handle_test_db_command(message):
         bot.reply_to(message, "❌ Định dạng tham số không hợp lệ.", parse_mode="Markdown")
         return
 
-    # CHẠY TEST DẢI NGÀY
+    # TH1: TEST THEO DẢI NGÀY
     if len(dates_to_test) > 1:
         msg = bot.reply_to(message, f"⏳ Đang kiểm tra {len(dates_to_test)} ngày (từ `{dates_to_test[0]}` đến `{dates_to_test[-1]}`)...", parse_mode="Markdown")
         
@@ -236,7 +236,7 @@ def handle_test_db_command(message):
             details_list = []
 
             for target_date in dates_to_test:
-                # Ép kiểu date về chuỗi yyyy-mm-dd chuẩn xác
+                # Ép kiểu dữ liệu date thành chuỗi YYYY-MM-DD để so sánh chuẩn xác
                 historical_data = [r for r in all_data if str(r.get('date', ''))[:10] < target_date]
                 actual_row = next((r for r in all_data if str(r.get('date', ''))[:10] == target_date), None)
 
@@ -297,7 +297,7 @@ def handle_test_db_command(message):
         except Exception as e:
             bot.edit_message_text(f"⚠️ Lỗi khi kiểm tra dải ngày: `{str(e)}`", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
 
-    # CHẠY TEST 1 NGÀY ĐƠN LẺ
+    # TH2: TEST 1 NGÀY ĐƠN LẺ
     else:
         target_date = dates_to_test[0]
         msg = bot.reply_to(message, f"⏳ Đang kiểm tra Giải Đặc Biệt ngày `{target_date}`...", parse_mode="Markdown")

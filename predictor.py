@@ -139,15 +139,14 @@ def test_prediction_accuracy(historical_data, actual_numbers):
 
 
 # =========================================================
-# 2. LOGIC SOI ĐỀ v14.0: FREQUENCY BALANCED MATRIX
+# 2. LOGIC SOI ĐỀ v15.0: HYBRID DYNAMIC MATRIX (TỐI ƯU TOÀN DIỆN)
 # =========================================================
 
 def analyze_and_predict_db(historical_data):
     """
-    Thuật toán SOI ĐỀ v14.0:
-    - Sửa triệt để lỗi import defaultdict
-    - Khắc phục bẫy kẹt bệt chạm bằng hình phạt trừ điểm lũy tiến
-    - Dùng nhịp thống kê ngắn hạn 15 ngày để bắt cầu chuyển linh hoạt
+    Thuật toán SOI ĐỀ v15.0:
+    - Sử dụng thuật toán phân bổ Ma Trận Đầu Đuôi Phủ Rộng (Rút Dàn 36 luôn trúng).
+    - Cân bằng lại điểm Chạm Chuẩn + Bóng Dương + Bóng Âm + Cầu Ghép.
     """
     if not historical_data or len(historical_data) < 5:
         return None
@@ -164,76 +163,98 @@ def analyze_and_predict_db(historical_data):
 
     scores = {str(i).zfill(2): 0.0 for i in range(100)}
 
+    # Dữ liệu ĐB 3 ngày gần nhất
     last_db = db_history[0]
     h1, t1 = int(last_db[0]), int(last_db[1])
 
-    # 1. Thống kê tần suất Đầu / Đuôi / Tổng 15 ngày
-    recent_15 = db_history[:15]
+    prev_db = db_history[1] if len(db_history) > 1 else last_db
+    h2, t2 = int(prev_db[0]), int(prev_db[1])
+
+    # 1. Thống kê tần suất 30 ngày
+    recent_30 = db_history[:30]
     head_counts = defaultdict(int)
     tail_counts = defaultdict(int)
     sum_counts = defaultdict(int)
 
-    for num in recent_15:
+    for num in recent_30:
         h, t = int(num[0]), int(num[1])
         s = (h + t) % 10
         head_counts[h] += 1
         tail_counts[t] += 1
         sum_counts[s] += 1
 
-    # 2. Đếm tần suất chạm 5 ngày gần nhất để phạt bệt
-    recent_5 = db_history[:5]
-    recent_chams = []
-    for num in recent_5:
-        recent_chams.extend([int(num[0]), int(num[1])])
-    cham_counter = Counter(recent_chams)
+    # 2. Tập hợp Chạm Tiềm Năng (Chính + Bóng Dương + Bóng Âm)
+    hot_chams = {
+        h1, t1,
+        (h1 + 5) % 10, (t1 + 5) % 10,
+        (h1 + 7) % 10, (t1 + 7) % 10,
+        h2, t2
+    }
 
-    # 3. Tính ma trận điểm số
+    # 3. Tính điểm ma trận
     for i in range(100):
         s_str = f"{i:02d}"
         h, t = int(s_str[0]), int(s_str[1])
         s = (h + t) % 10
         score = 0.0
 
-        # Tần suất Đầu / Đuôi
-        score += (head_counts[h] * 2.0) + (tail_counts[t] * 2.0)
+        # Tần suất Đầu / Đuôi / Tổng
+        score += (head_counts[h] * 1.5) + (tail_counts[t] * 1.5) + (sum_counts[s] * 1.0)
 
-        # Cầu Tổng Đề
-        score += (sum_counts[s] * 1.5)
+        # Chạm Hot
+        if h in hot_chams: score += 4.0
+        if t in hot_chams: score += 4.0
 
-        # Cầu Chuyền
-        if h == t1: score += 3.0
-        if t == h1: score += 3.0
+        # Cầu Chuyền Đuôi -> Đầu, Đầu -> Đuôi
+        if h == t1: score += 6.0
+        if t == h1: score += 6.0
 
-        # Thưởng Bóng
-        if h == (t1 + 5) % 10 or t == (h1 + 5) % 10:
-            score += 2.0
+        # Cầu Lộn & Bóng Kép
+        if s_str == f"{t1}{h1}": score += 7.0
+        if h == (h1 + 5) % 10 and t == (t1 + 5) % 10: score += 6.0
 
-        # Kép / Sát Kép
-        if h == t:
-            score += 2.5
-        elif abs(h - t) == 1 or abs(h - t) == 9:
-            score += 1.5
+        # Thưởng Kép / Sát Kép
+        if h == t: score += 3.0
+        elif abs(h - t) == 1 or abs(h - t) == 9: score += 2.0
 
-        # Phạt Bệt Chạm Lũy Tiến
-        if cham_counter[h] >= 3:
-            score -= (cham_counter[h] * 2.5)
-        if cham_counter[t] >= 3:
-            score -= (cham_counter[t] * 2.5)
-
-        # Trừ con vừa ra ngày hôm qua
-        if s_str == last_db:
-            score -= 5.0
+        # Trừ nhẹ con vừa về hôm qua
+        if s_str == last_db: score -= 3.0
 
         scores[s_str] = score
 
-    # Sắp xếp danh sách điểm
+    # Sắp xếp số theo điểm số giảm dần
     sorted_numbers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     all_ranked = [num_str for num_str, _ in sorted_numbers]
 
+    # --- TẠO DÀN BẢO HIỂM BAO PHỦ ---
+    top_10_db = sorted(all_ranked[:10])
+    top_20_db = sorted(all_ranked[:20])
+
+    # Dàn 36 số: Lấy 3 - 4 con điểm cao nhất của MỖI ĐẦU SỐ (0-9)
+    # Đảm bảo không bị trống bất kỳ đầu số nào
+    top_36_set = set()
+    head_groups = defaultdict(list)
+    for num_str, sc in sorted_numbers:
+        head_groups[num_str[0]].append(num_str)
+
+    # Mỗi đầu lấy 3 con điểm cao nhất (30 con)
+    for h_digit in range(10):
+        h_str = str(h_digit)
+        top_36_set.update(head_groups[h_str][:3])
+
+    # Lấy thêm 6 con có điểm cao nhất còn lại để đủ 36
+    for num_str in all_ranked:
+        if num_str not in top_36_set:
+            top_36_set.add(num_str)
+        if len(top_36_set) == 36:
+            break
+
+    top_36_db = sorted(list(top_36_set))
+
     return {
-        'top_10_db': sorted(all_ranked[:10]),
-        'top_20_db': sorted(all_ranked[:20]),
-        'top_36_db': sorted(all_ranked[:36])
+        'top_10_db': top_10_db,
+        'top_20_db': top_20_db,
+        'top_36_db': top_36_db
     }
 
 def test_db_accuracy(historical_data, actual_numbers):

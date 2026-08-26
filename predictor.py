@@ -1,12 +1,12 @@
 from collections import Counter, defaultdict
 
 # =========================================================
-# 1. LOGIC SOI LÔ (BẠCH THỦ, SONG THỦ, TOP 5, TOP 10) - GIỮ NGUYÊN
+# 1. LOGIC SOI LÔ (BẠCH THỦ, SONG THỦ, TOP 5, TOP 10)
 # =========================================================
 
 def analyze_and_predict(historical_data):
     """
-    Thuật toán v10.0: Ensemble Multi-Bridge & Adaptive Threshold Matrix
+    Thuật toán SOI LÔ v10.0: Ensemble Multi-Bridge & Adaptive Threshold Matrix
     """
     if not historical_data or len(historical_data) < 5:
         return None
@@ -139,12 +139,15 @@ def test_prediction_accuracy(historical_data, actual_numbers):
 
 
 # =========================================================
-# 2. LOGIC V9.0: BẮT ĐỀ ĐUÔI DÀN 10 SỐ MA TRẬN BÓNG & BỘ ĐỀ ĐA TẦNG
+# 2. LOGIC ĐỀ v10.0: ADAPTIVE DYNAMIC MATRIX & EXPANDED COVERS
 # =========================================================
 
 def analyze_and_predict_db(historical_data):
     """
-    Thuật toán v9.0: Ma Trận Bắt Toàn Diện Cầu Bóng & Chạm Chuyền Đa Tầng
+    Thuật toán ĐỀ v10.0:
+    - Trả về Dàn 10 số (Trọng tâm)
+    - Trả về Dàn 20 số (Tối ưu)
+    - Trả về Dàn 36 số (Bao phủ an toàn)
     """
     if not historical_data or len(historical_data) < 5:
         return None
@@ -161,18 +164,22 @@ def analyze_and_predict_db(historical_data):
 
     scores = {str(i).zfill(2): 0.0 for i in range(100)}
 
-    # Phân tích 3 ngày gần nhất
+    # Lấy dữ liệu ĐB 3 ngày gần nhất
     last_db = db_history[0]
     h1, t1 = int(last_db[0]), int(last_db[1])
     
     prev_db = db_history[1] if len(db_history) > 1 else last_db
     h2, t2 = int(prev_db[0]), int(prev_db[1])
 
-    # Xác định các Chạm Trọng Tâm (Gốc + Bóng Dương + Bóng Âm)
+    prev_db_2 = db_history[2] if len(db_history) > 2 else prev_db
+    h3, t3 = int(prev_db_2[0]), int(prev_db_2[1])
+
+    # Tập hợp các Chạm Hot (Chính + Bóng Dương + Bóng Âm)
     hot_chams = {
         h1, t1, 
         (h1 + 5) % 10, (t1 + 5) % 10, # Bóng Dương
-        h2, t2
+        h2, t2,
+        (h2 + 5) % 10, (t2 + 5) % 10
     }
 
     for i in range(100):
@@ -181,48 +188,63 @@ def analyze_and_predict_db(historical_data):
         score = 0.0
 
         # 1. Điểm Chạm Trọng Tâm
-        if h in hot_chams: score += 7.0
-        if t in hot_chams: score += 7.0
+        if h in hot_chams: score += 8.0
+        if t in hot_chams: score += 8.0
 
-        # 2. Cầu Chuyền Nối Đuôi Trực Tiếp
-        if h == t1: score += 10.0  # Đuôi hôm qua về Đầu hôm nay
-        if t == h1: score += 9.0   # Đầu hôm qua về Đuôi hôm nay
-        if h == h1: score += 6.0   # Bệt Đầu
-        if t == t1: score += 6.0   # Bệt Đuôi
+        # 2. Cầu Chuyền / Ghép Cầu Đa Tầng
+        if h == t1: score += 12.0  # Đuôi hôm qua -> Đầu hôm nay
+        if t == h1: score += 10.0  # Đầu hôm qua -> Đuôi hôm nay
+        if h == h1: score += 7.0   # Bệt Đầu
+        if t == t1: score += 7.0   # Bệt Đuôi
 
-        # 3. Cầu Bộ Số Đề (Các cặp lộn và bóng của ngày gần nhất)
-        if s_str == f"{t1}{h1}": score += 12.0  # Lộn chính xác
-        if h == (h1 + 5) % 10 and t == (t1 + 5) % 10: score += 10.0 # Bóng kép toàn phần
+        # 3. Cầu Bộ Đề / Bóng Số / Lộn
+        if s_str == f"{t1}{h1}": score += 15.0  # Lộn chính xác
+        if h == (h1 + 5) % 10 and t == (t1 + 5) % 10: score += 12.0 # Bóng kép
+        if h == (t1 + 5) % 10 or t == (h1 + 5) % 10: score += 8.0
 
-        # 4. Trừ điểm nhẹ nếu trùng chính xác con đề hôm qua
+        # 4. Trọng số nhịp bệt lại từ 3 ngày gần nhất
+        if h in {h1, h2, h3} and t in {t1, t2, t3}:
+            score += 10.0
+
+        # Trừ điểm nhẹ nếu trùng chính xác con đề ngày gần nhất
         if s_str == last_db:
-            score -= 15.0
+            score -= 10.0
 
         scores[s_str] = score
 
-    # Lọc Top 10 linh hoạt (Tối đa 3 số/Đầu để không bỏ sót bộ bóng)
+    # Sắp xếp danh sách theo điểm số giảm dần
     sorted_numbers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    all_ranked = [num_str for num_str, _ in sorted_numbers]
 
+    # --- LỌC DÀN 10 SỐ TRỌNG TÂM ---
     top_10_db = []
-    head_tracker = defaultdict(int)
+    head_tracker_10 = defaultdict(int)
 
-    for num_str, score in sorted_numbers:
+    for num_str in all_ranked:
         h = num_str[0]
-        if head_tracker[h] < 3:
+        if head_tracker_10[h] < 3:
             top_10_db.append(num_str)
-            head_tracker[h] += 1
+            head_tracker_10[h] += 1
         if len(top_10_db) == 10:
             break
 
     if len(top_10_db) < 10:
-        for num_str, score in sorted_numbers:
+        for num_str in all_ranked:
             if num_str not in top_10_db:
                 top_10_db.append(num_str)
             if len(top_10_db) == 10:
                 break
 
+    # --- LỌC DÀN 20 SỐ TỐI ƯU ---
+    top_20_db = all_ranked[:20]
+
+    # --- LỌC DÀN 36 SỐ BAO PHỦ ---
+    top_36_db = all_ranked[:36]
+
     return {
-        'top_10_db': sorted(top_10_db)
+        'top_10_db': sorted(top_10_db),
+        'top_20_db': sorted(top_20_db),
+        'top_36_db': sorted(top_36_db)
     }
 
 def test_db_accuracy(historical_data, actual_numbers):
@@ -232,9 +254,16 @@ def test_db_accuracy(historical_data, actual_numbers):
 
     actual_db = str(actual_numbers[0])[-2:].zfill(2)
     top_10 = pred['top_10_db']
+    top_20 = pred['top_20_db']
+    top_36 = pred['top_36_db']
 
     return {
         'predicted_10': top_10,
+        'predicted_20': top_20,
+        'predicted_36': top_36,
         'actual_db': actual_db,
-        'is_hit': actual_db in top_10
+        'is_hit_10': actual_db in top_10,
+        'is_hit_20': actual_db in top_20,
+        'is_hit_36': actual_db in top_36,
+        'is_hit': actual_db in top_10  # Giữ tương thích ngược với bot
     }

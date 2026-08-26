@@ -184,64 +184,59 @@ def handle_test_db_command(message):
     raw_input = " ".join(text_parts[1:]).strip()
     dates_to_test = []
 
-    # 1. Bắt cú pháp dải ngày: 2026-08-01 => 25 hoặc 2026-08-01 25
-    range_match = re.search(r'(\d{4}-\d{2}-\d{2})\s*(?:=>|->|-|\s+)\s*(\d{1,2})$', raw_input)
+    # 1. Bắt cú pháp dải ngày: 2026-08-01 => 25 hoặc 2026-08-01 => 2026-08-25
+    range_match = re.search(r'(\d{4}-\d{2}-\d{2})\s*(?:=>|->|-|\s+)\s*(\d{1,2}|\d{4}-\d{2}-\d{2})$', raw_input)
     
     if range_match:
-        start_str, end_day_str = range_match.group(1), range_match.group(2)
+        start_str, end_val_str = range_match.group(1), range_match.group(2)
         try:
             start_date = datetime.strptime(start_str, "%Y-%m-%d")
-            end_day = int(end_day_str)
-            curr = start_date
-            while True:
-                dates_to_test.append(curr.strftime("%Y-%m-%d"))
-                if curr.day == end_day:
-                    break
-                curr += timedelta(days=1)
-                if (curr - start_date).days > 31: # Chống lặp vô tận
-                    break
-        except Exception as e:
-            bot.reply_to(message, f"❌ Lỗi định dạng ngày: `{e}`", parse_mode="Markdown")
-            return
-
-    # 2. Bắt cú pháp 2 ngày đầy đủ: 2026-08-01 2026-08-25
-    elif len(text_parts) >= 3 and re.match(r'^\d{4}-\d{2}-\d{2}$', text_parts[1]) and re.match(r'^\d{4}-\d{2}-\d{2}$', text_parts[2]):
-        try:
-            start_date = datetime.strptime(text_parts[1], "%Y-%m-%d")
-            end_date = datetime.strptime(text_parts[2], "%Y-%m-%d")
-            curr = start_date
-            while curr <= end_date:
-                dates_to_test.append(curr.strftime("%Y-%m-%d"))
-                curr += timedelta(days=1)
+            
+            # Nếu truyền số ngày (ví dụ 25)
+            if len(end_val_str) <= 2:
+                end_day = int(end_val_str)
+                curr = start_date
+                while True:
+                    dates_to_test.append(curr.strftime("%Y-%m-%d"))
+                    if curr.day == end_day:
+                        break
+                    curr += timedelta(days=1)
+                    if (curr - start_date).days > 60: break
+            # Nếu truyền cả ngày dạng YYYY-MM-DD
+            else:
+                end_date = datetime.strptime(end_val_str, "%Y-%m-%d")
+                curr = start_date
+                while curr <= end_date:
+                    dates_to_test.append(curr.strftime("%Y-%m-%d"))
+                    curr += timedelta(days=1)
         except Exception as e:
             bot.reply_to(message, f"❌ Lỗi định dạng khoảng ngày: `{e}`", parse_mode="Markdown")
             return
 
-    # 3. Bắt cú pháp 1 ngày duy nhất: 2026-08-19
+    # 2. Bắt cú pháp 1 ngày duy nhất: 2026-08-19
     elif re.match(r'^\d{4}-\d{2}-\d{2}$', text_parts[1]):
         dates_to_test.append(text_parts[1])
-
     else:
         bot.reply_to(message, "❌ Định dạng tham số không hợp lệ.", parse_mode="Markdown")
         return
 
-    # TH1: TEST THEO DẢI NGÀY
+    # XỬ LÝ KHI TEST DẢI NGÀY
     if len(dates_to_test) > 1:
         msg = bot.reply_to(message, f"⏳ Đang kiểm tra {len(dates_to_test)} ngày (từ `{dates_to_test[0]}` đến `{dates_to_test[-1]}`)...", parse_mode="Markdown")
         
         try:
-            all_data = db.get_results(limit=400) if hasattr(db, 'get_results') else []
+            all_data = db.get_results(limit=500) if hasattr(db, 'get_results') else []
             hit_10_cnt = hit_20_cnt = hit_36_cnt = 0
             valid_days_cnt = 0
             details_list = []
 
             for target_date in dates_to_test:
-                # Ép kiểu dữ liệu date thành chuỗi YYYY-MM-DD để so sánh chuẩn xác
+                # Ép kiểu dữ liệu date thành chuỗi YYYY-MM-DD để so sánh chính xác tuyệt đối
                 historical_data = [r for r in all_data if str(r.get('date', ''))[:10] < target_date]
                 actual_row = next((r for r in all_data if str(r.get('date', ''))[:10] == target_date), None)
 
                 if not actual_row:
-                    details_list.append(f"📅 **{target_date}**: ⚠️ _Chưa có CSDL_")
+                    details_list.append(f"📅 **{target_date}**: ⚠️ _Chưa cào tới CSDL_")
                     continue
 
                 actual_numbers = actual_row.get('numbers', [])
@@ -274,7 +269,7 @@ def handle_test_db_command(message):
                     )
 
             if valid_days_cnt == 0:
-                bot.edit_message_text("❌ Không có dữ liệu hợp lệ nào trong khoảng ngày đã chọn.", chat_id=message.chat.id, message_id=msg.message_id)
+                bot.edit_message_text("❌ Chưa có dữ liệu hợp lệ nào trong dải ngày này (Bot vẫn đang tiếp tục cào ngầm). Thử lại sau 1-2 phút!", chat_id=message.chat.id, message_id=msg.message_id)
                 return
 
             rate_10 = (hit_10_cnt / valid_days_cnt) * 100
@@ -297,13 +292,13 @@ def handle_test_db_command(message):
         except Exception as e:
             bot.edit_message_text(f"⚠️ Lỗi khi kiểm tra dải ngày: `{str(e)}`", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
 
-    # TH2: TEST 1 NGÀY ĐƠN LẺ
+    # XỬ LÝ KHI TEST 1 NGÀY ĐƠN LẺ
     else:
         target_date = dates_to_test[0]
         msg = bot.reply_to(message, f"⏳ Đang kiểm tra Giải Đặc Biệt ngày `{target_date}`...", parse_mode="Markdown")
 
         try:
-            all_data = db.get_results(limit=400) if hasattr(db, 'get_results') else []
+            all_data = db.get_results(limit=500) if hasattr(db, 'get_results') else []
             historical_data = [r for r in all_data if str(r.get('date', ''))[:10] < target_date]
             actual_row = next((r for r in all_data if str(r.get('date', ''))[:10] == target_date), None)
 
@@ -405,7 +400,7 @@ def handle_test_command(message):
         msg = bot.reply_to(message, f"⏳ Đang kiểm tra dữ liệu ngày `{target_date}`...", parse_mode="Markdown")
         
         try:
-            all_data = db.get_results(limit=400) if hasattr(db, 'get_results') else []
+            all_data = db.get_results(limit=500) if hasattr(db, 'get_results') else []
             historical_data = [r for r in all_data if str(r.get('date', ''))[:10] < target_date]
             actual_row = next((r for r in all_data if str(r.get('date', ''))[:10] == target_date), None)
             

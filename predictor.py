@@ -139,12 +139,12 @@ def test_prediction_accuracy(historical_data, actual_numbers):
 
 
 # =========================================================
-# 2. LOGIC NÂNG CẤP V5.0: DỰ ĐOÁN GIẢI ĐẶC BIỆT (TỐI ƯU CẦU ĐÁY & CHẠM BÓNG)
+# 2. LOGIC V6.0: SOI ĐỀ ĐUÔI THEO CHẠM BỆT XU HƯỚNG & PHÂN TÁN LINH HOẠT
 # =========================================================
 
 def analyze_and_predict_db(historical_data):
     """
-    Thuật toán v5.0: Dự đoán Giải Đặc Biệt dựa trên Ma Trận Chạm Bóng Đa Chiều
+    Thuật toán v6.0: Tận dụng Chuỗi Chạm Bệt, Cầu Bóng Kép & Tối Ưu Dàn 10 Số
     """
     if not historical_data or len(historical_data) < 5:
         return None
@@ -161,22 +161,20 @@ def analyze_and_predict_db(historical_data):
 
     scores = {str(i).zfill(2): 0.0 for i in range(100)}
 
-    # 1. Thống kê Chạm Hot trong 14 kỳ gần nhất
-    recent_14 = db_history[:min(14, len(db_history))]
-    cham_counts = Counter()
-    for num in recent_14:
-        cham_counts[int(num[0])] += 1
-        cham_counts[int(num[1])] += 1
+    # 1. Phát hiện Chạm Bệt đang chạy trong 3-5 ngày gần nhất
+    recent_5 = db_history[:min(5, len(db_history))]
+    recent_chams = []
+    for num in recent_5:
+        recent_chams.extend([int(num[0]), int(num[1])])
+    
+    cham_counts_5d = Counter(recent_chams)
+    
+    # Lấy các Chạm xuất hiện từ 2 lần trở lên trong 5 ngày qua (Chạm Bệt)
+    hot_chams = [c for c, count in cham_counts_5d.items() if count >= 2]
 
-    top_chams = [c[0] for c in cham_counts.most_common(4)]
-
-    # 2. Lấy thông tin ĐB 2 ngày gần nhất
+    # 2. Phân tích ĐB ngày gần nhất
     last_db = db_history[0]
     last_h, last_t = int(last_db[0]), int(last_db[1])
-    
-    prev_db = db_history[1] if len(db_history) > 1 else last_db
-    prev_h, prev_t = int(prev_db[0]), int(prev_db[1])
-
     last_sum = (last_h + last_t) % 10
 
     # Chấm điểm 100 số
@@ -187,54 +185,41 @@ def analyze_and_predict_db(historical_data):
 
         score = 0.0
 
-        # Trọng số Chạm Xu Hướng
-        if h in top_chams: score += 3.5
-        if t in top_chams: score += 3.5
+        # ƯU TIÊN HÀNG ĐẦU: CHẠM BỆT
+        if h in hot_chams: score += 12.0
+        if t in hot_chams: score += 12.0
 
-        # CẦU CHẠM CHUYỀN (Đầu/Đuôi hôm qua rơi lại)
-        if h == last_t: score += 8.0
-        if t == last_h: score += 7.0
-        if h == last_h: score += 5.0
-        if t == last_t: score += 4.0
+        # CẦU CHUYỀN ĐẦU / ĐUÔI HÔM QUA
+        if h == last_t or t == last_h: score += 6.0
+        if h == last_h or t == last_t: score += 5.0
 
-        # CẦU BÓNG DƯƠNG & BÓNG ÂM
-        last_bong_h = (last_h + 5) % 10
-        last_bong_t = (last_t + 5) % 10
-        if h == last_bong_t or t == last_bong_h: score += 6.0
-        if h == last_bong_h or t == last_bong_t: score += 5.0
+        # CẦU BÓNG (Âm / Dương)
+        if h == (last_t + 5) % 10 or t == (last_h + 5) % 10: score += 4.0
 
-        # CẦU TỔNG & TỔNG BÓNG
-        if s_sum == last_sum: score += 4.0
-        elif s_sum == (last_sum + 5) % 10: score += 3.0
+        # CẦU TỔNG
+        if s_sum == last_sum or s_sum == (last_sum + 5) % 10: score += 3.0
 
-        # CẦU NỐI KỲ T-2 (Ghép chạm với ngày kì trước nữa)
-        if h == prev_t or t == prev_h: score += 3.5
-
-        # Phạt số đã xuất hiện gần đây
-        if s_str in db_history[:2]:
-            score -= 20.0
-        elif s_str in db_history[2:5]:
-            score -= 10.0
+        # Chỉ phạt ĐÚNG CON ĐỀ ĐÃ RA hôm qua (tránh bệt chính số), KHÔNG phạt chạm
+        if s_str == last_db:
+            score -= 30.0
 
         scores[s_str] = score
 
-    # 3. Lọc Top 10 số khống chế phân tán đều (Mỗi Đầu max 2, Mỗi Đuôi max 2)
+    # 3. Lọc Top 10 số linh hoạt (Cho phép tối đa 3 số/Đầu để không bỏ sót chạm hot)
     sorted_numbers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
     top_10_db = []
     head_tracker = defaultdict(int)
-    tail_tracker = defaultdict(int)
 
     for num_str, score in sorted_numbers:
-        h, t = num_str[0], num_str[1]
-        if head_tracker[h] < 2 and tail_tracker[t] < 2:
+        h = num_str[0]
+        if head_tracker[h] < 3:
             top_10_db.append(num_str)
             head_tracker[h] += 1
-            tail_tracker[t] += 1
         if len(top_10_db) == 10:
             break
 
-    # Bù thêm số nếu chưa đủ 10 con
+    # Bù thêm nếu chưa đủ 10 con
     if len(top_10_db) < 10:
         for num_str, score in sorted_numbers:
             if num_str not in top_10_db:

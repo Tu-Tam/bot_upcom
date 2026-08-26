@@ -139,15 +139,15 @@ def test_prediction_accuracy(historical_data, actual_numbers):
 
 
 # =========================================================
-# 2. LOGIC ĐỀ v10.0: ADAPTIVE DYNAMIC MATRIX & EXPANDED COVERS
+# 2. LOGIC SOI ĐỀ v11.0: MULTI-FACTOR SCORING & DYNAMIC MATRIX
 # =========================================================
 
 def analyze_and_predict_db(historical_data):
     """
-    Thuật toán ĐỀ v10.0:
-    - Trả về Dàn 10 số (Trọng tâm)
-    - Trả về Dàn 20 số (Tối ưu)
-    - Trả về Dàn 36 số (Bao phủ an toàn)
+    Thuật toán ĐỀ v11.0:
+    - Bảng chấm điểm đa nhân tố: Tần suất Đầu/Đuôi/Tổng + Bóng Âm Dương + Ghép Cầu Đa Tầng
+    - Khống chế Lô Gan Đề (>60 ngày chưa ra)
+    - Phân bổ thông minh cho Dàn 10, 20, 36 số
     """
     if not historical_data or len(historical_data) < 5:
         return None
@@ -164,7 +164,7 @@ def analyze_and_predict_db(historical_data):
 
     scores = {str(i).zfill(2): 0.0 for i in range(100)}
 
-    # Lấy dữ liệu ĐB 3 ngày gần nhất
+    # Dữ liệu ĐB 3 ngày gần nhất
     last_db = db_history[0]
     h1, t1 = int(last_db[0]), int(last_db[1])
     
@@ -174,49 +174,78 @@ def analyze_and_predict_db(historical_data):
     prev_db_2 = db_history[2] if len(db_history) > 2 else prev_db
     h3, t3 = int(prev_db_2[0]), int(prev_db_2[1])
 
-    # Tập hợp các Chạm Hot (Chính + Bóng Dương + Bóng Âm)
+    # 1. Thống kê tần suất Đầu/Đuôi/Tổng trong 30 & 60 ngày gần nhất
+    recent_30 = db_history[:30]
+    recent_60 = db_history[:60] if len(db_history) >= 60 else db_history
+
+    head_counts = defaultdict(int)
+    tail_counts = defaultdict(int)
+    sum_counts = defaultdict(int)
+
+    for num in recent_30:
+        h, t = int(num[0]), int(num[1])
+        s = (h + t) % 10
+        head_counts[h] += 1
+        tail_counts[t] += 1
+        sum_counts[s] += 1
+
+    # 2. Tập hợp các Chạm Hot (Chính + Bóng Dương + Bóng Âm)
     hot_chams = {
         h1, t1, 
-        (h1 + 5) % 10, (t1 + 5) % 10, # Bóng Dương
+        (h1 + 5) % 10, (t1 + 5) % 10,  # Bóng Dương
+        (h1 + 7) % 10, (t1 + 7) % 10,  # Bóng Âm
         h2, t2,
         (h2 + 5) % 10, (t2 + 5) % 10
     }
 
+    # 3. Chấm điểm cho từng số từ 00 đến 99
     for i in range(100):
         s_str = f"{i:02d}"
         h, t = int(s_str[0]), int(s_str[1])
+        s = (h + t) % 10
         score = 0.0
 
-        # 1. Điểm Chạm Trọng Tâm
-        if h in hot_chams: score += 8.0
-        if t in hot_chams: score += 8.0
+        # a. Tần suất xuất hiện gần đây
+        score += (head_counts[h] * 1.8) + (tail_counts[t] * 1.8) + (sum_counts[s] * 1.2)
 
-        # 2. Cầu Chuyền / Ghép Cầu Đa Tầng
-        if h == t1: score += 12.0  # Đuôi hôm qua -> Đầu hôm nay
-        if t == h1: score += 10.0  # Đầu hôm qua -> Đuôi hôm nay
-        if h == h1: score += 7.0   # Bệt Đầu
-        if t == t1: score += 7.0   # Bệt Đuôi
+        # b. Điểm Chạm Trọng Tâm & Bóng
+        if h in hot_chams: score += 6.0
+        if t in hot_chams: score += 6.0
 
-        # 3. Cầu Bộ Đề / Bóng Số / Lộn
-        if s_str == f"{t1}{h1}": score += 15.0  # Lộn chính xác
-        if h == (h1 + 5) % 10 and t == (t1 + 5) % 10: score += 12.0 # Bóng kép
-        if h == (t1 + 5) % 10 or t == (h1 + 5) % 10: score += 8.0
+        # c. Cầu Chuyền / Ghép Cầu Đa Tầng
+        if h == t1: score += 10.0  # Đuôi hôm qua -> Đầu hôm nay
+        if t == h1: score += 8.0   # Đầu hôm qua -> Đuôi hôm nay
+        if h == h1: score += 5.0   # Bệt Đầu
+        if t == t1: score += 5.0   # Bệt Đuôi
 
-        # 4. Trọng số nhịp bệt lại từ 3 ngày gần nhất
+        # d. Cầu Bộ Đề / Bóng Số / Lộn
+        if s_str == f"{t1}{h1}": score += 12.0  # Lộn chính xác
+        if h == (h1 + 5) % 10 and t == (t1 + 5) % 10: score += 10.0 # Bóng kép
+        if h == (t1 + 5) % 10 or t == (h1 + 5) % 10: score += 6.0
+
+        # e. Trọng số nhịp bệt từ 3 ngày gần nhất
         if h in {h1, h2, h3} and t in {t1, t2, t3}:
-            score += 10.0
+            score += 8.0
 
-        # Trừ điểm nhẹ nếu trùng chính xác con đề ngày gần nhất
+        # f. Thưởng điểm Kép
+        if h == t: score += 2.0
+        elif abs(h - t) == 5: score += 1.5
+
+        # g. Trừ điểm nhẹ nếu trùng chính xác con đề vừa ra ngày hôm qua
         if s_str == last_db:
             score -= 10.0
 
+        # h. Khống chế Đề Gan (>60 ngày chưa ra)
+        if s_str not in recent_60:
+            score -= 4.0
+
         scores[s_str] = score
 
-    # Sắp xếp danh sách theo điểm số giảm dần
+    # Sắp xếp danh sách số theo điểm số giảm dần
     sorted_numbers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     all_ranked = [num_str for num_str, _ in sorted_numbers]
 
-    # --- LỌC DÀN 10 SỐ TRỌNG TÂM ---
+    # --- LỌC DÀN 10 SỐ TRỌNG TÂM (Đảm bảo phân tán đầu số hợp lý) ---
     top_10_db = []
     head_tracker_10 = defaultdict(int)
 

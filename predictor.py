@@ -139,13 +139,13 @@ def test_prediction_accuracy(historical_data, actual_numbers):
 
 
 # =========================================================
-# 2. LOGIC MỚI: DỰ ĐOÁN GIẢI ĐẶC BIỆT (ĐỀ ĐUÔI DÀN 10 SỐ)
+# 2. LOGIC NÂNG CẤP: DỰ ĐOÁN GIẢI ĐẶC BIỆT (ĐỀ ĐUÔI DÀN 10 SỐ)
 # =========================================================
 
 def analyze_and_predict_db(historical_data):
     """
-    Thuật toán dự đoán Dàn 10 số có xác suất cao nhất về Giải Đặc Biệt (Đề đuôi).
-    Chỉ khai thác dữ liệu 2 số cuối của Giải Đặc Biệt (phần tử đầu tiên trong danh sách giải).
+    Thuật toán v2.0: Phân tích Ma trận Chạm/Tổng, Cầu Bóng & Khống chế Đa dạng Đầu số.
+    Giải quyết triệt để vấn đề đè số cũ và tăng tỷ lệ phủ dàn Đề 10 số.
     """
     if not historical_data or len(historical_data) < 5:
         return None
@@ -154,57 +154,81 @@ def analyze_and_predict_db(historical_data):
     for row in historical_data:
         nums = row['numbers'] if isinstance(row, dict) else row[1]
         if nums and len(nums) > 0:
-            # Lấy 2 số cuối của Giải Đặc Biệt (G0)
             db_num = str(nums[0])[-2:].zfill(2)
             db_history.append(db_num)
 
     if not db_history:
         return None
 
-    scores = {str(i).zfill(2): 0.0 for i in range(100)}
+    # Lấy dữ liệu ĐB ngày gần nhất
+    last_db = db_history[0]
+    last_head = int(last_db[0])
+    last_tail = int(last_db[1])
+    last_sum = (last_head + last_tail) % 10
 
-    # A. Thống kê nhịp vắng riêng của Giải Đặc Biệt (Gap Analysis)
-    last_seen = {}
-    for idx, num in enumerate(db_history):
-        if num not in last_seen:
-            last_seen[num] = idx
+    # 1. Thống kê tần suất Chạm (0-9) trong 15 kỳ gần nhất
+    recent_15 = db_history[:min(15, len(db_history))]
+    cham_counts = Counter()
+    for num in recent_15:
+        cham_counts[int(num[0])] += 1
+        cham_counts[int(num[1])] += 1
 
+    scores = {}
     for i in range(100):
-        num = str(i).zfill(2)
-        gap = last_seen.get(num, 999)
+        s_str = f"{i:02d}"
+        h = int(s_str[0])
+        t = int(s_str[1])
+        s_sum = (h + t) % 10
 
-        if 3 <= gap <= 15:
-            scores[num] += 20.0  # Nhịp rơi trung bình rất đẹp của Đề
-        elif gap == 1 or gap == 2:
-            scores[num] += 10.0  # Đề bệt / nhịp ngắn
-        elif gap > 30:
-            scores[num] -= 50.0  # Hạ điểm đề gan dài ngày
+        score = 0.0
 
-    # B. Xu hướng Chạm & Đuôi xuất hiện nhiều trong 10 ngày qua
-    recent_db = db_history[:min(10, len(db_history))]
-    head_counter = Counter([n[0] for n in recent_db])
-    tail_counter = Counter([n[1] for n in recent_db])
+        # Trọng số Chạm hot
+        score += cham_counts[h] * 2.5
+        score += cham_counts[t] * 3.0
 
-    for i in range(100):
-        num = str(i).zfill(2)
-        h, t = num[0], num[1]
-        scores[num] += head_counter.get(h, 0) * 3.0
-        scores[num] += tail_counter.get(t, 0) * 4.0
+        # Cầu Tổng & Tổng Bóng
+        if s_sum == last_sum:
+            score += 8.0
+        elif s_sum == (last_sum + 5) % 10:
+            score += 5.0
 
-    # C. Cầu Tổng & Đảo Chạm từ ngày gần nhất
-    if len(db_history) > 0:
-        last_db = db_history[0]
-        last_sum = (int(last_db[0]) + int(last_db[1])) % 10
-        for i in range(100):
-            num = str(i).zfill(2)
-            curr_sum = (int(num[0]) + int(num[1])) % 10
-            if curr_sum == last_sum:
-                scores[num] += 5.0  # Cùng tổng đề
-            if num[1] == last_db[0]:
-                scores[num] += 8.0  # Đuôi hôm nay là Đầu hôm qua
+        # Cầu Đảo Chạm & Bóng Đuôi
+        if h == last_tail:
+            score += 6.0
+        if t == (last_head + 5) % 10:
+            score += 4.0
 
-    # Lấy Top 10 số có tổng điểm cao nhất
-    top_10_db = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)[:10]
+        # Né Đề vừa ra trong 3 ngày gần đây
+        if s_str in db_history[:3]:
+            score -= 20.0
+
+        # Ưu tiên nhịp rơi chuẩn (vắng 10 - 30 ngày)
+        if s_str in db_history[3:30]:
+            score += 5.0
+
+        scores[s_str] = score
+
+    # Lọc Top 10 với quy tắc Phân tán Đầu số (mỗi Đầu tối đa 2 con)
+    sorted_numbers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    
+    top_10_db = []
+    head_tracker = defaultdict(int)
+
+    for num_str, score in sorted_numbers:
+        h = num_str[0]
+        if head_tracker[h] < 2:
+            top_10_db.append(num_str)
+            head_tracker[h] += 1
+        if len(top_10_db) == 10:
+            break
+
+    # Trường hợp chưa đủ 10 số, bù thêm số có điểm cao tiếp theo
+    if len(top_10_db) < 10:
+        for num_str, score in sorted_numbers:
+            if num_str not in top_10_db:
+                top_10_db.append(num_str)
+            if len(top_10_db) == 10:
+                break
 
     return {
         'top_10_db': sorted(top_10_db)
@@ -218,7 +242,6 @@ def test_db_accuracy(historical_data, actual_numbers):
     if not pred or not actual_numbers:
         return None
 
-    # Lấy 2 số cuối Giải Đặc Biệt thực tế của ngày quay đó
     actual_db = str(actual_numbers[0])[-2:].zfill(2)
     top_10 = pred['top_10_db']
 

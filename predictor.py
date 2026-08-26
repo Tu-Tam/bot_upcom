@@ -1,10 +1,10 @@
 from collections import Counter, defaultdict
 
 # =========================================================
-# 1. LOGIC SOI LÔ (BẠCH THỦ, SONG THỦ, TOP 5, TOP 10)
+# 1. LOGIC SOI LÔ (BẠCH THỦ, SONG THỦ, TOP 5, TOP 10) - v10.0
 # =========================================================
 
-def analyze_and_predict(historical_data):
+def analyze_and_predict(historical_data, is_recursive=False):
     """
     Thuật toán SOI LÔ v10.0: Ensemble Multi-Bridge & Adaptive Threshold Matrix
     """
@@ -54,10 +54,10 @@ def analyze_and_predict(historical_data):
         scores[bridge_num1] += 15.0
         scores[bridge_num2] += 15.0
 
-    # 3. CHỐNG NEO SỐ TRƯỢT
-    if len(historical_data) >= 6:
+    # 3. CHỐNG NEO SỐ TRƯỢT (Dùng cờ is_recursive để tránh đệ quy vô hạn)
+    if not is_recursive and len(historical_data) >= 6:
         prev_data = historical_data[1:]
-        prev_pred = analyze_and_predict(prev_data)
+        prev_pred = analyze_and_predict(prev_data, is_recursive=True)
         if prev_pred:
             prev_bt = prev_pred['bach_thu']
             if prev_bt not in daily_numbers[0]:
@@ -139,12 +139,12 @@ def test_prediction_accuracy(historical_data, actual_numbers):
 
 
 # =========================================================
-# 2. LOGIC SOI ĐỀ v11.0: MULTI-FACTOR SCORING & DYNAMIC MATRIX
+# 2. LOGIC SOI ĐỀ v12.0: MULTI-LAYER MATRIX & DYNAMIC FILTER
 # =========================================================
 
 def analyze_and_predict_db(historical_data):
     """
-    Thuật toán ĐỀ v11.0:
+    Thuật toán SOI ĐỀ v12.0:
     - Bảng chấm điểm đa nhân tố: Tần suất Đầu/Đuôi/Tổng + Bóng Âm Dương + Ghép Cầu Đa Tầng
     - Khống chế Lô Gan Đề (>60 ngày chưa ra)
     - Phân bổ thông minh cho Dàn 10, 20, 36 số
@@ -189,7 +189,7 @@ def analyze_and_predict_db(historical_data):
         tail_counts[t] += 1
         sum_counts[s] += 1
 
-    # 2. Tập hợp các Chạm Hot (Chính + Bóng Dương + Bóng Âm)
+    # 2. Tập hợp các Chạm Hot v12.0 (Chính + Bóng Dương + Bóng Âm)
     hot_chams = {
         h1, t1, 
         (h1 + 5) % 10, (t1 + 5) % 10,  # Bóng Dương
@@ -198,7 +198,7 @@ def analyze_and_predict_db(historical_data):
         (h2 + 5) % 10, (t2 + 5) % 10
     }
 
-    # 3. Chấm điểm cho từng số từ 00 đến 99
+    # 3. Ma trận chấm điểm đa tầng v12.0 cho từng số từ 00 đến 99
     for i in range(100):
         s_str = f"{i:02d}"
         h, t = int(s_str[0]), int(s_str[1])
@@ -208,7 +208,7 @@ def analyze_and_predict_db(historical_data):
         # a. Tần suất xuất hiện gần đây
         score += (head_counts[h] * 1.8) + (tail_counts[t] * 1.8) + (sum_counts[s] * 1.2)
 
-        # b. Điểm Chạm Trọng Tâm & Bóng
+        # b. Điểm Chạm Trọng Tâm & Bóng Số
         if h in hot_chams: score += 6.0
         if t in hot_chams: score += 6.0
 

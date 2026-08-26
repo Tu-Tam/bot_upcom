@@ -144,8 +144,7 @@ def test_prediction_accuracy(historical_data, actual_numbers):
 
 def analyze_and_predict_db(historical_data):
     """
-    Thuật toán v2.0: Phân tích Ma trận Chạm/Tổng, Cầu Bóng & Khống chế Đa dạng Đầu số.
-    Giải quyết triệt để vấn đề đè số cũ và tăng tỷ lệ phủ dàn Đề 10 số.
+    Thuật toán v3.0: Dự đoán Đề đuôi dựa trên Tương quan Chạm Hot + Cầu Tổng/Bóng + Phân tán Đầu/Đuôi.
     """
     if not historical_data or len(historical_data) < 5:
         return None
@@ -160,69 +159,69 @@ def analyze_and_predict_db(historical_data):
     if not db_history:
         return None
 
-    # Lấy dữ liệu ĐB ngày gần nhất
-    last_db = db_history[0]
-    last_head = int(last_db[0])
-    last_tail = int(last_db[1])
-    last_sum = (last_head + last_tail) % 10
+    scores = {str(i).zfill(2): 0.0 for i in range(100)}
 
-    # 1. Thống kê tần suất Chạm (0-9) trong 15 kỳ gần nhất
-    recent_15 = db_history[:min(15, len(db_history))]
+    # 1. Thống kê tần suất Chạm (0-9) trong 10 kỳ gần nhất
+    recent_10 = db_history[:min(10, len(db_history))]
     cham_counts = Counter()
-    for num in recent_15:
+    for num in recent_10:
         cham_counts[int(num[0])] += 1
         cham_counts[int(num[1])] += 1
 
-    scores = {}
+    top_cham = [c[0] for c in cham_counts.most_common(3)]
+
+    # 2. Phân tích ĐB ngày gần nhất
+    last_db = db_history[0]
+    last_h, last_t = int(last_db[0]), int(last_db[1])
+    last_sum = (last_h + last_t) % 10
+
+    # Chấm điểm toàn bộ 100 số
     for i in range(100):
         s_str = f"{i:02d}"
-        h = int(s_str[0])
-        t = int(s_str[1])
+        h, t = int(s_str[0]), int(s_str[1])
         s_sum = (h + t) % 10
 
         score = 0.0
 
         # Trọng số Chạm hot
-        score += cham_counts[h] * 2.5
-        score += cham_counts[t] * 3.0
+        if h in top_cham: score += 5.0
+        if t in top_cham: score += 5.0
+
+        # Cầu Bóng & Cầu Chuyền (Đầu sang Đuôi / Đuôi sang Đầu)
+        if h == last_t or t == last_h:
+            score += 7.0
+        if h == (last_t + 5) % 10 or t == (last_h + 5) % 10:
+            score += 4.0
 
         # Cầu Tổng & Tổng Bóng
         if s_sum == last_sum:
-            score += 8.0
-        elif s_sum == (last_sum + 5) % 10:
-            score += 5.0
-
-        # Cầu Đảo Chạm & Bóng Đuôi
-        if h == last_tail:
             score += 6.0
-        if t == (last_head + 5) % 10:
+        elif s_sum == (last_sum + 5) % 10:
             score += 4.0
 
-        # Né Đề vừa ra trong 3 ngày gần đây
-        if s_str in db_history[:3]:
-            score -= 20.0
-
-        # Ưu tiên nhịp rơi chuẩn (vắng 10 - 30 ngày)
-        if s_str in db_history[3:30]:
-            score += 5.0
+        # Phạt nặng các số vừa về trong 4 ngày vừa qua (Tránh bệt quá ngắn)
+        if s_str in db_history[:4]:
+            score -= 25.0
 
         scores[s_str] = score
 
-    # Lọc Top 10 với quy tắc Phân tán Đầu số (mỗi Đầu tối đa 2 con)
+    # 3. Lọc Top 10 với bộ lọc phân tán đa dạng (Tối đa 2 số/Đầu và 2 số/Đuôi)
     sorted_numbers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    
+
     top_10_db = []
     head_tracker = defaultdict(int)
+    tail_tracker = defaultdict(int)
 
     for num_str, score in sorted_numbers:
-        h = num_str[0]
-        if head_tracker[h] < 2:
+        h, t = num_str[0], num_str[1]
+        if head_tracker[h] < 2 and tail_tracker[t] < 2:
             top_10_db.append(num_str)
             head_tracker[h] += 1
+            tail_tracker[t] += 1
         if len(top_10_db) == 10:
             break
 
-    # Trường hợp chưa đủ 10 số, bù thêm số có điểm cao tiếp theo
+    # Bù thêm số nếu chưa đủ 10 con
     if len(top_10_db) < 10:
         for num_str, score in sorted_numbers:
             if num_str not in top_10_db:

@@ -29,7 +29,7 @@ def parse_numbers(row):
 
     return []
 
-# --- THUẬT TOÁN ĐỀ (ĐẶC BIỆT): MA TRẬN ĐIỂM CHẠM X TỔNG X NHỊP RƠI ---
+# --- THUẬT TOÁN ĐỀ TỐI ƯU: 4 ĐẦU - 4 ĐUÔI - 5 CHẠM - 6 TỔNG ---
 def analyze_and_predict_db(results):
     if not results or len(results) < 20:
         return None
@@ -46,34 +46,34 @@ def analyze_and_predict_db(results):
     last_db = db_history[0]
     d1_last, d2_last = last_db[0], last_db[1]
 
-    # 1. BẮT 5 CHẠM TIỀM NĂNG (Bao phủ ~75% khả năng về)
+    # 1. BẮT 4 ĐẦU & 4 ĐUÔI XU HƯỚNG MẠNH NHẤT (Phủ 40% không gian)
+    daus_15 = [db[0] for db in db_history[:15] if len(db) == 2]
+    duois_15 = [db[1] for db in db_history[:15] if len(db) == 2]
+    
+    # Lấy 4 đầu và 4 đuôi xuất hiện nhiều nhất 15 kỳ qua
+    top_daus = [item[0] for item in Counter(daus_15).most_common(4)]
+    top_duois = [item[0] for item in Counter(duois_15).most_common(4)]
+
+    # 2. BẮT 5 CHẠM TỐI ƯU (Top tần suất + Bóng âm/dương)
     digits_15 = [d for db in db_history[:15] for d in db if len(db) == 2]
     top_freq_digits = [item[0] for item in Counter(digits_15).most_common(3)]
     
     b_duong_duoi = BONG_DUONG.get(d2_last, '0')
     b_am_dau = BONG_AM.get(d1_last, '7')
     
-    # Kết hợp Top tần suất + Bóng đề kỳ trước
     primary_chams = list(dict.fromkeys([d2_last, b_duong_duoi, b_am_dau] + top_freq_digits))[:5]
 
-    # 2. BẮT TOP 6 TỔNG CHUẨN (20 kỳ)
+    # 3. BẮT 6 TỔNG NHỊP ĐẸP
     tongs_20 = [(int(db[0]) + int(db[1])) % 10 for db in db_history[:20] if len(db) == 2]
     top_tongs = [item[0] for item in Counter(tongs_20).most_common(6)]
 
-    # 3. BẮT 4 ĐẦU & 4 ĐUÔI SÁNG NHẤT
-    daus_15 = [db[0] for db in db_history[:15] if len(db) == 2]
-    duois_15 = [db[1] for db in db_history[:15] if len(db) == 2]
-    
-    top_daus = [item[0] for item in Counter(daus_15).most_common(4)]
-    top_duois = [item[0] for item in Counter(duois_15).most_common(4)]
-
-    # 4. TÍNH KHOẢNG CÁCH NỔ GẦN NHẤT (GAP)
+    # 4. KHOẢNG CÁCH NỔ GẦN NHẤT (GAP)
     db_last_seen = {}
     for idx, db in enumerate(db_history[:60]):
         if db not in db_last_seen:
             db_last_seen[db] = idx
 
-    # 5. TÍNH ĐIỂM CHI TIẾT TỪNG CON SỐ (00 - 99)
+    # 5. CHẤM ĐIỂM MA TRẬN TỔNG HỢP (00 - 99)
     scored_numbers = []
     for i in range(100):
         num_str = f"{i:02d}"
@@ -81,43 +81,43 @@ def analyze_and_predict_db(results):
         tong = (int(d1) + int(d2)) % 10
         gap = db_last_seen.get(num_str, 99)
 
-        # Tránh Đề Gan > 30 ngày & Tránh bệt lại đúng con đề hôm qua
+        # Loại bỏ Đề Gan > 30 ngày & Bệt nguyên con hôm qua
         if gap == 0 or gap > 30:
             continue
 
         score = 0
 
-        # Cộng điểm Chạm (Đầu/Đuôi nằm trong Top Chạm)
-        if d1 in primary_chams: score += 10
-        if d2 in primary_chams: score += 10
+        # Ưu tiên cực cao cho số thuộc 4 ĐẦU hoặc 4 ĐUÔI
+        if d1 in top_daus: score += 12
+        if d2 in top_duois: score += 12
 
-        # Cộng điểm Tổng
+        # Điểm Chạm
+        if d1 in primary_chams: score += 8
+        if d2 in primary_chams: score += 8
+
+        # Điểm Tổng
         if tong in top_tongs: score += 8
 
-        # Cộng điểm Đầu/Đuôi xu hướng
-        if d1 in top_daus: score += 4
-        if d2 in top_duois: score += 4
-
-        # Điểm Nhịp Rơi Chuẩn (Đề hay nổ lại trong khoảng 2 - 15 ngày)
+        # Nhịp rơi vừa phải (2 - 15 ngày)
         if 2 <= gap <= 15: score += 5
 
-        # Điểm Số Lộn / Kép
+        # Điểm Lộn / Kép
         if num_str == (d2_last + d1_last): score += 6
         if d1 == d2: score += 3
 
         scored_numbers.append((num_str, score))
 
-    # Sắp xếp các con số theo tổng điểm giảm dần
+    # Sắp xếp điểm số từ cao xuống thấp
     scored_numbers.sort(key=lambda x: x[1], reverse=True)
 
-    # 6. TRÍCH XUẤT CÁC DÀN THEO TỐI ƯU ĐIỂM
+    # 6. XUẤT DÀN ĐỀ
     list_10 = [item[0] for item in scored_numbers[:10]]
     list_20 = [item[0] for item in scored_numbers[:20]]
     list_36 = [item[0] for item in scored_numbers[:36]]
 
     return {
-        'dau_de': top_daus[:3],
-        'duoi_de': top_duois[:3],
+        'dau_de': top_daus,        # Trả về đủ 4 Đầu
+        'duoi_de': top_duois,      # Trả về đủ 4 Đuôi
         'top_10_db': sorted(list_10),
         'top_20_db': sorted(list_20),
         'top_36_db': sorted(list_36)

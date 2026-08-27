@@ -103,24 +103,25 @@ def auto_update_scheduler():
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     help_text = (
-        "🤖 *BOT DỰ ĐOÁN XỔ SỐ MIỀN BẮC (XSMB)*\n\n"
-        "Các câu lệnh khả dụng:\n"
-        "🔹 `/dudoan` - Nhận dự đoán Bach thủ, Xiên 2, Xiên 3, Xiên 4 hôm nay\n"
-        "🔹 `/dudoandb` - Dự đoán dàn 10, 20, 36 số Giải Đặc Biệt kỳ tiếp theo\n"
-        "🔹 `/ketqua` - Xem kết quả XSMB mới nhất có trong CSDL\n"
-        "🔹 `/capnhat` - Ép bot quét cập nhật kết quả hôm nay ngay lập tức\n"
-        "🔹 `/thongke` hoặc `/stats` - Trạng thái kho dữ liệu hiện tại\n"
-        "🔹 `/test YYYY-MM-DD` - Backtest LÔ & XIÊN ngày cố định\n"
-        "🔹 `/test YYYY-MM-DD => DD` - Backtest LÔ & XIÊN theo dải ngày\n"
-        "🔹 `/testdb YYYY-MM-DD` - Backtest ĐỀ ngày cố định\n"
-        "🔹 `/testdb YYYY-MM-DD => DD` - Backtest ĐỀ theo dải ngày\n"
-        "🔹 `/help` - Xem lại hướng dẫn này"
+        "🤖 *BOT SOI CẦU DỰ ĐOÁN XSMB*\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "📋 *DANH SÁCH LỆNH KHẢ DỤNG:*\n\n"
+        "🎯 *Dự đoán hàng ngày:*\n"
+        "▫️ `/dudoan` : Chốt Bạch Thủ & Dàn Xiên Lô\n"
+        "▫️ `/dudoandb` : Chốt Đầu Đề, Đuôi Đề & Dàn 10/20/36\n\n"
+        "🧪 *Kiểm thử thuật toán (Backtest):*\n"
+        "▫️ `/test YYYY-MM-DD => DD` : Test Lô & Xiên theo dải ngày\n"
+        "▫️ `/testdb YYYY-MM-DD => DD` : Test Đề (Đầu/Đuôi/Dàn) theo dải ngày\n\n"
+        "📊 *Tiện ích hệ thống:*\n"
+        "▫️ `/ketqua` : Xem KTXS mới nhất trong CSDL\n"
+        "▫️ `/capnhat` : Cập nhật kết quả mới nhất lập tức\n"
+        "▫️ `/thongke` : Trạng thái dữ liệu lịch sử"
     )
     bot.reply_to(message, help_text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['dudoan'])
 def handle_prediction(message):
-    msg = bot.reply_to(message, "⏳ Đang phân tích ma trận 100 kỳ gần nhất...")
+    msg = bot.reply_to(message, "⏳ Đang phân tích ma trận nhịp rơi lô tô...")
     today_str = datetime.now().strftime("%Y-%m-%d")
     recent = db.get_results(limit=1) if hasattr(db, 'get_results') else None
     
@@ -137,21 +138,19 @@ def handle_prediction(message):
         pred_data = predictor.analyze_and_predict(results)
         bt = pred_data.get('bach_thu', '--')
         
-        # Định dạng danh sách Xiên
         str_x2 = "\n".join([f"  • Cặp {i+1}: `{pair[0]}` - `{pair[1]}`" for i, pair in enumerate(pred_data.get('xien_2', []))])
         str_x3 = " - ".join([f"`{num}`" for num in pred_data.get('xien_3', [])])
         str_x4 = " - ".join([f"`{num}`" for num in pred_data.get('xien_4', [])])
 
         report = (
-            f"🎯 *DỰ ĐOÁN XỔ SỐ MIỀN BẮC - NGÀY {today_str}*\n"
-            f"📊 _(Phân tích nhịp rơi & phong độ 100 kỳ gần nhất)_\n"
-            f"------------------------------------\n"
+            f"🎯 *BÁO CÁO DỰ ĐOÁN LÔ TÔ - NGÀY {today_str}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
             f"🔥 *Bạch Thủ Lô:* `{bt}`\n\n"
-            f"👯 *Xiên 2 (Các cặp tiềm năng):*\n{str_x2}\n\n"
+            f"👯 *Xiên 2 (Cặp khung đẹp):*\n{str_x2}\n\n"
             f"🥉 *Xiên 3:* {str_x3}\n"
             f"🏅 *Xiên 4:* {str_x4}\n"
-            f"------------------------------------\n"
-            f"💡 *Lời khuyên:* Đánh kèm lộn nhẹ cho Bạch thủ lô để bảo toàn vốn."
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"💡 *Gợi ý:* Đánh lộn nhẹ Bạch thủ để bảo vệ vốn."
         )
         bot.edit_message_text(report, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
     except Exception as e:
@@ -159,7 +158,7 @@ def handle_prediction(message):
 
 @bot.message_handler(commands=['dudoandb'])
 def handle_prediction_db(message):
-    msg = bot.reply_to(message, "👑 Đang phân tích ma trận ĐB 30 kỳ gần nhất...")
+    msg = bot.reply_to(message, "👑 Đang phân tích ma trận Chạm x Tổng Giải Đặc Biệt...")
     results = db.get_results(limit=100) if hasattr(db, 'get_results') else []
 
     if not results:
@@ -168,18 +167,25 @@ def handle_prediction_db(message):
 
     try:
         pred_db = predictor.analyze_and_predict_db(results)
+        
+        dau_de = ", ".join([f"`{d}`" for d in pred_db.get('dau_de', [])]) or "`--`"
+        duoi_de = ", ".join([f"`{d}`" for d in pred_db.get('duoi_de', [])]) or "`--`"
+        
         list_10 = ", ".join(pred_db.get('top_10_db', []))
         list_20 = ", ".join(pred_db.get('top_20_db', []))
         list_36 = ", ".join(pred_db.get('top_36_db', []))
 
         report = (
-            f"🔮 *DỰ ĐOÁN GIẢI ĐẶC BIỆT (ĐỀ ĐUÔI) - KỲ TỚI*\n"
-            f"📊 _(Phân tích Chạm Hot & Tổng Đề nâng cao)_\n"
-            f"------------------------------------\n"
+            f"👑 *DỰ ĐOÁN GIẢI ĐẶC BIỆT KỲ TỚI*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📌 *ĐẦU ĐỀ CHỌN:* {dau_de}\n"
+            f"📌 *ĐUÔI ĐỀ CHỌN:* {duoi_de}\n"
+            f"─────────────────────\n"
             f"🎯 *Dàn 10 số (Trọng tâm):*\n`{list_10}`\n\n"
             f"🎯 *Dàn 20 số (Tối ưu):*\n`{list_20}`\n\n"
-            f"🎯 *Dàn 36 số (Bao phủ):*\n`{list_36}`\n\n"
-            f"💡 *Gợi ý:* Khuyên dùng dàn 20 hoặc 36 số để nuôi khung 2-3 ngày."
+            f"🎯 *Dàn 36 số (Bao phủ):*\n`{list_36}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"💡 *Khuyên dùng:* Kết hợp Đầu/Đuôi với Dàn 20-36 số để đạt hiệu quả cao nhất."
         )
         bot.edit_message_text(report, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
     except Exception as e:
@@ -242,14 +248,14 @@ def handle_test_command(message):
                 return
 
             bt_rate = (bt_hits / valid_cnt) * 100
-            report_header = f"🧪 *BÁO CÁO TEST LÔ & XIÊN ({valid_cnt} NGÀY)*\n------------------------------------\n"
+            report_header = f"🧪 *BÁO CÁO TEST LÔ & XIÊN ({valid_cnt} NGÀY)*\n━━━━━━━━━━━━━━━━━━━━━\n"
             report_footer = (
-                f"\n------------------------------------\n"
+                f"\n━━━━━━━━━━━━━━━━━━━━━\n"
                 f"📊 **TỔNG KẾT TỶ LỆ TRÚNG:**\n"
                 f"🔥 **Bạch Thủ Lô:** Trúng `{bt_hits}/{valid_cnt}` ngày (**{bt_rate:.1f}%**)\n"
                 f"👯 **Xiên 2:** Trúng tổng cộng **{x2_total}** cặp\n"
                 f"🥉 **Xiên 3:** Trúng **{x3_hits}/{valid_cnt}** ngày\n"
-                f"🏅 **Xiên 4:** Trúng **{x4_hits}/{valid_cnt}** ngày\n"
+                f"🏅 **Xiên 4:** Trúng **{x4_hits}/{valid_cnt}** ngày"
             )
 
             full_report = report_header + "\n".join(details_list) + report_footer
@@ -279,11 +285,11 @@ def handle_test_command(message):
 
             report = (
                 f"🧪 *BÁO CÁO TEST LÔ & XIÊN NGÀY {target_date}*\n"
-                f"------------------------------------\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🔥 *Bạch Thủ Lô ({res.get('bach_thu')})*: {bt_icon}\n"
                 f"👯 *Xiên 2*: Trúng {res.get('xien_2_hits_count', 0)}/2 cặp\n"
                 f"🥉 *Xiên 3 ({', '.join(res.get('xien_3', []))})*: {x3_icon}\n"
-                f"🏅 *Xiên 4 ({', '.join(res.get('xien_4', []))})*: {x4_icon}\n"
+                f"🏅 *Xiên 4 ({', '.join(res.get('xien_4', []))})*: {x4_icon}"
             )
             bot.edit_message_text(report, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
         except Exception as e:
@@ -305,7 +311,7 @@ def handle_test_db_command(message):
         msg = bot.reply_to(message, f"⏳ Đang test ĐỀ {len(dates_to_test)} ngày...", parse_mode="Markdown")
         try:
             all_data = db.get_results(limit=500) if hasattr(db, 'get_results') else []
-            h10 = h20 = h36 = valid_cnt = 0
+            h_dau = h_duoi = h10 = h20 = h36 = valid_cnt = 0
             details_list = []
 
             for target_date in dates_to_test:
@@ -318,26 +324,33 @@ def handle_test_db_command(message):
                 if not res: continue
 
                 valid_cnt += 1
+                if res.get('is_hit_dau'): h_dau += 1
+                if res.get('is_hit_duoi'): h_duoi += 1
                 if res['is_hit_10']: h10 += 1
                 if res['is_hit_20']: h20 += 1
                 if res['is_hit_36']: h36 += 1
 
+                dau_icon = '✅' if res.get('is_hit_dau') else '❌'
+                duoi_icon = '✅' if res.get('is_hit_duoi') else '❌'
+
                 details_list.append(
                     f"📅 **{target_date}** (Đề: **{res['actual_db']}**)\n"
-                    f"└ Dàn 10: {'✅' if res['is_hit_10'] else '❌'} | Dàn 20: {'✅' if res['is_hit_20'] else '❌'} | Dàn 36: {'✅' if res['is_hit_36'] else '❌'}"
+                    f"└ Đầu: {dau_icon} | Đuôi: {duoi_icon} | D10: {'✅' if res['is_hit_10'] else '❌'} | D20: {'✅' if res['is_hit_20'] else '❌'} | D36: {'✅' if res['is_hit_36'] else '❌'}"
                 )
 
             if valid_cnt == 0:
                 bot.edit_message_text("❌ Không tìm thấy dữ liệu.", chat_id=message.chat.id, message_id=msg.message_id)
                 return
 
-            report_header = f"👑 *BÁO CÁO TEST GIẢI ĐẶC BIỆT ({valid_cnt} NGÀY)*\n------------------------------------\n"
+            report_header = f"👑 *BÁO CÁO TEST GIẢI ĐẶC BIỆT ({valid_cnt} NGÀY)*\n━━━━━━━━━━━━━━━━━━━━━\n"
             report_footer = (
-                f"\n------------------------------------\n"
+                f"\n━━━━━━━━━━━━━━━━━━━━━\n"
                 f"📊 **TỔNG KẾT TỶ LỆ TRÚNG:**\n"
-                f"🎯 **Dàn 10 số:** `{h10}/{valid_cnt}` ngày (**{(h10/valid_cnt)*100:.1f}%**)\n"
-                f"🎯 **Dàn 20 số:** `{h20}/{valid_cnt}` ngày (**{(h20/valid_cnt)*100:.1f}%**)\n"
-                f"🎯 **Dàn 36 số:** `{h36}/{valid_cnt}` ngày (**{(h36/valid_cnt)*100:.1f}%**)\n"
+                f"📌 **Đầu Đề:** Trúng `{h_dau}/{valid_cnt}` ngày (**{(h_dau/valid_cnt)*100:.1f}%**)\n"
+                f"📌 **Đuôi Đề:** Trúng `{h_duoi}/{valid_cnt}` ngày (**{(h_duoi/valid_cnt)*100:.1f}%**)\n"
+                f"🎯 **Dàn 10 số:** Trúng `{h10}/{valid_cnt}` ngày (**{(h10/valid_cnt)*100:.1f}%**)\n"
+                f"🎯 **Dàn 20 số:** Trúng `{h20}/{valid_cnt}` ngày (**{(h20/valid_cnt)*100:.1f}%**)\n"
+                f"🎯 **Dàn 36 số:** Trúng `{h36}/{valid_cnt}` ngày (**{(h36/valid_cnt)*100:.1f}%**)"
             )
 
             full_report = report_header + "\n".join(details_list) + report_footer
@@ -368,9 +381,10 @@ def handle_latest_result(message):
     lotto_list = ", ".join(nums)
     
     res_msg = (
-        f"📊 *KẾT QUẢ XSMB NGÀY {date_str}*\n\n"
+        f"📊 *KẾT QUẢ XSMB NGÀY {date_str}*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"🏆 **Giải Đặc Biệt:** `{db_val}`\n"
-        f"🥇 **Giải Nhất:** `{g1_val}`\n"
+        f"🥇 **Giải Nhất:** `{g1_val}`\n\n"
         f"🎲 **Lô tô về ({len(nums)} giải):**\n`{lotto_list}`"
     )
     bot.reply_to(message, res_msg, parse_mode="Markdown")
@@ -389,9 +403,10 @@ def handle_stats(message):
     min_d, max_d = db.get_date_range() if hasattr(db, 'get_date_range') else (None, None)
     
     stats_msg = (
-        "📈 *THỐNG KÊ CSDL*\n\n"
-        f"▫️ **Tổng số ngày:** `{count}` ngày\n"
-        f"▫️ **Từ ngày:** `{normalize_date(min_d)}` ➔ `{normalize_date(max_d)}`"
+        f"📈 *THỐNG KÊ KHO DỮ LIỆU*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"▫️ **Tổng số ngày lưu trữ:** `{count}` ngày\n"
+        f"▫️ **Thời gian CSDL:** `{normalize_date(min_d)}` ➔ `{normalize_date(max_d)}`"
     )
     bot.reply_to(message, stats_msg, parse_mode="Markdown")
 

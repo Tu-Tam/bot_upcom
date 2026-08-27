@@ -1,42 +1,36 @@
 import json
 from collections import Counter
 
+# Bảng Ma Trận Bóng Âm / Dương dùng cho Đề & Lô
+BONG_DUONG = {'0':'5', '1':'6', '2':'7', '3':'8', '4':'9', '5':'0', '6':'1', '7':'2', '8':'3', '9':'4'}
+BONG_AM    = {'0':'7', '1':'4', '2':'9', '3':'6', '4':'1', '5':'8', '6':'3', '7':'0', '8':'5', '9':'2'}
+
 def parse_numbers(row):
-    """
-    Hàm chuẩn hóa CSDL an toàn 100%, chống lỗi 'Thiếu CSDL'
-    """
+    """Trích xuất dữ liệu mảng số an toàn từ CSDL"""
     if not row:
         return []
-    
-    # Nếu là dict
     if isinstance(row, dict):
         nums = row.get('numbers') or row.get('prizes') or row.get('results') or []
         if isinstance(nums, str):
             try: nums = json.loads(nums)
             except: nums = nums.split(',')
         if isinstance(nums, list):
-            res = []
-            for n in nums:
-                s = str(n).strip()
-                if s: res.append(s.zfill(2)[-2:])
-            return res
+            return [str(n).strip().zfill(2)[-2:] for n in nums if str(n).strip()]
 
-    # Nếu là string
     if isinstance(row, str):
         try:
             parsed = json.loads(row)
             if isinstance(parsed, list):
-                return [str(n).zfill(2)[-2:] for n in parsed if str(n).strip()]
+                return [str(n).strip().zfill(2)[-2:] for n in parsed if str(n).strip()]
         except:
-            return [s.zfill(2)[-2:] for s in row.split(',') if s.strip()]
+            return [s.strip().zfill(2)[-2:] for s in row.split(',') if s.strip()]
 
-    # Nếu là list
     if isinstance(row, list):
-        return [str(n).zfill(2)[-2:] for n in row if str(n).strip()]
+        return [str(n).strip().zfill(2)[-2:] for n in row if str(n).strip()]
 
     return []
 
-# --- THUẬT TOÁN DỰ ĐOÁN LÔ TÔ (CÂN BẰNG TẦN SUẤT & BIÊN ĐỘ) ---
+# --- THUẬT TOÁN DỰ ĐOÁN LÔ TÔ (MA TRẬN TRỌNG SỐ 3 LỚP) ---
 def analyze_and_predict(results):
     if not results or len(results) < 5:
         return None
@@ -44,54 +38,69 @@ def analyze_and_predict(results):
     data_100 = results[:100]
     data_10 = results[:10]
     data_3 = results[:3]
+    today_last = parse_numbers(results[0])
+    yesterday_last = parse_numbers(results[1]) if len(results) > 1 else []
 
-    # 1. Tần suất 100 ngày (Trọng số 1.0)
+    # 1. Tần suất 100 kỳ (Trọng số 0.5)
     all_100 = []
     for r in data_100:
         all_100.extend(parse_numbers(r))
     freq_100 = Counter(all_100)
 
-    # 2. Tần suất 10 ngày gần nhất (Trọng số 2.5 - Hot Trend)
+    # 2. Tần suất 10 kỳ ngắn hạn (Trọng số 2.0)
     all_10 = []
     for r in data_10:
         all_10.extend(parse_numbers(r))
     freq_10 = Counter(all_10)
 
-    # 3. Lô vừa ra ngày gần nhất
-    today_nums = parse_numbers(results[0])
+    # 3. Thống kê Đầu / Đuôi Câm kỳ vừa rồi
+    heads = [n[0] for n in today_last if len(n) == 2]
+    tails = [n[1] for n in today_last if len(n) == 2]
+    cam_heads = [str(h) for h in range(10) if str(h) not in heads]
+    cam_tails = [str(t) for t in range(10) if str(t) not in tails]
 
-    # Tính điểm cho 100 con số (00 - 99)
+    # Tính điểm
     scores = {}
     for i in range(100):
         num_str = f"{i:02d}"
         f100 = freq_100.get(num_str, 0)
         f10 = freq_10.get(num_str, 0)
 
-        # Công thức tính điểm chuẩn
-        score = (f100 * 0.8) + (f10 * 2.2)
+        # Trọng số đa tầng
+        score = (f100 * 0.5) + (f10 * 2.5)
 
-        # Phạt nhẹ lô rơi bệt (trừ 15% điểm nếu vừa ra hôm qua)
-        if num_str in today_nums:
-            score *= 0.85
+        # Lô rơi lại kỳ vừa rồi: Giữ mức điểm vừa phải
+        if num_str in today_last:
+            score *= 0.9
+
+        # Lô ra 2-3 kỳ liên tiếp (Hot Streak): Tăng điểm nhẹ
+        f3 = sum(1 for r in data_3 if num_str in parse_numbers(r))
+        if f3 >= 2:
+            score += 2.0
+
+        # Điểm thưởng cho Đầu/Đuôi câm
+        if num_str[0] in cam_heads: score += 2.0
+        if num_str[1] in cam_tails: score += 2.0
 
         scores[num_str] = score
 
-    # Sắp xếp số theo điểm cao xuống thấp
+    # Sắp xếp số theo điểm
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    top_candidates = [item[0] for item in ranked]
+    candidates = [item[0] for item in ranked]
 
-    # Kẹp cặp lộn tự động vào Top 5 / Top 10
+    # Ghép Top theo Cặp Lộn
     final_top = []
-    for num in top_candidates:
+    for num in candidates:
         if num not in final_top:
             final_top.append(num)
         
         pair = num[1] + num[0]
+        # Ưu tiên đưa cặp lộn vào nếu thuộc top đầu
         if pair not in final_top and len(final_top) < 10:
-            if top_candidates.index(num) < 3: # Nếu thuộc Top 3 thì kéo con lộn đi cùng
+            if candidates.index(num) < 4:
                 final_top.append(pair)
 
-    for num in top_candidates:
+    for num in candidates:
         if num not in final_top:
             final_top.append(num)
         if len(final_top) >= 10:
@@ -104,32 +113,36 @@ def analyze_and_predict(results):
         'top_10': final_top[:10]
     }
 
-# --- THUẬT TOÁN DỰ ĐOÁN GIẢI ĐẶC BIỆT (CHẠM & TỔNG) ---
+# --- THUẬT TOÁN DỰ ĐOÁN GIẢI ĐẶC BIỆT (MA TRẬN BÓNG ÂM DƯƠNG & CHẠM KHUYẾT) ---
 def analyze_and_predict_db(results):
     if not results or len(results) < 5:
         return None
 
-    db_list = []
+    db_history = []
     for r in results[:30]:
         nums = parse_numbers(r)
         if nums:
-            db_list.append(nums[0]) # Số đầu tiên là Đề Giải Đặc Biệt
+            db_history.append(nums[0])
 
-    if not db_list:
+    if not db_history:
         return None
 
-    # Thống kê Chạm và Tổng
-    chams, tongs = [], []
-    for db in db_list:
-        if len(db) >= 2 and db.isdigit():
-            d1, d2 = int(db[0]), int(db[1])
-            chams.extend([d1, d2])
-            tongs.append((d1 + d2) % 10)
+    last_db = db_history[0] # Đề kỳ gần nhất
+    d1_last, d2_last = last_db[0], last_db[1]
 
-    top_chams = [item[0] for item in Counter(chams).most_common(6)]
-    top_tongs = [item[0] for item in Counter(tongs).most_common(6)]
+    # Lấy danh sách Chạm & Tổng dựa trên Bóng Âm Dương của Đề kỳ trước
+    target_chams = set([
+        d1_last, d2_last,
+        BONG_DUONG.get(d1_last, ''), BONG_DUONG.get(d2_last, ''),
+        BONG_AM.get(d1_last, ''), BONG_AM.get(d2_last, '')
+    ])
+    target_chams = {int(c) for c in target_chams if c.isdigit()}
 
-    # Đánh điểm cho 100 số đề
+    # Thống kê Tổng 15 kỳ gần nhất
+    tongs = [(int(db[0]) + int(db[1])) % 10 for db in db_history[:15] if len(db) == 2]
+    top_tongs = [item[0] for item in Counter(tongs).most_common(5)]
+
+    # Tạo bảng điểm cho 100 con đề
     db_scores = {}
     for i in range(100):
         num_str = f"{i:02d}"
@@ -137,28 +150,26 @@ def analyze_and_predict_db(results):
         tong = (d1 + d2) % 10
 
         score = 0
-        if d1 in top_chams: score += 3.0
-        if d2 in top_chams: score += 3.0
-        if tong in top_tongs: score += 2.5
+        if d1 in target_chams: score += 3.5
+        if d2 in target_chams: score += 3.5
+        if tong in top_tongs: score += 2.0
         
+        # Thưởng điểm cho số kép âm/dương hoặc số lộn của đề hôm qua
+        if d1 == d2: score += 1.0
+        if num_str == (d2_last + d1_last): score += 2.5
+
         db_scores[num_str] = score
 
-    # Sắp xếp số đề theo điểm số
     ranked_db = sorted(db_scores.items(), key=lambda x: x[1], reverse=True)
     sorted_numbers = [item[0] for item in ranked_db]
 
-    # Chuẩn hóa Dàn 10, 20, 36 theo thứ tự điểm cao nhất
-    dan_10 = sorted_numbers[:10]
-    dan_20 = sorted_numbers[:20]
-    dan_36 = sorted_numbers[:36]
-
     return {
-        'top_10_db': sorted(dan_10),
-        'top_20_db': sorted(dan_20),
-        'top_36_db': sorted(dan_36)
+        'top_10_db': sorted(sorted_numbers[:10]),
+        'top_20_db': sorted(sorted_numbers[:20]),
+        'top_36_db': sorted(sorted_numbers[:36])
     }
 
-# --- HÀM BACKTEST LÔ TÔ ---
+# --- HÀM BACKTEST LÔ ---
 def test_prediction_accuracy(historical_data, actual_numbers):
     if not historical_data or not actual_numbers:
         return None
@@ -198,7 +209,7 @@ def test_db_accuracy(historical_data, actual_numbers):
     if not actual_formatted:
         return None
 
-    actual_db = actual_formatted[0] # Đề là con số đầu tiên
+    actual_db = actual_formatted[0]
     pred_db = analyze_and_predict_db(historical_data)
     if not pred_db:
         return None

@@ -1,83 +1,71 @@
 import json
 from collections import Counter
 
-def extract_lotto_numbers(numbers):
-    """ Tách 2 số cuối của tất cả các giải """
-    if isinstance(numbers, str):
+def parse_numbers(row):
+    """Chuẩn hóa dữ liệu danh sách số từ CSDL"""
+    nums = row.get('numbers', [])
+    if isinstance(nums, str):
         try:
-            numbers = json.loads(numbers)
+            nums = json.loads(nums)
         except:
-            numbers = numbers.split(',')
-    
-    lotto_list = []
-    for n in numbers:
-        n_str = str(n).strip()
-        if len(n_str) >= 2:
-            lotto_list.append(n_str[-2:])
-    return lotto_list
+            nums = nums.split(',')
+    return [str(n).zfill(2)[-2:] for n in nums if str(n).strip()]
 
-def extract_special_prize(numbers):
-    """ Lấy 2 số cuối của Giải Đặc Biệt (Đề) """
-    if isinstance(numbers, str):
-        try:
-            numbers = json.loads(numbers)
-        except:
-            numbers = numbers.split(',')
-            
-    if len(numbers) > 0:
-        db_str = str(numbers[0]).strip()
-        if len(db_str) >= 2:
-            return db_str[-2:]
-    return None
+# --- THUẬT TOÁN DỰ ĐOÁN LÔ TÔ ---
+def analyze_and_predict(results):
+    if not results or len(results) < 10:
+        return None
 
+    # Lấy 100 kỳ gần nhất (hoặc tối đa có thể)
+    data_100 = results[:100]
+    recent_5 = results[:5]
+    today_last = parse_numbers(results[0])
 
-def analyze_and_predict(data):
-    """
-    Dự đoán LÔ TÔ - Tối ưu hóa nhịp rơi 100 kỳ
-    """
-    if not data:
-        return {'bach_thu': '00', 'song_thu': ['00', '01'], 'top_5': [], 'top_10': []}
+    # 1. Thống kê tần suất 100 kỳ
+    all_lottos_100 = []
+    for r in data_100:
+        all_lottos_100.extend(parse_numbers(r))
+    freq_100 = Counter(all_lottos_100)
 
-    data_100 = data[:100]
-    all_lotto = []
-    
-    # 1. Thống kê tần suất
-    for row in data_100:
-        nums = row.get('numbers', [])
-        all_lotto.extend(extract_lotto_numbers(nums))
+    # 2. Thống kê phong độ 5 kỳ gần nhất (Trọng số nhân 2)
+    all_lottos_5 = []
+    for r in recent_5:
+        all_lottos_5.extend(parse_numbers(r))
+    freq_5 = Counter(all_lottos_5)
 
-    counts = Counter(all_lotto)
-    
-    # 2. Tính điểm nhịp rơi & khoảng cách (Gan)
+    # 3. Tính điểm trọng số cho 100 con số (00 - 99)
     scores = {}
     for i in range(100):
         num_str = f"{i:02d}"
-        freq = counts.get(num_str, 0)
+        f100 = freq_100.get(num_str, 0)
+        f5 = freq_5.get(num_str, 0)
         
-        # Tìm ngày gần nhất xuất hiện
-        last_seen = -1
-        for idx, row in enumerate(data_100):
-            if num_str in extract_lotto_numbers(row.get('numbers', [])):
-                last_seen = idx
-                break
-        
-        # Điểm tần suất base
-        score = freq * 2.0
-        
-        # Thưởng điểm cho số đang ở nhịp rơi đẹp (3 - 7 ngày chưa về)
-        if 3 <= last_seen <= 7:
-            score += 8.0
-        elif last_seen > 25: # Phạt điểm số quá gan
-            score -= 10.0
-            
+        # Điểm cơ bản
+        score = (f100 * 1.0) + (f5 * 2.5)
+
+        # Trừ điểm phạt nếu con số vừa về ở kỳ gần nhất (tránh kẹt số)
+        if num_str in today_last:
+            score *= 0.6  # Phạt 40% điểm
+
+        # Thêm điểm thưởng nếu có Đầu/Đuôi câm kỳ trước
+        heads = [n[0] for n in today_last]
+        tails = [n[1] for n in today_last]
+        cam_heads = [str(h) for h in range(10) if str(h) not in heads]
+        cam_tails = [str(t) for t in range(10) if str(t) not in tails]
+
+        if num_str[0] in cam_heads: score += 3.0
+        if num_str[1] in cam_tails: score += 3.0
+
         scores[num_str] = score
 
-    sorted_lotto = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    # Sắp xếp danh sách số theo điểm giảm dần
+    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    top_numbers = [item[0] for item in ranked]
 
-    bach_thu = sorted_lotto[0][0]
-    song_thu = [sorted_lotto[0][0], sorted_lotto[1][0]]
-    top_5 = [x[0] for x in sorted_lotto[:5]]
-    top_10 = [x[0] for x in sorted_lotto[:10]]
+    bach_thu = top_numbers[0]
+    song_thu = [top_numbers[1], top_numbers[2]]
+    top_5 = top_numbers[:5]
+    top_10 = top_numbers[:10]
 
     return {
         'bach_thu': bach_thu,
@@ -86,135 +74,122 @@ def analyze_and_predict(data):
         'top_10': top_10
     }
 
+# --- THUẬT TOÁN DỰ ĐOÁN GIẢI ĐẶC BIỆT (ĐỀ) ---
+def analyze_and_predict_db(results):
+    if not results or len(results) < 10:
+        return None
 
-def analyze_and_predict_db(data):
-    """
-    Dự đoán GIẢI ĐẶC BIỆT (ĐỀ) - Thuật toán Ma trận 5 Nhân tố (High Win-Rate)
-    """
-    if not data:
-        return {'top_10_db': [], 'top_20_db': [], 'top_36_db': []}
+    # Lấy 30 kỳ gần nhất để soi Chạm & Tổng
+    recent_30 = results[:30]
+    db_list = []
+    for r in recent_30:
+        nums = parse_numbers(r)
+        if nums:
+            db_list.append(nums[0]) # Số đầu tiên là GĐB
 
-    data_100 = data[:100]
-    
-    db_history = []
-    heads = []
-    tails = []
-    sums = []
-    
-    for row in data_100:
-        nums = row.get('numbers', [])
-        db_val = extract_special_prize(nums)
-        if db_val and len(db_val) == 2:
-            db_history.append(db_val)
-            h, t = int(db_val[0]), int(db_val[1])
-            heads.append(h)
-            tails.append(t)
-            sums.append((h + t) % 10)
+    if not db_list:
+        return None
 
-    if not db_history:
-        return {'top_10_db': [], 'top_20_db': [], 'top_36_db': []}
+    # Phân tích Chạm (Đầu/Đuôi) và Tổng hot trong 30 kỳ
+    chams = []
+    tongs = []
+    for db in db_list:
+        d1, d2 = int(db[0]), int(db[1])
+        chams.extend([d1, d2])
+        tongs.append((d1 + d2) % 10)
 
-    # Dem tần suất
-    count_db = Counter(db_history)
-    count_head = Counter(heads)
-    count_tail = Counter(tails)
-    count_sum = Counter(sums)
+    top_chams = [item[0] for item in Counter(chams).most_common(4)] # Lấy 4 chạm hot
+    top_tongs = [item[0] for item in Counter(tongs).most_common(4)] # Lấy 4 tổng hot
 
-    # Lấy thông tin kỳ vừa về gần nhất
-    last_db = db_history[0]
-    last_h, last_t = int(last_db[0]), int(last_db[1])
-    
-    # Bóng dương: 0-5, 1-6, 2-7, 3-8, 4-9
-    bg_h = (last_h + 5) % 10
-    bg_t = (last_t + 5) % 10
-
-    scores = {}
+    # Tạo Dàn 36, 20, 10 dựa trên Chạm + Tổng
+    dan_36, dan_20, dan_10 = [], [], []
 
     for i in range(100):
         num_str = f"{i:02d}"
-        h, t = int(num_str[0]), int(num_str[1])
-        s = (h + t) % 10
+        d1, d2 = int(num_str[0]), int(num_str[1])
+        tong = (d1 + d2) % 10
 
-        # --- YẾU TỐ 1: Tần suất Trục Đầu - Đuôi - Tổng (Weight cao) ---
-        score = (count_head[h] * 3.5) + (count_tail[t] * 3.5) + (count_sum[s] * 2.5)
+        is_cham = (d1 in top_chams or d2 in top_chams)
+        is_tong = (tong in top_tongs)
 
-        # --- YẾU TỐ 2: Tần suất chính xác con số đó ---
-        score += count_db.get(num_str, 0) * 5.0
+        # Dàn 36: Thuộc Chạm hot HOẶC Tổng hot
+        if is_cham or is_tong:
+            dan_36.append(num_str)
+        # Dàn 20: Thuộc Chạm hot VÀ (Tổng thuộc top 6)
+        if is_cham and (tong in top_tongs[:6]):
+            dan_20.append(num_str)
+        # Dàn 10: Vừa thuộc 2 Chạm hot nhất VÀ Tổng hot nhất
+        if (d1 in top_chams[:2] or d2 in top_chams[:2]) and is_tong:
+            dan_10.append(num_str)
 
-        # --- YẾU TỐ 3: Bắt Cầu Bóng & Chạm Kỳ Trước ---
-        if h == bg_h or t == bg_t:
-            score += 6.0  # Ưu tiên bóng
-        if h == last_h or t == last_t:
-            score += 4.0  # Ưu tiên giữ chạm
-
-        # --- YẾU TỐ 4: Phân tích Nhịp Gan (Khoảng cách nổ) ---
-        last_seen_idx = -1
-        for idx, val in enumerate(db_history):
-            if val == num_str:
-                last_seen_idx = idx
-                break
-        
-        if last_seen_idx == -1 or last_seen_idx > 40:
-            score -= 12.0  # Trừ điểm nặng đề quá gan (>40 ngày)
-        elif 8 <= last_seen_idx <= 20:
-            score += 7.0   # Thưởng điểm khung nhịp rơi chuẩn (8-20 ngày)
-            
-        scores[num_str] = score
-
-    # Sắp xếp danh sách theo Điểm số giảm dần
-    sorted_db = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-
-    top_10 = [x[0] for x in sorted_db[:10]]
-    top_20 = [x[0] for x in sorted_db[:20]]
-    top_36 = [x[0] for x in sorted_db[:36]]
+    # Đảm bảo đủ số lượng chuẩn cho các dàn
+    all_possible = [f"{i:02d}" for i in range(100)]
+    
+    dan_36 = (dan_36 + [x for x in all_possible if x not in dan_36])[:36]
+    dan_20 = (dan_20 + [x for x in all_possible if x not in dan_20])[:20]
+    dan_10 = (dan_10 + [x for x in all_possible if x not in dan_10])[:10]
 
     return {
-        'top_10_db': top_10,
-        'top_20_db': top_20,
-        'top_36_db': top_36
+        'top_10_db': sorted(dan_10),
+        'top_20_db': sorted(dan_20),
+        'top_36_db': sorted(dan_36)
     }
 
-
+# --- HÀM BACKTEST LÔ TÔ ---
 def test_prediction_accuracy(historical_data, actual_numbers):
-    """ Test độ chính xác LÔ """
     if not historical_data or not actual_numbers:
         return None
 
+    actual_formatted = [str(n).zfill(2)[-2:] for n in actual_numbers]
     pred = analyze_and_predict(historical_data)
-    actual_lotto = extract_lotto_numbers(actual_numbers)
+    if not pred:
+        return None
+
+    bt = pred['bach_thu']
+    st = pred['song_thu']
+    t5 = pred['top_5']
+    t10 = pred['top_10']
+
+    bt_hit = bt in actual_formatted
+    st_hits = sum(1 for x in st if x in actual_formatted)
+    t5_hits = sum(1 for x in t5 if x in actual_formatted)
+    t10_hits = sum(1 for x in t10 if x in actual_formatted)
 
     return {
-        'bach_thu': pred['bach_thu'],
-        'bach_thu_hit': pred['bach_thu'] in actual_lotto,
-        'song_thu': pred['song_thu'],
-        'song_thu_hits': sum(1 for x in pred['song_thu'] if x in actual_lotto),
-        'top_5': pred['top_5'],
-        'top_5_hits': sum(1 for x in pred['top_5'] if x in actual_lotto),
-        'top_10': pred['top_10'],
-        'top_10_hits': sum(1 for x in pred['top_10'] if x in actual_lotto),
-        'actual_numbers': actual_lotto,
-        'actual_count': len(actual_lotto)
+        'bach_thu': bt,
+        'bach_thu_hit': bt_hit,
+        'song_thu': st,
+        'song_thu_hits': st_hits,
+        'top_5': t5,
+        'top_5_hits': t5_hits,
+        'top_10': t10,
+        'top_10_hits': t10_hits,
+        'actual_numbers': actual_formatted,
+        'actual_count': len(actual_formatted)
     }
 
-
+# --- HÀM BACKTEST ĐỀ ---
 def test_db_accuracy(historical_data, actual_numbers):
-    """ Test độ chính xác GIẢI ĐẶC BIỆT """
     if not historical_data or not actual_numbers:
         return None
 
-    actual_db = extract_special_prize(actual_numbers)
-    if not actual_db:
-        return None
+    actual_formatted = [str(n).zfill(2)[-2:] for n in actual_numbers]
+    actual_db = actual_formatted[0] if actual_formatted else ""
 
     pred_db = analyze_and_predict_db(historical_data)
+    if not pred_db:
+        return None
+
+    d10 = pred_db.get('top_10_db', [])
+    d20 = pred_db.get('top_20_db', [])
+    d36 = pred_db.get('top_36_db', [])
 
     return {
         'actual_db': actual_db,
-        'predicted_10': pred_db.get('top_10_db', []),
-        'predicted_20': pred_db.get('top_20_db', []),
-        'predicted_36': pred_db.get('top_36_db', []),
-        'is_hit_10': actual_db in pred_db.get('top_10_db', []),
-        'is_hit_20': actual_db in pred_db.get('top_20_db', []),
-        'is_hit_36': actual_db in pred_db.get('top_36_db', []),
-        'is_hit': actual_db in pred_db.get('top_10_db', [])
+        'predicted_10': d10,
+        'predicted_20': d20,
+        'predicted_36': d36,
+        'is_hit_10': actual_db in d10,
+        'is_hit_20': actual_db in d20,
+        'is_hit_36': actual_db in d36
     }

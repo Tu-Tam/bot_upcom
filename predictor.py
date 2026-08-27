@@ -1,12 +1,12 @@
 import json
 from collections import Counter
+from itertools import combinations
 
-# Bảng Ma Trận Bóng Âm / Dương dùng cho Đề & Lô
 BONG_DUONG = {'0':'5', '1':'6', '2':'7', '3':'8', '4':'9', '5':'0', '6':'1', '7':'2', '8':'3', '9':'4'}
 BONG_AM    = {'0':'7', '1':'4', '2':'9', '3':'6', '4':'1', '5':'8', '6':'3', '7':'0', '8':'5', '9':'2'}
 
 def parse_numbers(row):
-    """Trích xuất dữ liệu mảng số an toàn từ CSDL"""
+    """Trích xuất dữ liệu mảng số an toàn"""
     if not row:
         return []
     if isinstance(row, dict):
@@ -30,90 +30,73 @@ def parse_numbers(row):
 
     return []
 
-# --- THUẬT TOÁN DỰ ĐOÁN LÔ TÔ (MA TRẬN TRỌNG SỐ 3 LỚP) ---
+# --- THUẬT TOÁN DỰ ĐOÁN LÔ TÔ (BẠCH THỦ & XIÊN 2, 3, 4) ---
 def analyze_and_predict(results):
     if not results or len(results) < 5:
         return None
 
     data_100 = results[:100]
     data_10 = results[:10]
-    data_3 = results[:3]
+    
     today_last = parse_numbers(results[0])
     yesterday_last = parse_numbers(results[1]) if len(results) > 1 else []
 
-    # 1. Tần suất 100 kỳ (Trọng số 0.5)
-    all_100 = []
-    for r in data_100:
-        all_100.extend(parse_numbers(r))
+    # Tần suất
+    all_100 = [n for r in data_100 for n in parse_numbers(r)]
     freq_100 = Counter(all_100)
 
-    # 2. Tần suất 10 kỳ ngắn hạn (Trọng số 2.0)
-    all_10 = []
-    for r in data_10:
-        all_10.extend(parse_numbers(r))
+    all_10 = [n for r in data_10 for n in parse_numbers(r)]
     freq_10 = Counter(all_10)
 
-    # 3. Thống kê Đầu / Đuôi Câm kỳ vừa rồi
+    # Đầu/Đuôi câm
     heads = [n[0] for n in today_last if len(n) == 2]
     tails = [n[1] for n in today_last if len(n) == 2]
     cam_heads = [str(h) for h in range(10) if str(h) not in heads]
     cam_tails = [str(t) for t in range(10) if str(t) not in tails]
 
-    # Tính điểm
     scores = {}
     for i in range(100):
         num_str = f"{i:02d}"
         f100 = freq_100.get(num_str, 0)
         f10 = freq_10.get(num_str, 0)
 
-        # Trọng số đa tầng
-        score = (f100 * 0.5) + (f10 * 2.5)
+        # Trọng số nền
+        score = (f100 * 0.4) + (f10 * 2.8)
 
-        # Lô rơi lại kỳ vừa rồi: Giữ mức điểm vừa phải
-        if num_str in today_last:
-            score *= 0.9
+        # Kiểm tra chuỗi rơi
+        in_today = num_str in today_last
+        in_yesterday = num_str in yesterday_last
 
-        # Lô ra 2-3 kỳ liên tiếp (Hot Streak): Tăng điểm nhẹ
-        f3 = sum(1 for r in data_3 if num_str in parse_numbers(r))
-        if f3 >= 2:
-            score += 2.0
+        if in_today and in_yesterday:
+            score += 3.0 # Đang rơi liên tục
+        elif in_today:
+            score *= 0.75 # Hạ bớt trọng số nếu mới về 1 kỳ để chống kẹt số
 
-        # Điểm thưởng cho Đầu/Đuôi câm
-        if num_str[0] in cam_heads: score += 2.0
-        if num_str[1] in cam_tails: score += 2.0
+        # Thưởng điểm Câm
+        if num_str[0] in cam_heads: score += 2.5
+        if num_str[1] in cam_tails: score += 2.5
 
         scores[num_str] = score
 
-    # Sắp xếp số theo điểm
+    # Sắp xếp lấy các con lô có điểm cao nhất
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    candidates = [item[0] for item in ranked]
+    top_candidates = [item[0] for item in ranked[:6]] # Lấy top 6 con đẹp nhất để ghép Xiên
 
-    # Ghép Top theo Cặp Lộn
-    final_top = []
-    for num in candidates:
-        if num not in final_top:
-            final_top.append(num)
-        
-        pair = num[1] + num[0]
-        # Ưu tiên đưa cặp lộn vào nếu thuộc top đầu
-        if pair not in final_top and len(final_top) < 10:
-            if candidates.index(num) < 4:
-                final_top.append(pair)
+    bach_thu = top_candidates[0]
 
-    for num in candidates:
-        if num not in final_top:
-            final_top.append(num)
-        if len(final_top) >= 10:
-            break
+    # Tạo cặp Xiên 2, Xiên 3, Xiên 4 từ dàn hạt giống đẹp nhất
+    xien_2 = list(combinations(top_candidates[:4], 2))[:2] # Lấy 2 cặp Xiên 2
+    xien_3 = list(combinations(top_candidates[:5], 3))[:1] # Lấy 1 bộ Xiên 3
+    xien_4 = list(combinations(top_candidates[:6], 4))[:1] # Lấy 1 bộ Xiên 4
 
     return {
-        'bach_thu': final_top[0],
-        'song_thu': [final_top[1], final_top[2]],
-        'top_5': final_top[:5],
-        'top_10': final_top[:10]
+        'bach_thu': bach_thu,
+        'xien_2': [list(x) for x in xien_2],
+        'xien_3': [list(x) for x in xien_3][0] if xien_3 else [],
+        'xien_4': [list(x) for x in xien_4][0] if xien_4 else []
     }
 
-# --- THUẬT TOÁN DỰ ĐOÁN GIẢI ĐẶC BIỆT (MA TRẬN BÓNG ÂM DƯƠNG & CHẠM KHUYẾT) ---
+# --- THUẬT TOÁN DỰ ĐOÁN ĐỀ ---
 def analyze_and_predict_db(results):
     if not results or len(results) < 5:
         return None
@@ -127,36 +110,33 @@ def analyze_and_predict_db(results):
     if not db_history:
         return None
 
-    last_db = db_history[0] # Đề kỳ gần nhất
+    last_db = db_history[0]
     d1_last, d2_last = last_db[0], last_db[1]
 
-    # Lấy danh sách Chạm & Tổng dựa trên Bóng Âm Dương của Đề kỳ trước
-    target_chams = set([
+    target_chams = [
         d1_last, d2_last,
         BONG_DUONG.get(d1_last, ''), BONG_DUONG.get(d2_last, ''),
         BONG_AM.get(d1_last, ''), BONG_AM.get(d2_last, '')
-    ])
-    target_chams = {int(c) for c in target_chams if c.isdigit()}
+    ]
+    target_chams = [c for c in target_chams if c.isdigit()]
+    cham_counts = Counter(target_chams).most_common(3)
+    main_chams = [c[0] for c in cham_counts]
 
-    # Thống kê Tổng 15 kỳ gần nhất
-    tongs = [(int(db[0]) + int(db[1])) % 10 for db in db_history[:15] if len(db) == 2]
+    tongs = [(int(db[0]) + int(db[1])) % 10 for db in db_history[:20] if len(db) == 2]
     top_tongs = [item[0] for item in Counter(tongs).most_common(5)]
 
-    # Tạo bảng điểm cho 100 con đề
     db_scores = {}
     for i in range(100):
         num_str = f"{i:02d}"
-        d1, d2 = int(num_str[0]), int(num_str[1])
-        tong = (d1 + d2) % 10
+        d1, d2 = num_str[0], num_str[1]
+        tong = (int(d1) + int(d2)) % 10
 
-        score = 0
-        if d1 in target_chams: score += 3.5
-        if d2 in target_chams: score += 3.5
-        if tong in top_tongs: score += 2.0
-        
-        # Thưởng điểm cho số kép âm/dương hoặc số lộn của đề hôm qua
+        score = 0.0
+        if d1 in main_chams: score += 4.0
+        if d2 in main_chams: score += 4.0
+        if tong in top_tongs: score += 3.0
+        if num_str == (d2_last + d1_last): score += 2.0
         if d1 == d2: score += 1.0
-        if num_str == (d2_last + d1_last): score += 2.5
 
         db_scores[num_str] = score
 
@@ -169,7 +149,7 @@ def analyze_and_predict_db(results):
         'top_36_db': sorted(sorted_numbers[:36])
     }
 
-# --- HÀM BACKTEST LÔ ---
+# --- HÀM BACKTEST LÔ (KIỂM TRA BẠCH THỦ & XIÊN) ---
 def test_prediction_accuracy(historical_data, actual_numbers):
     if not historical_data or not actual_numbers:
         return None
@@ -183,21 +163,25 @@ def test_prediction_accuracy(historical_data, actual_numbers):
         return None
 
     bt = pred['bach_thu']
-    st = pred['song_thu']
-    t5 = pred['top_5']
-    t10 = pred['top_10']
+    x2_list = pred['xien_2']
+    x3 = pred['xien_3']
+    x4 = pred['xien_4']
+
+    # Kiểm tra Xiên trúng (Toàn bộ các số trong bộ xiên phải nằm trong KQXS)
+    x2_hits = [x for x in x2_list if all(num in actual_formatted for num in x)]
+    x3_hit = all(num in actual_formatted for num in x3) if x3 else False
+    x4_hit = all(num in actual_formatted for num in x4) if x4 else False
 
     return {
         'bach_thu': bt,
         'bach_thu_hit': bt in actual_formatted,
-        'song_thu': st,
-        'song_thu_hits': sum(1 for x in st if x in actual_formatted),
-        'top_5': t5,
-        'top_5_hits': sum(1 for x in t5 if x in actual_formatted),
-        'top_10': t10,
-        'top_10_hits': sum(1 for x in t10 if x in actual_formatted),
-        'actual_numbers': actual_formatted,
-        'actual_count': len(actual_formatted)
+        'xien_2': x2_list,
+        'xien_2_hits_count': len(x2_hits),
+        'xien_3': x3,
+        'xien_3_hit': x3_hit,
+        'xien_4': x4,
+        'xien_4_hit': x4_hit,
+        'actual_numbers': actual_formatted
     }
 
 # --- HÀM BACKTEST ĐỀ ---

@@ -3,19 +3,23 @@ import json
 import logging
 import telebot
 
-# Import các thuật toán từ predictor.py
-from predictor import (
-    analyze_and_predict,
-    analyze_and_predict_db,
-    test_prediction_accuracy,
-    test_db_accuracy
-)
-
-# Cấu hình logging
+# 1. Khởi tạo cấu hình Logging
 logging.basicConfig(level=logging.INFO)
 
+# 2. Khai báo TOKEN và khởi tạo biến `bot` (Phải nằm trước các handler)
 TOKEN = os.getenv("BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
+
+# Import các thuật toán phân tích (đảm bảo file predictor.py đã tồn tại)
+try:
+    from predictor import (
+        analyze_and_predict,
+        analyze_and_predict_db,
+        test_prediction_accuracy,
+        test_db_accuracy
+    )
+except ImportError:
+    logging.warning("Không tìm thấy file predictor.py hoặc các hàm liên quan.")
 
 def get_historical_data(limit=100):
     try:
@@ -27,7 +31,19 @@ def get_historical_data(limit=100):
         logging.error(f"Lỗi đọc dữ liệu: {e}")
     return []
 
-# --- LỆNH /TEST: BACKTEST LÔ (BẠCH THỦ & XIÊN) ---
+# 3. Định nghĩa các Handler xử lý lệnh của Bot
+
+@bot.message_handler(commands=['start', 'help'])
+def cmd_start(message):
+    msg = (
+        "👋 Chào mừng bạn đến với Bot Dự Đoán Kết Quả Xổ Số!\n\n"
+        "Các lệnh có sẵn:\n"
+        "👉 /dudoan - Xem dự đoán Lô & Đề hôm nay\n"
+        "👉 /test [số ngày] - Backtest thuật toán Lô (Mặc định 25 ngày)\n"
+        "👉 /testdb [số ngày] - Backtest thuật toán Đề (Mặc định 25 ngày)"
+    )
+    bot.reply_to(message, msg)
+
 @bot.message_handler(commands=['test'])
 def cmd_test_lo(message):
     try:
@@ -92,7 +108,6 @@ def cmd_test_lo(message):
         logging.error(f"Lỗi lệnh /test: {e}")
         bot.reply_to(message, "❌ Đã xảy ra lỗi trong quá trình xử lý test lô.")
 
-# --- LỆNH /TESTDB: BACKTEST ĐỀ ---
 @bot.message_handler(commands=['testdb'])
 def cmd_test_db(message):
     try:
@@ -148,7 +163,6 @@ def cmd_test_db(message):
         logging.error(f"Lỗi lệnh /testdb: {e}")
         bot.reply_to(message, "❌ Đã xảy ra lỗi trong quá trình xử lý test đề.")
 
-# --- LỆNH /DUDOAN: DỰ ĐOÁN HÔM NAY ---
 @bot.message_handler(commands=['dudoan'])
 def cmd_dudoan(message):
     try:
@@ -188,6 +202,7 @@ def cmd_dudoan(message):
         logging.error(f"Lỗi dự đoán: {e}")
         bot.reply_to(message, "❌ Có lỗi xảy ra khi tính toán dự đoán.")
 
+# 4. Khởi chạy bot
 if __name__ == '__main__':
     logging.info("Bot đang khởi chạy...")
-    bot.infinity_polling()
+    bot.infinity_polling(skip_pending=True)

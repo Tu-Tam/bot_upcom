@@ -30,25 +30,25 @@ def parse_numbers(row):
 
     return []
 
-# --- THUẬT TOÁN DỰ ĐOÁN LÔ TÔ (BẠCH THỦ & XIÊN 2, 3, 4) ---
+# --- THUẬT TOÁN DỰ ĐOÁN LÔ TÔ & XIÊN TỐI ƯU ---
 def analyze_and_predict(results):
     if not results or len(results) < 5:
         return None
 
     data_100 = results[:100]
-    data_10 = results[:10]
+    data_30 = results[:30]
+    data_7 = results[:7]
     
     today_last = parse_numbers(results[0])
     yesterday_last = parse_numbers(results[1]) if len(results) > 1 else []
+    day_before_yesterday = parse_numbers(results[2]) if len(results) > 2 else []
 
-    # Tần suất
-    all_100 = [n for r in data_100 for n in parse_numbers(r)]
-    freq_100 = Counter(all_100)
+    # Tần suất các biên độ
+    freq_100 = Counter([n for r in data_100 for n in parse_numbers(r)])
+    freq_30 = Counter([n for r in data_30 for n in parse_numbers(r)])
+    freq_7 = Counter([n for r in data_7 for n in parse_numbers(r)])
 
-    all_10 = [n for r in data_10 for n in parse_numbers(r)]
-    freq_10 = Counter(all_10)
-
-    # Đầu/Đuôi câm
+    # Đầu/Đuôi câm kỳ gần nhất
     heads = [n[0] for n in today_last if len(n) == 2]
     tails = [n[1] for n in today_last if len(n) == 2]
     cam_heads = [str(h) for h in range(10) if str(h) not in heads]
@@ -58,79 +58,101 @@ def analyze_and_predict(results):
     for i in range(100):
         num_str = f"{i:02d}"
         f100 = freq_100.get(num_str, 0)
-        f10 = freq_10.get(num_str, 0)
+        f30 = freq_30.get(num_str, 0)
+        f7 = freq_7.get(num_str, 0)
 
-        # Trọng số nền
-        score = (f100 * 0.4) + (f10 * 2.8)
+        # 1. Trọng số nhịp chuẩn
+        score = (f100 * 0.1) + (f30 * 0.5) + (f7 * 1.5)
 
-        # Kiểm tra chuỗi rơi
+        # 2. Xử lý LÔ KẸT / LÔ BỆT (Xóa bỏ tình trạng kẹt số nhiều ngày)
         in_today = num_str in today_last
         in_yesterday = num_str in yesterday_last
+        in_day_before = num_str in day_before_yesterday
 
-        if in_today and in_yesterday:
-            score += 3.0 # Đang rơi liên tục
+        if in_today and in_yesterday and in_day_before:
+            score *= 0.2  # Đã ra 3 ngày liên tiếp -> Trừ điểm cực nặng
+        elif in_today and in_yesterday:
+            score *= 0.5  # Đã ra 2 ngày liên tiếp -> Trừ điểm nặng
         elif in_today:
-            score *= 0.75 # Hạ bớt trọng số nếu mới về 1 kỳ để chống kẹt số
+            score *= 0.6  # Vừa ra hôm nay -> Giảm ưu tiên để nhường con khác rơi
 
-        # Thưởng điểm Câm
-        if num_str[0] in cam_heads: score += 2.5
-        if num_str[1] in cam_tails: score += 2.5
+        # 3. Ưu tiên Lô Nhịp Vàng (Nổ cách 1-2 ngày)
+        if not in_today and in_yesterday:
+            score += 2.5
+        if not in_today and not in_yesterday and in_day_before:
+            score += 3.5  # Nhịp rơi 2 ngày cực đẹp ở XSMB
+
+        # 4. Thưởng điểm Câm đầu/đuôi
+        if num_str[0] in cam_heads: score += 2.0
+        if num_str[1] in cam_tails: score += 2.0
 
         scores[num_str] = score
 
-    # Sắp xếp lấy các con lô có điểm cao nhất
-    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    top_candidates = [item[0] for item in ranked[:6]] # Lấy top 6 con đẹp nhất
+    # Cộng điểm hỗ trợ Lô Cặp Lộn (AB - BA kéo nhau lên để ghép Xiên)
+    final_scores = {}
+    for num_str, sc in scores.items():
+        rev_str = num_str[::-1]
+        pair_score = sc + (scores.get(rev_str, 0) * 0.4)
+        final_scores[num_str] = pair_score
+
+    ranked = sorted(final_scores.items(), key=lambda x: x[1], reverse=True)
+    top_candidates = [item[0] for item in ranked[:8]]
 
     bach_thu = top_candidates[0] if top_candidates else "00"
 
-    # Tạo cặp Xiên 2, Xiên 3, Xiên 4 an toàn
-    xien_2_comb = list(combinations(top_candidates[:4], 2))[:2]
-    xien_3_comb = list(combinations(top_candidates[:5], 3))[:1]
-    xien_4_comb = list(combinations(top_candidates[:6], 4))[:1]
+    # GHÉP XIÊN THÔNG MINH: Kết hợp con điểm cao nhất + Lô lộn/Lô cặp tương trợ
+    xien_2_pairs = []
+    # Cặp 1: Top 1 + Top 2
+    xien_2_pairs.append([top_candidates[0], top_candidates[1]])
+    # Cặp 2: Top 1 + Lộn của Top 1 (hoặc Top 3)
+    lon_bt = bach_thu[::-1]
+    if lon_bt != bach_thu and lon_bt in top_candidates:
+        xien_2_pairs.append([bach_thu, lon_bt])
+    else:
+        xien_2_pairs.append([top_candidates[0], top_candidates[2]])
 
-    xien_2 = [list(x) for x in xien_2_comb]
-    xien_3 = list(xien_3_comb[0]) if xien_3_comb else []
-    xien_4 = list(xien_4_comb[0]) if xien_4_comb else []
+    xien_3 = top_candidates[:3]
+    xien_4 = top_candidates[:4]
 
     return {
         'bach_thu': bach_thu,
-        'xien_2': xien_2,
+        'xien_2': xien_2_pairs,
         'xien_3': xien_3,
         'xien_4': xien_4
     }
 
-# --- THUẬT TOÁN DỰ ĐOÁN ĐỀ ---
+# --- THUẬT TOÁN DỰ ĐOÁN ĐỀ (ĐẶC BIỆT) TỐI ƯU ---
 def analyze_and_predict_db(results):
     if not results or len(results) < 5:
         return None
 
     db_history = []
-    for r in results[:30]:
+    for r in results[:40]:
         nums = parse_numbers(r)
         if nums:
             db_history.append(nums[0])
 
-    if not db_history:
+    if not db_history or len(db_history) < 5:
         return None
 
+    # Lấy các đuôi Đề gần nhất
     last_db = db_history[0]
-    if len(last_db) < 2:
-        return None
-        
+    if len(last_db) < 2: return None
+    
     d1_last, d2_last = last_db[0], last_db[1]
 
-    target_chams = [
-        d1_last, d2_last,
-        BONG_DUONG.get(d1_last, ''), BONG_DUONG.get(d2_last, ''),
-        BONG_AM.get(d1_last, ''), BONG_AM.get(d2_last, '')
-    ]
-    target_chams = [c for c in target_chams if c.isdigit()]
-    cham_counts = Counter(target_chams).most_common(3)
-    main_chams = [c[0] for c in cham_counts]
+    # 1. Quét ma trận Chạm (Lấy 4 Chạm mạnh nhất)
+    recent_digits = [d for db in db_history[:7] for d in db]
+    digit_counts = Counter(recent_digits).most_common(4)
+    main_chams = [c[0] for c in digit_counts]
 
-    tongs = [(int(db[0]) + int(db[1])) % 10 for db in db_history[:20] if len(db) == 2]
-    top_tongs = [item[0] for item in Counter(tongs).most_common(5)]
+    # Bổ sung Chạm Bóng từ giải ĐB kỳ trước
+    main_chams.append(BONG_DUONG.get(d2_last, ''))
+    main_chams = list(set([c for c in main_chams if c.isdigit()]))
+
+    # 2. Quét Ma trận Tổng Đề (Lấy 4 Tổng hot nhất)
+    tongs = [(int(db[0]) + int(db[1])) % 10 for db in db_history[:15] if len(db) == 2]
+    top_tongs = [item[0] for item in Counter(tongs).most_common(4)]
 
     db_scores = {}
     for i in range(100):
@@ -139,11 +161,19 @@ def analyze_and_predict_db(results):
         tong = (int(d1) + int(d2)) % 10
 
         score = 0.0
-        if d1 in main_chams: score += 4.0
-        if d2 in main_chams: score += 4.0
+        # Thưởng Chạm
+        if d1 in main_chams: score += 3.5
+        if d2 in main_chams: score += 3.5
+        
+        # Thưởng Tổng
         if tong in top_tongs: score += 3.0
+        
+        # Thưởng Đề Kép / Đề Lộn
+        if d1 == d2: score += 1.5
         if num_str == (d2_last + d1_last): score += 2.0
-        if d1 == d2: score += 1.0
+
+        # Phạt Đề bệt nguyên con vừa về hôm qua
+        if num_str == last_db: score -= 5.0
 
         db_scores[num_str] = score
 
@@ -156,7 +186,7 @@ def analyze_and_predict_db(results):
         'top_36_db': sorted(sorted_numbers[:36])
     }
 
-# --- HÀM BACKTEST LÔ (KIỂM TRA BẠCH THỦ & XIÊN) ---
+# --- HÀM BACKTEST LÔ ---
 def test_prediction_accuracy(historical_data, actual_numbers):
     if not historical_data or not actual_numbers:
         return None
@@ -174,10 +204,9 @@ def test_prediction_accuracy(historical_data, actual_numbers):
     x3 = pred['xien_3']
     x4 = pred['xien_4']
 
-    # Kiểm tra Xiên trúng (Toàn bộ các số trong bộ xiên phải nằm trong KQXS)
     x2_hits = [x for x in x2_list if all(num in actual_formatted for num in x)]
-    x3_hit = all(num in actual_formatted for num in x3) if x3 else False
-    x4_hit = all(num in actual_formatted for num in x4) if x4 else False
+    x3_hit = all(num in actual_formatted for num in x3) if len(x3) == 3 and all(num in actual_formatted for num in x3) else False
+    x4_hit = all(num in actual_formatted for num in x4) if len(x4) == 4 and all(num in actual_formatted for num in x4) else False
 
     return {
         'bach_thu': bt,

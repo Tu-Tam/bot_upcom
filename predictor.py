@@ -4,10 +4,22 @@ from collections import Counter
 BONG_DUONG = {'0':'5', '1':'6', '2':'7', '3':'8', '4':'9', '5':'0', '6':'1', '7':'2', '8':'3', '9':'4'}
 BONG_AM    = {'0':'7', '1':'4', '2':'9', '3':'6', '4':'1', '5':'8', '6':'3', '7':'0', '8':'5', '9':'2'}
 
+# Bảng bộ đề cơ bản để phủ vệt chu kỳ (8 số/bộ)
+BO_DE = {
+    '01': ['01', '10', '06', '60', '51', '15', '56', '65'],
+    '02': ['02', '20', '07', '70', '52', '25', '57', '75'],
+    '03': ['03', '30', '08', '80', '53', '35', '58', '85'],
+    '04': ['04', '40', '09', '90', '54', '45', '59', '95'],
+    '12': ['12', '21', '17', '71', '62', '26', '67', '76'],
+    '13': ['13', '31', '18', '81', '63', '36', '68', '86'],
+    '14': ['14', '41', '19', '91', '64', '46', '69', '96'],
+    '23': ['23', '32', '28', '82', '73', '37', '78', '87'],
+    '24': ['24', '42', '29', '92', '74', '47', '79', '97'],
+    '34': ['34', '43', '39', '93', '84', '48', '89', '98']
+}
+
 def parse_numbers(row):
-    """Trích xuất dữ liệu mảng số an toàn từ CSDL"""
-    if not row:
-        return []
+    if not row: return []
     if isinstance(row, dict):
         nums = row.get('numbers') or row.get('prizes') or row.get('results') or []
         if isinstance(nums, str):
@@ -30,7 +42,7 @@ def parse_numbers(row):
     return []
 
 # ==============================================================================
-# 1. THUẬT TOÁN LÔ TÔ & XIÊN
+# 1. SOI LÔ THEO CHU KỲ VỆT (BẮT DÂY BỆT & LÔ RƠI CAO CẤP)
 # ==============================================================================
 def analyze_and_predict(results):
     if not results or len(results) < 15:
@@ -44,29 +56,33 @@ def analyze_and_predict(results):
 
     today_nums = parse_numbers(results[0])
     yesterday_nums = parse_numbers(results[1]) if len(results) > 1 else []
+    day_before_nums = parse_numbers(results[2]) if len(results) > 2 else []
 
     scored_lotto = []
     for i in range(100):
         num_str = f"{i:02d}"
         gap = last_seen.get(num_str, 99)
 
-        if gap >= 8 or (num_str in today_nums and num_str in yesterday_nums):
+        # Bỏ lô gan > 7 ngày
+        if gap > 7:
             continue
 
         score = 0
-        if gap == 1: score += 25
-        elif gap == 2: score += 20
-        elif gap == 3: score += 15
-        elif gap == 0: score += 12
 
+        # ƯU TIÊN VỆT CẦU RƠI (Nổ 2 ngày liên tiếp -> Bắt ngày thứ 3-4)
+        if num_str in today_nums and num_str in yesterday_nums:
+            score += 35  # Vệt cực mạnh
+        elif num_str in today_nums:
+            score += 20  # Lô rơi 1 ngày
+
+        # Nhịp chuẩn 1-2 ngày chưa ra
+        if gap == 1: score += 18
+        elif gap == 2: score += 12
+
+        # Cầu lộn của lô xuất hiện 2 nháy
         rev_num = num_str[::-1]
         if today_nums.count(rev_num) >= 2:
-            score += 18
-
-        if len(today_nums) > 0:
-            last_db = today_nums[0]
-            if num_str[0] == BONG_DUONG.get(last_db[1], '') or num_str[1] == BONG_AM.get(last_db[0], ''):
-                score += 10
+            score += 15
 
         scored_lotto.append((num_str, score))
 
@@ -94,7 +110,7 @@ def analyze_and_predict(results):
     }
 
 # ==============================================================================
-# 2. THUẬT TOÁN ĐỀ TỐI ƯU: 2 ĐẦU - 2 ĐUÔI & DÀN CHẤT LƯỢNG CAO
+# 2. SOI ĐỀ THEO CHU KỲ VỆT (BẮT 2 ĐẦU - 2 ĐUÔI - DÀN BỘ CHUẨN)
 # ==============================================================================
 def analyze_and_predict_db(results):
     if not results or len(results) < 20:
@@ -110,89 +126,76 @@ def analyze_and_predict_db(results):
         return None
 
     last_db = db_history[0]
+    db_yest = db_history[1] if len(db_history) > 1 else '00'
+    
     d1_last, d2_last = last_db[0], last_db[1]
+    d1_yest, d2_yest = db_yest[0], db_yest[1]
 
-    # --- A. BẮT 2 ĐẦU CHÍNH XÁC CAO ---
-    # Đầu 1: Lấy chính Đầu Đề kỳ trước (Cầu bệt)
-    # Đầu 2: Lấy Top 1 Đầu xuất hiện nhiều nhất trong 10 ngày (trừ Đầu bệt ra nếu trùng)
-    daus_10 = [db[0] for db in db_history[:10] if len(db) == 2]
-    most_common_daus = [item[0] for item in Counter(daus_10).most_common(3)]
-    
-    dau_2 = d1_last
-    for d in most_common_daus:
-        if d != d1_last:
-            dau_2 = d
-            break
-            
-    top_2_daus = [d1_last, dau_2]
+    # --- NHẬN DIỆN VỆT ĐẦU / ĐUÔI ---
+    # Kiểm tra xem Đầu hoặc Đuôi có đang chạy vệt bệt không
+    is_dau_bet = (d1_last == d1_yest)
+    is_duoi_bet = (d2_last == d2_yest)
 
-    # --- B. BẮT 2 ĐUÔI CHÍNH XÁC CAO ---
-    # Đuôi 1: Bóng Dương của Đuôi kỳ trước
-    # Đuôi 2: Lấy Top 1 Đuôi xuất hiện nhiều nhất trong 10 ngày
-    duois_10 = [db[1] for db in db_history[:10] if len(db) == 2]
-    bong_duoi_last = BONG_DUONG.get(d2_last, '0')
-    most_common_duois = [item[0] for item in Counter(duois_10).most_common(3)]
-    
-    duoi_2 = bong_duoi_last
-    for u in most_common_duois:
-        if u != bong_duoi_last:
-            duoi_2 = u
-            break
+    # Bắt 2 Đầu Chu Kỳ:
+    if is_dau_bet:
+        top_2_daus = [d1_last, BONG_DUONG.get(d1_last, '0')] # Nếu đang bệt thì bắt luôn Đầu bệt + Bóng
+    else:
+        # Bắt Đầu vừa về + Bóng dương đuôi kỳ trước
+        top_2_daus = [d1_last, BONG_DUONG.get(d2_last, '0')]
 
-    top_2_duois = [bong_duoi_last, duoi_2]
+    # Bắt 2 Đuôi Chu Kỳ:
+    if is_duoi_bet:
+        top_2_duois = [d2_last, BONG_AM.get(d2_last, '7')]
+    else:
+        top_2_duois = [d2_last, BONG_DUONG.get(d1_last, '5')]
 
-    # --- C. BẮT 4 CHẠM VÀ 5 TỔNG CHẠY MẠNH ---
-    primary_chams = list(dict.fromkeys([d1_last, d2_last, bong_duoi_last, BONG_AM.get(d1_last, '7')]))[:4]
-    tongs_15 = [(int(db[0]) + int(db[1])) % 10 for db in db_history[:15] if len(db) == 2]
-    top_tongs = [item[0] for item in Counter(tongs_15).most_common(5)]
+    # --- TẠO DÀN BỘ ĐỀ (TĂNG TỶ LỆ TRÚNG VỆT MẠNH) ---
+    # Lấy Bộ đề của con Đề vừa về + Bộ đề bóng
+    target_set_1 = "".join(sorted([d1_last, d2_last]))
+    set_numbers = []
+    for key in BO_DE:
+        if key == target_set_1:
+            set_numbers.extend(BO_DE[key])
 
+    # --- CHẤM ĐIỂM TOÀN BỘ BẢNG SỐ (00-99) ---
     db_last_seen = {}
     for idx, db in enumerate(db_history):
         if db not in db_last_seen:
             db_last_seen[db] = idx
 
-    # --- D. CHẤM ĐIỂM DÀN TỔNG HỢP (00 - 99) ---
     candidate_scores = []
     for i in range(100):
         num_str = f"{i:02d}"
         d1, d2 = num_str[0], num_str[1]
-        tong = (int(d1) + int(d2)) % 10
         gap = db_last_seen.get(num_str, 99)
 
-        # Loại bỏ Đề Gan > 25 ngày và con Đề vừa về hôm qua
-        if gap == 0 or gap > 25:
+        if gap == 0 or gap > 30: # Lọc Đề Gan
             continue
 
         score = 0
 
-        # Trọng số đặc biệt cho 2 Đầu & 2 Đuôi đã chọn
-        if d1 in top_2_daus: score += 18
-        if d2 in top_2_duois: score += 18
+        # Ưu tiên cực cao cho 2 Đầu & 2 Đuôi theo Vệt
+        if d1 in top_2_daus: score += 20
+        if d2 in top_2_duois: score += 20
 
-        # Điểm Chạm & Điểm Tổng
-        if d1 in primary_chams: score += 10
-        if d2 in primary_chams: score += 10
-        if tong in top_tongs: score += 12
+        # Ưu tiên các số nằm trong Bộ Đề Chu Kỳ
+        if num_str in set_numbers: score += 15
 
-        # Điểm nhịp rơi lặp lại (2 - 12 ngày)
-        if 2 <= gap <= 12: score += 6
-
-        # Điểm Kép / Lộn
-        if d1 == d2: score += 4
-        if num_str == (d2_last + d1_last): score += 8
+        # Điểm nhịp rơi lặp lại (vệt ngắn 2 - 10 ngày)
+        if 2 <= gap <= 10: score += 8
 
         candidate_scores.append((num_str, score))
 
     candidate_scores.sort(key=lambda x: x[1], reverse=True)
 
-    # --- E. TRÍCH XUẤT DÀN ---
+    # Trích xuất Dàn
     top_10 = [x[0] for x in candidate_scores[:10]]
     top_20 = [x[0] for x in candidate_scores[:20]]
     top_36 = [x[0] for x in candidate_scores[:36]]
 
     return {
-        'dau_de': sorted(top_2_daus),       # Chỉ trả về 2 Đầu
-        'duoi_de': sorted(top_2_duois),     # Chỉ trả về 2 Đuôi
+        'dau_de': sorted(list(set(top_2_daus))),
+        'duoi_de': sorted(list(set(top_2_duois))),
         'top_10_db': sorted(top_10),
         'top_20_db': sorted(top_20),
         'top_36_db': sorted(top_36)

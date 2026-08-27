@@ -30,100 +30,77 @@ def parse_numbers(row):
 
     return []
 
-# --- THUẬT TOÁN DỰ ĐOÁN LÔ TÔ (KHUNG 45 NGÀY + NHỊP RƠI) ---
+# --- THUẬT TOÁN LÔ TÔ: LỌC THEO MA TRẬN NHỊP RƠI TỐI ƯU ---
 def analyze_and_predict(results):
-    if not results or len(results) < 15:
+    if not results or len(results) < 10:
         return None
 
-    # Lấy tối đa 45 kỳ lịch sử gần nhất để phân tích nhịp lô
-    data_45 = results[:45]
-    
+    data_30 = results[:30]
     today_last = parse_numbers(results[0])
     yesterday_last = parse_numbers(results[1]) if len(results) > 1 else []
-    day_before = parse_numbers(results[2]) if len(results) > 2 else []
 
-    # 1. Tính khoảng cách xuất hiện gần nhất (Gap) của từng con số từ 00-99
+    # 1. Tính khoảng cách (Gap) xuất hiện gần đây nhất của từng con
     last_seen = {}
-    freq_15 = Counter()
-    
-    for idx, r in enumerate(data_45):
-        nums = parse_numbers(r)
-        if idx < 15:
-            freq_15.update(nums)
-        for n in nums:
+    for idx, r in enumerate(data_30):
+        for n in parse_numbers(r):
             if n not in last_seen:
                 last_seen[n] = idx
 
-    # 2. Đầu / Đuôi Câm kỳ gần nhất
-    heads = [n[0] for n in today_last if len(n) == 2]
-    tails = [n[1] for n in today_last if len(n) == 2]
-    cam_heads = [str(h) for h in range(10) if str(h) not in heads]
-    cam_tails = [str(t) for t in range(10) if str(t) not in tails]
-
-    scores = {}
-    for i in range(100):
-        num_str = f"{i:02d}"
-        gap = last_seen.get(num_str, 99)  # Số ngày chưa về
-        f15 = freq_15.get(num_str, 0)      # Tần suất trong 15 ngày qua
-
-        score = 0.0
-
-        # --- ĐIỂM THEO NHỊP RƠI (GAP ANALYSIS) ---
-        if gap == 1:
-            score += 4.5  # Nhịp rơi 1 ngày (vừa về hôm qua)
-        elif gap == 2:
-            score += 5.5  # Nhịp rơi 2 ngày (vừa đẹp nhất XSMB)
-        elif gap == 3:
-            score += 4.0  # Nhịp rơi 3 ngày
-        elif gap == 0:
-            # Vừa về ngày hôm nay
-            if num_str in yesterday_last and num_str in day_before:
-                score -= 8.0  # Đã ra 3 ngày liên tục -> Loại hẳn
-            elif num_str in yesterday_last:
-                score -= 3.0  # Đã ra 2 ngày -> Phạt điểm
-            else:
-                score += 2.0  # Lô rơi 1 nhịp
-        elif gap >= 10:
-            score -= 10.0  # Lô gan > 10 ngày -> Loại bỏ hoàn toàn
-
-        # --- ĐIỂM TẦN SUẤT CHUẨN (15 NGÀY) ---
-        if 2 <= f15 <= 5:
-            score += 3.0  # Tần suất đều, không phải lô gan cũng không phải lô quá nóng
-        elif f15 > 6:
-            score += 1.0
-
-        # --- ĐIỂM CÂM ĐẦU / ĐUÔI ---
-        if num_str[0] in cam_heads: score += 2.5
-        if num_str[1] in cam_tails: score += 2.5
-
-        scores[num_str] = score
-
-    # Tương trợ Lô Lộn (AB <-> BA)
-    final_scores = {}
-    for num_str, sc in scores.items():
-        rev_str = num_str[::-1]
-        pair_bonus = scores.get(rev_str, 0) * 0.35
-        final_scores[num_str] = sc + pair_bonus
-
-    ranked = sorted(final_scores.items(), key=lambda x: x[1], reverse=True)
-    top_candidates = [item[0] for item in ranked[:6]]
-
-    bach_thu = top_candidates[0] if top_candidates else "00"
-
-    # GHÉP XIÊN ƯU TIÊN LÔ CẶP LỘN HOẶC TOP CAO
-    xien_2_pairs = []
-    # Cặp 1: Top 1 + Top 2
-    xien_2_pairs.append([top_candidates[0], top_candidates[1]])
+    # 2. Tìm danh sách các con lô đang ở "NHỊP RƠI VÀNG" (Gap = 2 hoặc 3 ngày)
+    gold_gaps = [f"{i:02d}" for i in range(100) if last_seen.get(f"{i:02d}", 99) in [2, 3]]
     
-    # Cặp 2: Ưu tiên ghép Lộn nếu Top 1 có Lộn trong Top 6
-    bt_lon = bach_thu[::-1]
-    if bt_lon != bach_thu and bt_lon in top_candidates:
-        xien_2_pairs.append([bach_thu, bt_lon])
-    else:
-        xien_2_pairs.append([top_candidates[0], top_candidates[2]])
+    # 3. Tính tần suất xuất hiện trong 15 kỳ gần đây
+    all_15 = [n for r in results[:15] for n in parse_numbers(r)]
+    freq_15 = Counter(all_15)
 
-    xien_3 = top_candidates[:3]
-    xien_4 = top_candidates[:4]
+    # Đánh giá ứng viên
+    candidates = []
+    for num in range(100):
+        num_str = f"{num:02d}"
+        gap = last_seen.get(num_str, 99)
+        f_count = freq_15.get(num_str, 0)
+
+        # Loại bỏ lô gan > 9 ngày và loại bỏ lô rơi đã ra 3 ngày liên tiếp
+        if gap >= 10:
+            continue
+        if num_str in today_last and num_str in yesterday_last:
+            continue
+
+        # Điểm ưu tiên nhịp rơi & tần suất vừa phải (2-5 lần/15 ngày)
+        quality = 0
+        if gap in [2, 3]: quality += 10
+        elif gap == 1: quality += 6
+        elif gap == 4: quality += 4
+        
+        if 2 <= f_count <= 5: quality += 5
+
+        candidates.append((num_str, quality, f_count))
+
+    # Sắp xếp chọn các con số tối ưu nhất
+    candidates.sort(key=lambda x: (x[1], x[2]), reverse=True)
+    top_nums = [c[0] for c in candidates[:8]]
+
+    if not top_nums:
+        top_nums = ["01", "10", "23", "32"]
+
+    bach_thu = top_nums[0]
+    
+    # Bắt cặp Xiên 2: Ưu tiên ghép Lô Cặp Lộn (AB - BA)
+    rev_bt = bach_thu[::-1]
+    xien_2_pairs = []
+    
+    if rev_bt != bach_thu and rev_bt in top_nums:
+        xien_2_pairs.append([bach_thu, rev_bt])
+    else:
+        xien_2_pairs.append([bach_thu, top_nums[1]])
+
+    if len(top_nums) >= 3:
+        xien_2_pairs.append([top_nums[1], top_nums[2]])
+    else:
+        xien_2_pairs.append([top_nums[0], top_nums[1]])
+
+    xien_3 = top_nums[:3]
+    xien_4 = top_nums[:4]
 
     return {
         'bach_thu': bach_thu,
@@ -132,19 +109,18 @@ def analyze_and_predict(results):
         'xien_4': xien_4
     }
 
-# --- THUẬT TOÁN DỰ ĐOÁN ĐỀ (ĐẶC BIỆT CHU KỲ CHẠM TỔNG) ---
+# --- THUẬT TOÁN ĐỀ (ĐẶC BIỆT): MA TRẬN CHẠM X TỔNG ---
 def analyze_and_predict_db(results):
-    if not results or len(results) < 20:
+    if not results or len(results) < 15:
         return None
 
-    # Lấy lịch sử giải ĐB (số đầu tiên trong mảng parse)
     db_history = []
-    for r in results[:180]:
+    for r in results[:60]:
         nums = parse_numbers(r)
         if nums:
             db_history.append(nums[0])
 
-    if len(db_history) < 10:
+    if len(db_history) < 5:
         return None
 
     last_db = db_history[0]
@@ -152,62 +128,62 @@ def analyze_and_predict_db(results):
     
     d1_last, d2_last = last_db[0], last_db[1]
 
-    # 1. Quét Chạm Đề Hot trong 14 ngày gần nhất
-    recent_14_db = db_history[:14]
-    recent_digits = [d for db in recent_14_db for d in db if len(db) == 2]
-    top_chams = [c[0] for c in Counter(recent_digits).most_common(3)]
+    # 1. Bắt 3 CHẠM CHỦ LỰC:
+    # - Chạm từ bóng dương/bóng âm đề hôm qua
+    # - Chạm xuất hiện nhiều nhất trong 10 ngày qua
+    recent_10_digits = [d for db in db_history[:10] for d in db if len(db) == 2]
+    top_digit = Counter(recent_10_digits).most_common(1)[0][0]
 
-    # Bổ sung Chạm Bóng Dương & Bóng Âm của con Đề vừa ra
-    chams_bo_sung = [
-        d1_last, d2_last,
-        BONG_DUONG.get(d2_last, ''),
-        BONG_AM.get(d2_last, '')
-    ]
-    target_chams = list(set([c for c in top_chams + chams_bo_sung if c.isdigit()]))
+    cham_1 = d2_last
+    cham_2 = BONG_DUONG.get(d2_last, '0')
+    cham_3 = top_digit
 
-    # 2. Chu kỳ Đề Thứ (Lấy đề cùng thứ tuần trước - vị trí index 7)
-    same_day_last_week = db_history[7] if len(db_history) > 7 else ""
-    cham_tuankhui = [same_day_last_week[0], same_day_last_week[1]] if len(same_day_last_week) == 2 else []
+    selected_chams = list(set([cham_1, cham_2, cham_3]))
 
-    # 3. Quét Tổng Đề Hot (20 ngày)
-    tongs_20 = [(int(db[0]) + int(db[1])) % 10 for db in db_history[:20] if len(db) == 2]
-    top_tongs = [item[0] for item in Counter(tongs_20).most_common(4)]
+    # 2. Bắt 4 TỔNG CHỦ LỰC (Lấy các tổng về nhiều trong 20 ngày)
+    tongs = [(int(db[0]) + int(db[1])) % 10 for db in db_history[:20] if len(db) == 2]
+    top_tongs = [item[0] for item in Counter(tongs).most_common(4)]
 
-    db_scores = {}
+    # 3. DỰNG TẬP HỢP SỐ THEO MA TRẬN CHẠM & TỔNG
+    set_10 = set()
+    set_20 = set()
+    set_36 = set()
+
     for i in range(100):
         num_str = f"{i:02d}"
         d1, d2 = num_str[0], num_str[1]
         tong = (int(d1) + int(d2)) % 10
 
-        score = 0.0
+        # Dàn 36: Thuộc các Chạm chính HOẶC Tổng chính
+        if (d1 in selected_chams or d2 in selected_chams) or (tong in top_tongs):
+            set_36.add(num_str)
 
-        # Điểm Chạm Hot & Bóng
-        if d1 in target_chams: score += 3.5
-        if d2 in target_chams: score += 3.5
+        # Dàn 20: Phải giao giữa Chạm chính AND (Tổng chính HOẶC Đề Kép / Lộn)
+        if (d1 in selected_chams or d2 in selected_chams):
+            if tong in top_tongs or d1 == d2 or num_str == (d2_last + d1_last):
+                set_20.add(num_str)
 
-        # Điểm Chạm Tuần Khui (Chu kỳ 7 ngày)
-        if d1 in cham_tuankhui or d2 in cham_tuankhui:
-            score += 2.0
+        # Dàn 10: Chỉ lấy những con vừa trúng Chạm chính VỪA trúng Tổng chính
+        if (d1 in selected_chams or d2 in selected_chams) and (tong in top_tongs):
+            set_10.add(num_str)
 
-        # Điểm Tổng
-        if tong in top_tongs: score += 3.0
+    # Đảm bảo đủ số lượng cho từng dàn bằng cách bổ sung theo thứ tự ưu tiên
+    list_36 = sorted(list(set_36))[:36]
+    list_20 = sorted(list(set_20))[:20]
+    list_10 = sorted(list(set_10))[:10]
 
-        # Ưu tiên Đề lộn / Đề kép nhẹ
-        if num_str == (d2_last + d1_last): score += 2.5
-        if d1 == d2: score += 1.0
-
-        # Trừ điểm Đề bệt nguyên con
-        if num_str == last_db: score -= 8.0
-
-        db_scores[num_str] = score
-
-    ranked_db = sorted(db_scores.items(), key=lambda x: x[1], reverse=True)
-    sorted_numbers = [item[0] for item in ranked_db]
+    # Nếu dàn 10 bị thiếu số do lọc chặt, bổ sung các con số kép/số bóng
+    if len(list_10) < 10:
+        extra = [f"{d1_last}{d2_last}", f"{d2_last}{d1_last}", f"{cham_1}{cham_1}", f"{cham_2}{cham_2}"]
+        for ex in extra:
+            if ex not in list_10 and len(list_10) < 10:
+                list_10.append(ex)
+        list_10 = sorted(list_10)[:10]
 
     return {
-        'top_10_db': sorted(sorted_numbers[:10]),
-        'top_20_db': sorted(sorted_numbers[:20]),
-        'top_36_db': sorted(sorted_numbers[:36])
+        'top_10_db': list_10,
+        'top_20_db': list_20,
+        'top_36_db': list_36
     }
 
 # --- HÀM BACKTEST LÔ ---

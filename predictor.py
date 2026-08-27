@@ -80,20 +80,24 @@ def analyze_and_predict(results):
 
     # Sắp xếp lấy các con lô có điểm cao nhất
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    top_candidates = [item[0] for item in ranked[:6]] # Lấy top 6 con đẹp nhất để ghép Xiên
+    top_candidates = [item[0] for item in ranked[:6]] # Lấy top 6 con đẹp nhất
 
-    bach_thu = top_candidates[0]
+    bach_thu = top_candidates[0] if top_candidates else "00"
 
-    # Tạo cặp Xiên 2, Xiên 3, Xiên 4 từ dàn hạt giống đẹp nhất
-    xien_2 = list(combinations(top_candidates[:4], 2))[:2] # Lấy 2 cặp Xiên 2
-    xien_3 = list(combinations(top_candidates[:5], 3))[:1] # Lấy 1 bộ Xiên 3
-    xien_4 = list(combinations(top_candidates[:6], 4))[:1] # Lấy 1 bộ Xiên 4
+    # Tạo cặp Xiên 2, Xiên 3, Xiên 4 an toàn
+    xien_2_comb = list(combinations(top_candidates[:4], 2))[:2]
+    xien_3_comb = list(combinations(top_candidates[:5], 3))[:1]
+    xien_4_comb = list(combinations(top_candidates[:6], 4))[:1]
+
+    xien_2 = [list(x) for x in xien_2_comb]
+    xien_3 = list(xien_3_comb[0]) if xien_3_comb else []
+    xien_4 = list(xien_4_comb[0]) if xien_4_comb else []
 
     return {
         'bach_thu': bach_thu,
-        'xien_2': [list(x) for x in xien_2],
-        'xien_3': [list(x) for x in xien_3][0] if xien_3 else [],
-        'xien_4': [list(x) for x in xien_4][0] if xien_4 else []
+        'xien_2': xien_2,
+        'xien_3': xien_3,
+        'xien_4': xien_4
     }
 
 # --- THUẬT TOÁN DỰ ĐOÁN ĐỀ ---
@@ -111,6 +115,9 @@ def analyze_and_predict_db(results):
         return None
 
     last_db = db_history[0]
+    if len(last_db) < 2:
+        return None
+        
     d1_last, d2_last = last_db[0], last_db[1]
 
     target_chams = [

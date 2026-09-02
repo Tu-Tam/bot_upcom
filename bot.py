@@ -4,43 +4,102 @@ import time
 import threading
 import json
 import re
+import random
+from collections import Counter
 from datetime import datetime, timedelta, date
 import telebot
 from flask import Flask
 
-# Import các module nội bộ
-import database as db
-import scraper
-import predictor
-
-# Lấy Token từ Environment Variables trên Render
+# --- CẤU HÌNH TOKEN & WEB SERVER ---
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 if not TOKEN:
-    print("❌ LỖI FATAL: Chưa cấu hình TELEGRAM_TOKEN trong Environment Variables trên Render!", flush=True)
+    print("❌ LỖI FATAL: Chưa cấu hình TELEGRAM_TOKEN trong Environment Variables!", flush=True)
+    # Tùy chọn: Nhập token trực tiếp nếu chạy local test
+    # TOKEN = "YOUR_BOT_TOKEN_HERE"
     sys.exit(1)
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# --- WEB SERVER GIỮ SERVICE LIVE TRÊN RENDER ---
 @app.route('/')
 def home():
-    return "Bot Xổ Số MB đang chạy tốt!", 200
+    return "Vietlott Telegram Bot đang hoạt động!", 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# --- HELPER CHUẨN HÓA DỮ LIỆU ---
-def normalize_date(val):
-    if not val:
-        return ""
-    if isinstance(val, (datetime, date)):
-        return val.strftime("%Y-%m-%d")
-    return str(val)[:10]
+# --- CẤU HÌNH DỮ LIỆU CÁC GIẢI VIETLOTT ---
+GAME_CONFIG = {
+    "655": {"name": "Power 6/55", "max_num": 55, "pick": 6, "type": "standard"},
+    "645": {"name": "Mega 6/45", "max_num": 45, "pick": 6, "type": "standard"},
+    "3d": {"name": "Max 3D", "length": 3, "type": "digit"},
+    "keno": {"name": "Keno", "max_num": 80, "pick": 20, "type": "standard"},
+}
 
-def parse_date_range(raw_input):
+# --- GIẢ LẬP CƠ SỞ DỮ LIỆU LỊCH SỬ VIETLOTT ---
+# (Trong thực tế, bạn sẽ thay thế danh sách này bằng dữ liệu cào từ CSDL/API)
+DATASET = [
+    # Power 6/55
+    {"date": "2026-08-25", "game": "655", "result": [4, 12, 18, 27, 39, 48]},
+    {"date": "2026-08-27", "game": "655", "result": [2, 12, 21, 35, 42, 51]},
+    {"date": "2026-08-29", "game": "655", "result": [8, 15, 18, 29, 33, 45]},
+    {"date": "2026-09-01", "game": "655", "result": [2, 12, 18, 28, 40, 52]},
+    # Mega 6/45
+    {"date": "2026-08-26", "game": "645", "result": [5, 11, 23, 31, 38, 41]},
+    {"date": "2026-08-28", "game": "645", "result": [1, 11, 19, 23, 34, 40]},
+    {"date": "2026-08-30", "game": "645", "result": [5, 14, 23, 30, 39, 44]},
+    # Max 3D (3 chữ số)
+    {"date": "2026-08-31", "game": "3d", "result": [3, 8, 5]},
+    {"date": "2026-09-01", "game": "3d", "result": [7, 2, 9]},
+    # Keno (20 số)
+    {"date": "2026-09-01", "game": "keno", "result": [3, 7, 12, 15, 18, 22, 25, 31, 34, 39, 41, 45, 50, 53, 58, 62, 67, 71, 75, 79]},
+]
+
+# --- THUẬT TOÁN DỰ ĐOÁN & BACKTEST ---
+def predict_numbers(game_type: str, history_data: list) -> list:
+    """Logic dự đoán dựa trên tần suất xuất hiện nhiều nhất trong dữ liệu quá khứ."""
+    config = GAME_CONFIG.get(game_type)
+    if not config:
+        return []
+
+    # Dự đoán cho Max 3D (Dạng chữ số)
+    if config["type"] == "digit":
+        if not history_data:
+            return [random.randint(0, 9) for _ in range(config["length"])]
+        
+        # Lấy tần suất cho từng vị trí chữ số
+        predicted = []
+        for pos in range(config["length"]):
+            digits_at_pos = [d["result"][pos] for d in history_data if len(d["result"]) > pos]
+            if digits_at_pos:
+                most_common_digit = Counter(digits_at_pos).most_common(1)[0][0]
+                predicted.append(most_common_digit)
+            else:
+                predicted.append(random.randint(0, 9))
+        return predicted
+
+    # Dự đoán cho 6/55, 6/45, Keno (Dạng tập hợp số)
+    if not history_data:
+        return sorted(random.sample(range(1, config["max_num"] + 1), config["pick"]))
+
+    all_numbers = [num for draw in history_data for num in draw.get("result", [])]
+    freq = Counter(all_numbers)
+    
+    # Lấy các số xuất hiện nhiều nhất
+    most_common = [num for num, _ in freq.most_common(config["pick"])]
+
+    # Bổ sung số ngẫu nhiên nếu lịch sử chưa đủ mẫu
+    while len(most_common) < config["pick"]:
+        rand_n = random.randint(1, config["max_num"])
+        if rand_n not in most_common:
+            most_common.append(rand_n)
+
+    return sorted(most_common)
+
+def parse_date_range(raw_input: str) -> list:
+    """Xử lý cú pháp ngày: YYYY-MM-DD hoặc YYYY-MM-DD => DD / YYYY-MM-DD => YYYY-MM-DD"""
     dates_to_test = []
     range_match = re.search(r'(\d{4}-\d{2}-\d{2})\s*(?:=>|->|-|\s+)\s*(\d{1,2}|\d{4}-\d{2}-\d{2})$', raw_input)
     
@@ -68,364 +127,185 @@ def parse_date_range(raw_input):
         
     return dates_to_test
 
-# --- BACKGROUND TASKS ---
-def fetch_initial_data():
-    print("📦 Bắt đầu kiểm tra và xây dựng kho dữ liệu 365 ngày...", flush=True)
-    try:
-        if hasattr(scraper, 'scrape_past_days'):
-            scraper.scrape_past_days(days=365)
-        print("✅ Đã hoàn tất khởi tạo kho dữ liệu 365 ngày!", flush=True)
-    except Exception as e:
-        print(f"⚠️ Lỗi khi khởi tạo dữ liệu: {e}", flush=True)
-
-def auto_update_scheduler():
-    print("⏰ Đã kích hoạt bộ hẹn giờ tự động cập nhật (18h30 hàng ngày)...", flush=True)
-    while True:
-        try:
-            now = datetime.now()
-            if now.hour == 18 and 30 <= now.minute <= 35:
-                today_str = now.strftime("%Y-%m-%d")
-                recent = db.get_results(limit=1) if hasattr(db, 'get_results') else None
-                
-                if not recent or (isinstance(recent, list) and len(recent) > 0 and normalize_date(recent[0].get('date')) != today_str):
-                    print(f"🔄 [Auto-Update] Đang tự động cào kết quả ngày {today_str}...", flush=True)
-                    success = scraper.scrape_today()
-                    if success:
-                        print(f"✅ [Auto-Update] Cập nhật thành công ngày {today_str}!", flush=True)
-                    else:
-                        time.sleep(120)
-                        continue
-        except Exception as e:
-            print(f"⚠️ Lỗi trong tiến trình Auto-Update: {e}", flush=True)
-        time.sleep(60)
-
 # --- TELEGRAM BOT HANDLERS ---
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     help_text = (
-        "🤖 *BOT SOI CẦU DỰ ĐOÁN XSMB*\n"
+        "🤖 *BOT DỰ ĐOÁN & BACKTEST VIETLOTT*\n"
         "━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "📋 *DANH SÁCH LỆNH KHẢ DỤNG:*\n\n"
-        "🎯 *Dự đoán hàng ngày:*\n"
-        "▫️ `/dudoan` : Chốt Bạch Thủ & Dàn Xiên Lô\n"
-        "▫️ `/dudoandb` : Chốt Đầu Đề, Đuôi Đề & Dàn 10/20/36\n\n"
-        "🧪 *Kiểm thử thuật toán (Backtest):*\n"
-        "▫️ `/test YYYY-MM-DD => DD` : Test Lô & Xiên theo dải ngày\n"
-        "▫️ `/testdb YYYY-MM-DD => DD` : Test Đề (Đầu/Đuôi/Dàn) theo dải ngày\n\n"
-        "📊 *Tiện ích hệ thống:*\n"
-        "▫️ `/ketqua` : Xem KTXS mới nhất trong CSDL\n"
-        "▫️ `/capnhat` : Cập nhật kết quả mới nhất lập tức\n"
-        "▫️ `/thongke` : Trạng thái dữ liệu lịch sử"
+        "📌 *DANH SÁCH MÃ GIẢI:* \n"
+        "• `655` : Power 6/55\n"
+        "• `645` : Mega 6/45\n"
+        "• `3d`  : Max 3D\n"
+        "• `keno`: Keno\n\n"
+        "🎯 *DỰ ĐOÁN KỲ TỚI:*\n"
+        "▫️ `/dudoan <mã_giải>`\n"
+        "  _Ví dụ:_ `/dudoan 655` hoặc `/dudoan keno`\n\n"
+        "🧪 *BACKTEST (KIỂM THỬ THUẬT TOÁN):*\n"
+        "▫️ `/test <mã_giải> <ngày>`\n"
+        "▫️ `/test <mã_giải> <ngày_bắt_đầu> => <ngày_kết_thúc|ngày_cuối>`\n"
+        "  _Ví dụ đơn ngày:_ `/test 655 2026-09-01`\n"
+        "  _Ví dụ dải ngày:_ `/test 655 2026-08-25 => 2026-09-01`\n\n"
+        "📊 *THỐNG KÊ CSDI:*\n"
+        "▫️ `/thongke` : Xem số lượng kết quả đã lưu trữ"
     )
     bot.reply_to(message, help_text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['dudoan'])
 def handle_prediction(message):
-    msg = bot.reply_to(message, "⏳ Đang phân tích ma trận nhịp rơi lô tô...")
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    recent = db.get_results(limit=1) if hasattr(db, 'get_results') else None
+    args = message.text.strip().split()
+    if len(args) < 2:
+        bot.reply_to(message, "⚠️ Cú pháp chưa đúng! Dùng: `/dudoan <655|645|3d|keno>`", parse_mode="Markdown")
+        return
+
+    game = args[1].lower()
+    if game not in GAME_CONFIG:
+        bot.reply_to(message, "❌ Mã giải không hợp lệ! Chọn một trong các mã: `655`, `645`, `3d`, `keno`", parse_mode="Markdown")
+        return
+
+    history = [d for d in DATASET if d["game"] == game]
+    predicted = predict_numbers(game, history)
     
-    if not recent or (isinstance(recent, list) and len(recent) > 0 and normalize_date(recent[0].get('date')) != today_str):
-        scraper.scrape_today()
+    str_pred = ", ".join(map(str, predicted)) if isinstance(predicted, list) else str(predicted)
 
-    results = db.get_results(limit=100) if hasattr(db, 'get_results') else []
-
-    if not results:
-        bot.edit_message_text("⚠️ Chưa có đủ dữ liệu trong CSDL để phân tích.", chat_id=message.chat.id, message_id=msg.message_id)
-        return
-
-    try:
-        pred_data = predictor.analyze_and_predict(results)
-        bt = pred_data.get('bach_thu', '--')
-        
-        str_x2 = "\n".join([f"  • Cặp {i+1}: `{pair[0]}` - `{pair[1]}`" for i, pair in enumerate(pred_data.get('xien_2', []))])
-        str_x3 = " - ".join([f"`{num}`" for num in pred_data.get('xien_3', [])])
-        str_x4 = " - ".join([f"`{num}`" for num in pred_data.get('xien_4', [])])
-
-        report = (
-            f"🎯 *BÁO CÁO DỰ ĐOÁN LÔ TÔ - NGÀY {today_str}*\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🔥 *Bạch Thủ Lô:* `{bt}`\n\n"
-            f"👯 *Xiên 2 (Cặp khung đẹp):*\n{str_x2}\n\n"
-            f"🥉 *Xiên 3:* {str_x3}\n"
-            f"🏅 *Xiên 4:* {str_x4}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💡 *Gợi ý:* Đánh lộn nhẹ Bạch thủ để bảo vệ vốn."
-        )
-        bot.edit_message_text(report, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
-    except Exception as e:
-        bot.edit_message_text(f"⚠️ Lỗi khi tạo dự đoán: {e}", chat_id=message.chat.id, message_id=msg.message_id)
-
-@bot.message_handler(commands=['dudoandb'])
-def handle_prediction_db(message):
-    msg = bot.reply_to(message, "👑 Đang phân tích ma trận Chạm x Tổng Giải Đặc Biệt...")
-    results = db.get_results(limit=100) if hasattr(db, 'get_results') else []
-
-    if not results:
-        bot.edit_message_text("⚠️ Chưa có đủ dữ liệu trong CSDL để phân tích.", chat_id=message.chat.id, message_id=msg.message_id)
-        return
-
-    try:
-        pred_db = predictor.analyze_and_predict_db(results)
-        
-        dau_de = ", ".join([f"`{d}`" for d in pred_db.get('dau_de', [])]) or "`--`"
-        duoi_de = ", ".join([f"`{d}`" for d in pred_db.get('duoi_de', [])]) or "`--`"
-        
-        list_10 = ", ".join(pred_db.get('top_10_db', []))
-        list_20 = ", ".join(pred_db.get('top_20_db', []))
-        list_36 = ", ".join(pred_db.get('top_36_db', []))
-
-        report = (
-            f"👑 *DỰ ĐOÁN GIẢI ĐẶC BIỆT KỲ TỚI*\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📌 *ĐẦU ĐỀ CHỌN:* {dau_de}\n"
-            f"📌 *ĐUÔI ĐỀ CHỌN:* {duoi_de}\n"
-            f"─────────────────────\n"
-            f"🎯 *Dàn 10 số (Trọng tâm):*\n`{list_10}`\n\n"
-            f"🎯 *Dàn 20 số (Tối ưu):*\n`{list_20}`\n\n"
-            f"🎯 *Dàn 36 số (Bao phủ):*\n`{list_36}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💡 *Khuyên dùng:* Kết hợp Đầu/Đuôi với Dàn 20-36 số để đạt hiệu quả cao nhất."
-        )
-        bot.edit_message_text(report, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
-    except Exception as e:
-        bot.edit_message_text(f"⚠️ Lỗi khi phân tích Giải Đặc Biệt: {e}", chat_id=message.chat.id, message_id=msg.message_id)
+    report = (
+        f"🎯 *DỰ ĐOÁN GIẢI {GAME_CONFIG[game]['name'].upper()}*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📌 **Dàn số dự đoán kỳ tới:**\n`[{str_pred}]`\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"💡 *Phân tích dựa trên thuật toán ma trận tần suất nhịp rơi.*"
+    )
+    bot.reply_to(message, report, parse_mode="Markdown")
 
 @bot.message_handler(commands=['test'])
-def handle_test_command(message):
+def handle_backtest(message):
     raw_text = message.text.strip()
-    text_parts = raw_text.split()
-    
-    if len(text_parts) <= 1:
-        count = db.count_results() if hasattr(db, 'count_results') else 0
-        bot.reply_to(message, f"🧪 **Hệ thống sẵn sàng!** CSDL đang lưu `{count}` ngày.", parse_mode="Markdown")
+    parts = raw_text.split(maxsplit=2)
+
+    if len(parts) < 3:
+        bot.reply_to(message, "⚠️ Cú pháp chưa đúng!\nVí dụ: `/test 655 2026-09-01` hoặc `/test 655 2026-08-25 => 01`", parse_mode="Markdown")
         return
 
-    raw_input = " ".join(text_parts[1:]).strip()
-    dates_to_test = parse_date_range(raw_input)
+    game = parts[1].lower()
+    if game not in GAME_CONFIG:
+        bot.reply_to(message, "❌ Mã giải không hợp lệ! Chọn: `655`, `645`, `3d`, `keno`", parse_mode="Markdown")
+        return
+
+    raw_date_input = parts[2]
+    dates_to_test = parse_date_range(raw_date_input)
 
     if not dates_to_test:
-        bot.reply_to(message, "❌ Định dạng không hợp lệ. Ví dụ: `/test 2026-08-01 => 25`", parse_mode="Markdown")
+        bot.reply_to(message, "❌ Định dạng ngày không hợp lệ. Dùng chuẩn YYYY-MM-DD", parse_mode="Markdown")
         return
 
-    if len(dates_to_test) > 1:
-        msg = bot.reply_to(message, f"⏳ Đang test LÔ & XIÊN {len(dates_to_test)} ngày...", parse_mode="Markdown")
+    msg = bot.reply_to(message, f"⏳ Đang thực hiện Backtest giải **{GAME_CONFIG[game]['name']}** cho {len(dates_to_test)} ngày...", parse_mode="Markdown")
+
+    valid_cnt = 0
+    total_matches = 0
+    total_possible = 0
+    details_list = []
+
+    for target_date_str in dates_to_test:
         try:
-            all_data = db.get_results(limit=500) if hasattr(db, 'get_results') else []
-            valid_cnt = bt_hits = x2_total = x3_hits = x4_hits = 0
-            details_list = []
+            target_date = datetime.strptime(target_date_str, "%Y-%m-%d")
+        except ValueError:
+            continue
 
-            for target_date in dates_to_test:
-                historical_data = [r for r in all_data if normalize_date(r.get('date')) < target_date][:100]
-                actual_row = next((r for r in all_data if normalize_date(r.get('date')) == target_date), None)
+        # 1. Lấy kết quả thực tế tại ngày test
+        actual_draw = next((d for d in DATASET if d["game"] == game and d["date"] == target_date_str), None)
+        if not actual_draw:
+            continue
 
-                if not actual_row: continue
+        # 2. Lọc dữ liệu LÙI VỀ TRƯỚC ngày test
+        past_history = [
+            d for d in DATASET 
+            if d["game"] == game and datetime.strptime(d["date"], "%Y-%m-%d") < target_date
+        ]
 
-                actual_numbers = actual_row.get('numbers', [])
-                res = predictor.test_prediction_accuracy(historical_data, actual_numbers)
-                if not res: continue
+        # 3. Chạy thuật toán dự đoán chỉ dùng dữ liệu quá khứ
+        predicted = predict_numbers(game, past_history)
+        actual = actual_draw["result"]
 
-                valid_cnt += 1
-                if res.get('bach_thu_hit'): bt_hits += 1
-                
-                x2_cnt = res.get('xien_2_hits_count', 0)
-                x2_total += x2_cnt
-                
-                if res.get('xien_3_hit'): x3_hits += 1
-                if res.get('xien_4_hit'): x4_hits += 1
+        # 4. So sánh kết quả
+        if GAME_CONFIG[game]["type"] == "digit":
+            # So sánh vị trí chữ số chính xác (Max 3D)
+            matched = [p for p, a in zip(predicted, actual) if p == a]
+            match_cnt = len(matched)
+            possible_cnt = len(actual)
+        else:
+            # So sánh tập hợp số trùng (6/55, 6/45, Keno)
+            matched = list(set(predicted).intersection(set(actual)))
+            match_cnt = len(matched)
+            possible_cnt = len(actual)
 
-                bt_icon = "✅" if res.get('bach_thu_hit') else "❌"
-                x3_icon = "✅" if res.get('xien_3_hit') else "❌"
-                x4_icon = "✅" if res.get('xien_4_hit') else "❌"
+        accuracy = (match_cnt / possible_cnt) * 100 if possible_cnt > 0 else 0
+        valid_cnt += 1
+        total_matches += match_cnt
+        total_possible += possible_cnt
 
-                details_list.append(
-                    f"📅 **{target_date}**: BT {bt_icon} (`{res.get('bach_thu')}`) | "
-                    f"X2: **{x2_cnt}/2** | X3: {x3_icon} | X4: {x4_icon}"
-                )
+        str_pred = ",".join(map(str, predicted))
+        str_actual = ",".join(map(str, actual))
+        str_matched = ",".join(map(str, matched)) if matched else "Không"
 
-            if valid_cnt == 0:
-                bot.edit_message_text("❌ Không có dữ liệu phù hợp.", chat_id=message.chat.id, message_id=msg.message_id)
-                return
+        details_list.append(
+            f"📅 **{target_date_str}**\n"
+            f" └ Dự đoán: `[{str_pred}]` \n"
+            f" └ Thực tế: `[{str_actual}]`\n"
+            f" └ Trùng: `[{str_matched}]` (**{accuracy:.1f}%**)"
+        )
 
-            bt_rate = (bt_hits / valid_cnt) * 100
-            report_header = f"🧪 *BÁO CÁO TEST LÔ & XIÊN ({valid_cnt} NGÀY)*\n━━━━━━━━━━━━━━━━━━━━━\n"
-            report_footer = (
-                f"\n━━━━━━━━━━━━━━━━━━━━━\n"
-                f"📊 **TỔNG KẾT TỶ LỆ TRÚNG:**\n"
-                f"🔥 **Bạch Thủ Lô:** Trúng `{bt_hits}/{valid_cnt}` ngày (**{bt_rate:.1f}%**)\n"
-                f"👯 **Xiên 2:** Trúng tổng cộng **{x2_total}** cặp\n"
-                f"🥉 **Xiên 3:** Trúng **{x3_hits}/{valid_cnt}** ngày\n"
-                f"🏅 **Xiên 4:** Trúng **{x4_hits}/{valid_cnt}** ngày"
-            )
-
-            full_report = report_header + "\n".join(details_list) + report_footer
-            if len(full_report) > 4000:
-                full_report = report_header + "\n".join(details_list[:15]) + f"\n... (ẩn {len(details_list)-15} ngày) ..." + report_footer
-
-            bot.edit_message_text(full_report, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
-
-        except Exception as e:
-            bot.edit_message_text(f"⚠️ Lỗi test: `{str(e)}`", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
-    else:
-        target_date = dates_to_test[0]
-        msg = bot.reply_to(message, f"⏳ Đang test LÔ & XIÊN ngày `{target_date}`...", parse_mode="Markdown")
-        try:
-            all_data = db.get_results(limit=500) if hasattr(db, 'get_results') else []
-            historical_data = [r for r in all_data if normalize_date(r.get('date')) < target_date][:100]
-            actual_row = next((r for r in all_data if normalize_date(r.get('date')) == target_date), None)
-
-            if not actual_row:
-                bot.edit_message_text(f"❌ Thiếu dữ liệu ngày {target_date}.", chat_id=message.chat.id, message_id=msg.message_id)
-                return
-
-            res = predictor.test_prediction_accuracy(historical_data, actual_row.get('numbers', []))
-            bt_icon = "✅ TRÚNG" if res.get('bach_thu_hit') else "❌ TRƯỢT"
-            x3_icon = "✅ TRÚNG" if res.get('xien_3_hit') else "❌ TRƯỢT"
-            x4_icon = "✅ TRÚNG" if res.get('xien_4_hit') else "❌ TRƯỢT"
-
-            report = (
-                f"🧪 *BÁO CÁO TEST LÔ & XIÊN NGÀY {target_date}*\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🔥 *Bạch Thủ Lô ({res.get('bach_thu')})*: {bt_icon}\n"
-                f"👯 *Xiên 2*: Trúng {res.get('xien_2_hits_count', 0)}/2 cặp\n"
-                f"🥉 *Xiên 3 ({', '.join(res.get('xien_3', []))})*: {x3_icon}\n"
-                f"🏅 *Xiên 4 ({', '.join(res.get('xien_4', []))})*: {x4_icon}"
-            )
-            bot.edit_message_text(report, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
-        except Exception as e:
-            bot.edit_message_text(f"⚠️ Lỗi: `{str(e)}`", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
-
-@bot.message_handler(commands=['testdb'])
-def handle_test_db_command(message):
-    raw_text = message.text.strip()
-    text_parts = raw_text.split()
-    
-    if len(text_parts) <= 1:
-        bot.reply_to(message, "⚠️ Cú pháp: `/testdb 2026-08-01 => 25`", parse_mode="Markdown")
+    if valid_cnt == 0:
+        bot.edit_message_text("❌ Không tìm thấy dữ liệu kết quả thực tế phù hợp trong dải ngày đã chọn.", chat_id=message.chat.id, message_id=msg.message_id)
         return
 
-    raw_input = " ".join(text_parts[1:]).strip()
-    dates_to_test = parse_date_range(raw_input)
+    overall_accuracy = (total_matches / total_possible) * 100 if total_possible > 0 else 0
 
-    if len(dates_to_test) > 1:
-        msg = bot.reply_to(message, f"⏳ Đang test ĐỀ {len(dates_to_test)} ngày...", parse_mode="Markdown")
-        try:
-            all_data = db.get_results(limit=500) if hasattr(db, 'get_results') else []
-            h_dau = h_duoi = h10 = h20 = h36 = valid_cnt = 0
-            details_list = []
-
-            for target_date in dates_to_test:
-                historical_data = [r for r in all_data if normalize_date(r.get('date')) < target_date][:100]
-                actual_row = next((r for r in all_data if normalize_date(r.get('date')) == target_date), None)
-
-                if not actual_row: continue
-
-                res = predictor.test_db_accuracy(historical_data, actual_row.get('numbers', []))
-                if not res: continue
-
-                valid_cnt += 1
-                if res.get('is_hit_dau'): h_dau += 1
-                if res.get('is_hit_duoi'): h_duoi += 1
-                if res['is_hit_10']: h10 += 1
-                if res['is_hit_20']: h20 += 1
-                if res['is_hit_36']: h36 += 1
-
-                dau_icon = '✅' if res.get('is_hit_dau') else '❌'
-                duoi_icon = '✅' if res.get('is_hit_duoi') else '❌'
-
-                details_list.append(
-                    f"📅 **{target_date}** (Đề: **{res['actual_db']}**)\n"
-                    f"└ Đầu: {dau_icon} | Đuôi: {duoi_icon} | D10: {'✅' if res['is_hit_10'] else '❌'} | D20: {'✅' if res['is_hit_20'] else '❌'} | D36: {'✅' if res['is_hit_36'] else '❌'}"
-                )
-
-            if valid_cnt == 0:
-                bot.edit_message_text("❌ Không tìm thấy dữ liệu.", chat_id=message.chat.id, message_id=msg.message_id)
-                return
-
-            report_header = f"👑 *BÁO CÁO TEST GIẢI ĐẶC BIỆT ({valid_cnt} NGÀY)*\n━━━━━━━━━━━━━━━━━━━━━\n"
-            report_footer = (
-                f"\n━━━━━━━━━━━━━━━━━━━━━\n"
-                f"📊 **TỔNG KẾT TỶ LỆ TRÚNG:**\n"
-                f"📌 **Đầu Đề:** Trúng `{h_dau}/{valid_cnt}` ngày (**{(h_dau/valid_cnt)*100:.1f}%**)\n"
-                f"📌 **Đuôi Đề:** Trúng `{h_duoi}/{valid_cnt}` ngày (**{(h_duoi/valid_cnt)*100:.1f}%**)\n"
-                f"🎯 **Dàn 10 số:** Trúng `{h10}/{valid_cnt}` ngày (**{(h10/valid_cnt)*100:.1f}%**)\n"
-                f"🎯 **Dàn 20 số:** Trúng `{h20}/{valid_cnt}` ngày (**{(h20/valid_cnt)*100:.1f}%**)\n"
-                f"🎯 **Dàn 36 số:** Trúng `{h36}/{valid_cnt}` ngày (**{(h36/valid_cnt)*100:.1f}%**)"
-            )
-
-            full_report = report_header + "\n".join(details_list) + report_footer
-            if len(full_report) > 4000:
-                full_report = report_header + "\n".join(details_list[:15]) + f"\n... (ẩn {len(details_list)-15} ngày) ..." + report_footer
-
-            bot.edit_message_text(full_report, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
-        except Exception as e:
-            bot.edit_message_text(f"⚠️ Lỗi test Đề: `{str(e)}`", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
-
-@bot.message_handler(commands=['ketqua'])
-def handle_latest_result(message):
-    results = db.get_results(limit=1) if hasattr(db, 'get_results') else None
-    if not results:
-        bot.reply_to(message, "⚠️ Chưa có dữ liệu trong CSDL.")
-        return
-    
-    latest = results[0]
-    date_str = normalize_date(latest.get('date'))
-    
-    if hasattr(predictor, 'parse_numbers'):
-        nums = predictor.parse_numbers(latest)
-    else:
-        nums = latest.get('numbers', [])
-    
-    db_val = nums[0] if len(nums) > 0 else "---"
-    g1_val = nums[1] if len(nums) > 1 else "---"
-    lotto_list = ", ".join(nums)
-    
-    res_msg = (
-        f"📊 *KẾT QUẢ XSMB NGÀY {date_str}*\n"
+    report_header = (
+        f"🧪 *BÁO CÁO BACKTEST - {GAME_CONFIG[game]['name'].upper()}*\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🏆 **Giải Đặc Biệt:** `{db_val}`\n"
-        f"🥇 **Giải Nhất:** `{g1_val}`\n\n"
-        f"🎲 **Lô tô về ({len(nums)} giải):**\n`{lotto_list}`"
     )
-    bot.reply_to(message, res_msg, parse_mode="Markdown")
+    report_footer = (
+        f"\n━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 **TỔNG KẾT HỆ THỐNG:**\n"
+        f"• Số kỳ test thành công: `{valid_cnt}/{len(dates_to_test)}`\n"
+        f"• Tổng số lượt trùng: `{total_matches}/{total_possible}` số\n"
+        f"• **Độ chính xác trung bình:** `{overall_accuracy:.2f}%`"
+    )
 
-@bot.message_handler(commands=['capnhat'])
-def handle_manual_update(message):
-    msg = bot.reply_to(message, "🔍 Đang cào kết quả mới...")
-    if scraper.scrape_today():
-        bot.edit_message_text("✅ Cập nhật thành công!", chat_id=message.chat.id, message_id=msg.message_id)
-    else:
-        bot.edit_message_text("⚠️ Chưa có kết quả mới.", chat_id=message.chat.id, message_id=msg.message_id)
+    full_report = report_header + "\n\n".join(details_list) + report_footer
+    if len(full_report) > 4000:
+        full_report = report_header + "\n\n".join(details_list[:10]) + f"\n\n... (ẩn {len(details_list)-10} kỳ) ..." + report_footer
 
-@bot.message_handler(commands=['thongke', 'stats'])
+    bot.edit_message_text(full_report, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
+
+@bot.message_handler(commands=['thongke'])
 def handle_stats(message):
-    count = db.count_results() if hasattr(db, 'count_results') else 0
-    min_d, max_d = db.get_date_range() if hasattr(db, 'get_date_range') else (None, None)
+    total = len(DATASET)
+    game_counts = Counter([d["game"] for d in DATASET])
     
-    stats_msg = (
-        f"📈 *THỐNG KÊ KHO DỮ LIỆU*\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"▫️ **Tổng số ngày lưu trữ:** `{count}` ngày\n"
-        f"▫️ **Thời gian CSDL:** `{normalize_date(min_d)}` ➔ `{normalize_date(max_d)}`"
-    )
-    bot.reply_to(message, stats_msg, parse_mode="Markdown")
+    msg_lines = [f"📈 *THỐNG KÊ KHO DỮ LIỆU VIETLOTT*\n━━━━━━━━━━━━━━━━━━━━━\n• **Tổng bản ghi:** `{total}`"]
+    for g, name_cfg in GAME_CONFIG.items():
+        msg_lines.append(f"• **{name_cfg['name']}:** `{game_counts.get(g, 0)}` kỳ")
+        
+    bot.reply_to(message, "\n".join(msg_lines), parse_mode="Markdown")
 
-# --- LUỒNG CHÍNH ---
+# --- LUỒNG CHÍNH ĐIỀU HÀNH ---
 if __name__ == '__main__':
-    print("🚀 Khởi động Flask & Bot Telegram...", flush=True)
+    print("🚀 Khởi động Flask & Vietlott Telegram Bot...", flush=True)
     
+    # 1. Chạy Flask Web Server ở luồng riêng
     threading.Thread(target=run_flask, daemon=True).start()
-    threading.Thread(target=fetch_initial_data, daemon=True).start()
-    threading.Thread(target=auto_update_scheduler, daemon=True).start()
 
+    # 2. Xóa Webhook cũ để tránh xung đột Polling
     try:
         bot.remove_webhook()
-        time.sleep(2)
+        time.sleep(1)
     except Exception as e:
         print(f"⚠️ Webhook warning: {e}", flush=True)
 
-    print("🤖 Bot đang lắng nghe...", flush=True)
+    print("🤖 Bot Telegram đang lắng nghe...", flush=True)
 
+    # 3. Chạy Polling liên tục
     while True:
         try:
             bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)

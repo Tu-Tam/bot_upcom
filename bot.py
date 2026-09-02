@@ -15,8 +15,6 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 if not TOKEN:
     print("❌ LỖI FATAL: Chưa cấu hình TELEGRAM_TOKEN trong Environment Variables!", flush=True)
-    # Tùy chọn: Nhập token trực tiếp nếu chạy local test
-    # TOKEN = "YOUR_BOT_TOKEN_HERE"
     sys.exit(1)
 
 bot = telebot.TeleBot(TOKEN)
@@ -39,7 +37,6 @@ GAME_CONFIG = {
 }
 
 # --- GIẢ LẬP CƠ SỞ DỮ LIỆU LỊCH SỬ VIETLOTT ---
-# (Trong thực tế, bạn sẽ thay thế danh sách này bằng dữ liệu cào từ CSDL/API)
 DATASET = [
     # Power 6/55
     {"date": "2026-08-25", "game": "655", "result": [4, 12, 18, 27, 39, 48]},
@@ -69,7 +66,6 @@ def predict_numbers(game_type: str, history_data: list) -> list:
         if not history_data:
             return [random.randint(0, 9) for _ in range(config["length"])]
         
-        # Lấy tần suất cho từng vị trí chữ số
         predicted = []
         for pos in range(config["length"]):
             digits_at_pos = [d["result"][pos] for d in history_data if len(d["result"]) > pos]
@@ -87,10 +83,8 @@ def predict_numbers(game_type: str, history_data: list) -> list:
     all_numbers = [num for draw in history_data for num in draw.get("result", [])]
     freq = Counter(all_numbers)
     
-    # Lấy các số xuất hiện nhiều nhất
     most_common = [num for num, _ in freq.most_common(config["pick"])]
 
-    # Bổ sung số ngẫu nhiên nếu lịch sử chưa đủ mẫu
     while len(most_common) < config["pick"]:
         rand_n = random.randint(1, config["max_num"])
         if rand_n not in most_common:
@@ -198,7 +192,17 @@ def handle_backtest(message):
         bot.reply_to(message, "❌ Định dạng ngày không hợp lệ. Dùng chuẩn YYYY-MM-DD", parse_mode="Markdown")
         return
 
-    msg = bot.reply_to(message, f"⏳ Đang thực hiện Backtest giải **{GAME_CONFIG[game]['name']}** cho {len(dates_to_test)} ngày...", parse_mode="Markdown")
+    msg = bot.reply_to(message, f"⏳ Đang thực hiện Backtest giải **{GAME_CONFIG[game]['name']}**...", parse_mode="Markdown")
+
+    # Lấy danh sách tất cả các kỳ quay có dữ liệu của giải này (sắp xếp tăng dần theo ngày)
+    available_draws = sorted(
+        [d for d in DATASET if d["game"] == game],
+        key=lambda x: datetime.strptime(x["date"], "%Y-%m-%d")
+    )
+
+    if not available_draws:
+        bot.edit_message_text("❌ Chưa có dữ liệu lịch sử cho giải này.", chat_id=message.chat.id, message_id=msg.message_id)
+        return
 
     valid_cnt = 0
     total_matches = 0
@@ -211,34 +215,41 @@ def handle_backtest(message):
         except ValueError:
             continue
 
-        # 1. Lấy kết quả thực tế tại ngày test
-        actual_draw = next((d for d in DATASET if d["game"] == game and d["date"] == target_date_str), None)
-        if not actual_draw:
-            continue
+        # 1. Tìm kết quả đúng ngày hoặc TỰ CHUYỂN SANG KỲ KẾ TIẾP GẦN NHẤT
+        actual_draw = next((d for d in available_draws if d["date"] == target_date_str), None)
+        note_next_day = ""
 
-        # 2. Lọc dữ liệu LÙI VỀ TRƯỚC ngày test
+        if not actual_draw:
+            next_draws = [d for d in available_draws if datetime.strptime(d["date"], "%Y-%m-%d") > target_date]
+            if next_draws:
+                actual_draw = next_draws[0]
+                note_next_day = f" _(Tự chuyển sang kỳ kế tiếp: {actual_draw['date']})_"
+            else:
+                continue
+
+        actual_date_str = actual_draw["date"]
+        actual_date_obj = datetime.strptime(actual_date_str, "%Y-%m-%d")
+
+        # 2. Lọc dữ liệu LÙI VỀ TRƯỚC ngày quay thực tế
         past_history = [
             d for d in DATASET 
-            if d["game"] == game and datetime.strptime(d["date"], "%Y-%m-%d") < target_date
+            if d["game"] == game and datetime.strptime(d["date"], "%Y-%m-%d") < actual_date_obj
         ]
 
-        # 3. Chạy thuật toán dự đoán chỉ dùng dữ liệu quá khứ
+        # 3. Chạy thuật toán dự đoán
         predicted = predict_numbers(game, past_history)
         actual = actual_draw["result"]
 
         # 4. So sánh kết quả
         if GAME_CONFIG[game]["type"] == "digit":
-            # So sánh vị trí chữ số chính xác (Max 3D)
             matched = [p for p, a in zip(predicted, actual) if p == a]
-            match_cnt = len(matched)
-            possible_cnt = len(actual)
         else:
-            # So sánh tập hợp số trùng (6/55, 6/45, Keno)
             matched = list(set(predicted).intersection(set(actual)))
-            match_cnt = len(matched)
-            possible_cnt = len(actual)
 
+        match_cnt = len(matched)
+        possible_cnt = len(actual)
         accuracy = (match_cnt / possible_cnt) * 100 if possible_cnt > 0 else 0
+
         valid_cnt += 1
         total_matches += match_cnt
         total_possible += possible_cnt
@@ -248,14 +259,14 @@ def handle_backtest(message):
         str_matched = ",".join(map(str, matched)) if matched else "Không"
 
         details_list.append(
-            f"📅 **{target_date_str}**\n"
-            f" └ Dự đoán: `[{str_pred}]` \n"
-            f" └ Thực tế: `[{str_actual}]`\n"
-            f" └ Trùng: `[{str_matched}]` (**{accuracy:.1f}%**)"
+            f"📅 **Yêu cầu: {target_date_str}**{note_next_day}\n"
+            f" └ Kết quả kỳ {actual_date_str}: `[{str_actual}]`\n"
+            f" └ Thuật toán dự đoán: `[{str_pred}]`\n"
+            f" └ Trùng khớp: `[{str_matched}]` (**{accuracy:.1f}%**)"
         )
 
     if valid_cnt == 0:
-        bot.edit_message_text("❌ Không tìm thấy dữ liệu kết quả thực tế phù hợp trong dải ngày đã chọn.", chat_id=message.chat.id, message_id=msg.message_id)
+        bot.edit_message_text("❌ Ngày bạn nhập vượt quá dữ liệu hiện có trong hệ thống.", chat_id=message.chat.id, message_id=msg.message_id)
         return
 
     overall_accuracy = (total_matches / total_possible) * 100 if total_possible > 0 else 0
@@ -267,7 +278,7 @@ def handle_backtest(message):
     report_footer = (
         f"\n━━━━━━━━━━━━━━━━━━━━━\n"
         f"📊 **TỔNG KẾT HỆ THỐNG:**\n"
-        f"• Số kỳ test thành công: `{valid_cnt}/{len(dates_to_test)}`\n"
+        f"• Số kỳ test thành công: `{valid_cnt}`\n"
         f"• Tổng số lượt trùng: `{total_matches}/{total_possible}` số\n"
         f"• **Độ chính xác trung bình:** `{overall_accuracy:.2f}%`"
     )

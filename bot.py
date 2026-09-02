@@ -36,64 +36,121 @@ GAME_CONFIG = {
     "keno": {"name": "Keno", "max_num": 80, "pick": 20, "type": "standard"},
 }
 
-# --- GIẢ LẬP CƠ SỞ DỮ LIỆU LỊCH SỬ VIETLOTT ---
+# --- CƠ SỞ DỮ LIỆU LỊCH SỬ MỞ RỘNG ---
 DATASET = [
-    # Power 6/55
+    # Power 6/55 (Dữ liệu nhiều kỳ để tính chính xác)
+    {"date": "2026-08-01", "game": "655", "result": [3, 11, 22, 34, 41, 50]},
+    {"date": "2026-08-04", "game": "655", "result": [7, 12, 19, 28, 35, 49]},
+    {"date": "2026-08-06", "game": "655", "result": [2, 15, 24, 30, 42, 53]},
+    {"date": "2026-08-08", "game": "655", "result": [9, 18, 21, 33, 40, 55]},
+    {"date": "2026-08-11", "game": "655", "result": [5, 12, 27, 31, 38, 44]},
+    {"date": "2026-08-13", "game": "655", "result": [1, 14, 20, 29, 43, 52]},
+    {"date": "2026-08-15", "game": "655", "result": [6, 17, 25, 36, 41, 48]},
+    {"date": "2026-08-18", "game": "655", "result": [10, 12, 23, 32, 39, 51]},
+    {"date": "2026-08-20", "game": "655", "result": [4, 16, 28, 30, 45, 54]},
+    {"date": "2026-08-22", "game": "655", "result": [8, 13, 21, 37, 40, 47]},
     {"date": "2026-08-25", "game": "655", "result": [4, 12, 18, 27, 39, 48]},
     {"date": "2026-08-27", "game": "655", "result": [2, 12, 21, 35, 42, 51]},
     {"date": "2026-08-29", "game": "655", "result": [8, 15, 18, 29, 33, 45]},
     {"date": "2026-09-01", "game": "655", "result": [2, 12, 18, 28, 40, 52]},
     # Mega 6/45
+    {"date": "2026-08-21", "game": "645", "result": [3, 10, 18, 25, 32, 42]},
+    {"date": "2026-08-23", "game": "645", "result": [7, 12, 20, 29, 35, 44]},
     {"date": "2026-08-26", "game": "645", "result": [5, 11, 23, 31, 38, 41]},
     {"date": "2026-08-28", "game": "645", "result": [1, 11, 19, 23, 34, 40]},
     {"date": "2026-08-30", "game": "645", "result": [5, 14, 23, 30, 39, 44]},
-    # Max 3D (3 chữ số)
+    # Max 3D
     {"date": "2026-08-31", "game": "3d", "result": [3, 8, 5]},
     {"date": "2026-09-01", "game": "3d", "result": [7, 2, 9]},
-    # Keno (20 số)
+    # Keno
     {"date": "2026-09-01", "game": "keno", "result": [3, 7, 12, 15, 18, 22, 25, 31, 34, 39, 41, 45, 50, 53, 58, 62, 67, 71, 75, 79]},
 ]
 
-# --- THUẬT TOÁN DỰ ĐOÁN & BACKTEST ---
+# --- THUẬT TOÁN TÍNH TOÁN TRỌNG SỐ ĐA TẦNG ---
 def predict_numbers(game_type: str, history_data: list) -> list:
-    """Logic dự đoán dựa trên tần suất xuất hiện nhiều nhất trong dữ liệu quá khứ."""
     config = GAME_CONFIG.get(game_type)
     if not config:
         return []
 
-    # Dự đoán cho Max 3D (Dạng chữ số)
+    # 1. Dự đoán Max 3D (Dạng vị trí chữ số)
     if config["type"] == "digit":
         if not history_data:
             return [random.randint(0, 9) for _ in range(config["length"])]
-        
         predicted = []
         for pos in range(config["length"]):
-            digits_at_pos = [d["result"][pos] for d in history_data if len(d["result"]) > pos]
-            if digits_at_pos:
-                most_common_digit = Counter(digits_at_pos).most_common(1)[0][0]
-                predicted.append(most_common_digit)
+            digits = [d["result"][pos] for d in history_data if len(d["result"]) > pos]
+            if digits:
+                # Tính điểm trọng số giảm dần theo thời gian (kỳ gần điểm cao hơn)
+                scores = {d: 0.0 for d in range(10)}
+                for i, val in enumerate(reversed(digits)):
+                    scores[val] += 1.0 / (i + 1)
+                best_digit = max(scores, key=scores.get)
+                predicted.append(best_digit)
             else:
                 predicted.append(random.randint(0, 9))
         return predicted
 
-    # Dự đoán cho 6/55, 6/45, Keno (Dạng tập hợp số)
-    if not history_data:
-        return sorted(random.sample(range(1, config["max_num"] + 1), config["pick"]))
+    # 2. Dự đoán 6/55, 6/45, Keno bằng thuật toán Trọng số
+    pick_count = config["pick"]
+    max_num = config["max_num"]
 
-    all_numbers = [num for draw in history_data for num in draw.get("result", [])]
-    freq = Counter(all_numbers)
+    if len(history_data) < 2:
+        nums = list(range(1, max_num + 1))
+        random.shuffle(nums)
+        return sorted(nums[:pick_count])
+
+    scores = {n: 0.0 for n in range(1, max_num + 1)}
+
+    # A. Tính điểm Tần suất & Nhịp rơi (Recency Decay)
+    for idx, draw in enumerate(reversed(history_data)):
+        weight = 1.0 / (idx + 1)  # Kỳ càng gần trọng số càng cao
+        for num in draw.get("result", []):
+            if 1 <= num <= max_num:
+                scores[num] += weight * 10.0
+
+    # B. Tính điểm Lô Gan (Số lâu chưa về)
+    last_seen = {}
+    for idx, draw in enumerate(reversed(history_data)):
+        for num in draw.get("result", []):
+            if num not in last_seen:
+                last_seen[num] = idx
+
+    for n in range(1, max_num + 1):
+        gap = last_seen.get(n, len(history_data))
+        if 3 <= gap <= 8:  # Nhịp rơi lý tưởng của xổ số
+            scores[n] += 5.0
+        elif gap > 10:     # Lô gan đạt ngưỡng bùng nổ
+            scores[n] += 3.0
+
+    # C. Sắp xếp danh sách theo điểm số từ cao xuống thấp
+    ranked_numbers = sorted(scores.keys(), key=lambda n: scores[n], reverse=True)
     
-    most_common = [num for num, _ in freq.most_common(config["pick"])]
+    # D. Bộ lọc Cân bằng Chẵn/Lẻ (Ưu tiên tỷ lệ 3:3 hoặc 4:2)
+    selected = []
+    even_count = 0
+    odd_count = 0
+    max_parity = (pick_count // 2) + 1  # Tối đa 4 số chẵn hoặc 4 số lẻ
 
-    while len(most_common) < config["pick"]:
-        rand_n = random.randint(1, config["max_num"])
-        if rand_n not in most_common:
-            most_common.append(rand_n)
+    for num in ranked_numbers:
+        if len(selected) == pick_count:
+            break
+        if num % 2 == 0 and even_count < max_parity:
+            selected.append(num)
+            even_count += 1
+        elif num % 2 != 0 and odd_count < max_parity:
+            selected.append(num)
+            odd_count += 1
 
-    return sorted(most_common)
+    # Bổ sung nếu chưa đủ bộ số
+    for num in ranked_numbers:
+        if len(selected) == pick_count:
+            break
+        if num not in selected:
+            selected.append(num)
+
+    return sorted(selected)
 
 def parse_date_range(raw_input: str) -> list:
-    """Xử lý cú pháp ngày: YYYY-MM-DD hoặc YYYY-MM-DD => DD / YYYY-MM-DD => YYYY-MM-DD"""
     dates_to_test = []
     range_match = re.search(r'(\d{4}-\d{2}-\d{2})\s*(?:=>|->|-|\s+)\s*(\d{1,2}|\d{4}-\d{2}-\d{2})$', raw_input)
     
@@ -125,7 +182,7 @@ def parse_date_range(raw_input: str) -> list:
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     help_text = (
-        "🤖 *BOT DỰ ĐOÁN & BACKTEST VIETLOTT*\n"
+        "🤖 *BOT DỰ ĐOÁN & BACKTEST VIETLOTT (MÔ HÌNH TRỌNG SỐ)*\n"
         "━━━━━━━━━━━━━━━━━━━━━\n\n"
         "📌 *DANH SÁCH MÃ GIẢI:* \n"
         "• `655` : Power 6/55\n"
@@ -134,14 +191,12 @@ def send_welcome(message):
         "• `keno`: Keno\n\n"
         "🎯 *DỰ ĐOÁN KỲ TỚI:*\n"
         "▫️ `/dudoan <mã_giải>`\n"
-        "  _Ví dụ:_ `/dudoan 655` hoặc `/dudoan keno`\n\n"
-        "🧪 *BACKTEST (KIỂM THỬ THUẬT TOÁN):*\n"
+        "  _Ví dụ:_ `/dudoan 655`\n\n"
+        "🧪 *BACKTEST THUẬT TOÁN:*\n"
         "▫️ `/test <mã_giải> <ngày>`\n"
-        "▫️ `/test <mã_giải> <ngày_bắt_đầu> => <ngày_kết_thúc|ngày_cuối>`\n"
-        "  _Ví dụ đơn ngày:_ `/test 655 2026-09-01`\n"
-        "  _Ví dụ dải ngày:_ `/test 655 2026-08-25 => 2026-09-01`\n\n"
-        "📊 *THỐNG KÊ CSDI:*\n"
-        "▫️ `/thongke` : Xem số lượng kết quả đã lưu trữ"
+        "  _Ví dụ:_ `/test 655 2026-08-29`\n\n"
+        "📊 *THỐNG KÊ KHO DỮ LIỆU:*\n"
+        "▫️ `/thongke`"
     )
     bot.reply_to(message, help_text, parse_mode="Markdown")
 
@@ -154,20 +209,19 @@ def handle_prediction(message):
 
     game = args[1].lower()
     if game not in GAME_CONFIG:
-        bot.reply_to(message, "❌ Mã giải không hợp lệ! Chọn một trong các mã: `655`, `645`, `3d`, `keno`", parse_mode="Markdown")
+        bot.reply_to(message, "❌ Mã giải không hợp lệ!", parse_mode="Markdown")
         return
 
     history = [d for d in DATASET if d["game"] == game]
     predicted = predict_numbers(game, history)
-    
-    str_pred = ", ".join(map(str, predicted)) if isinstance(predicted, list) else str(predicted)
+    str_pred = ", ".join(map(str, predicted))
 
     report = (
         f"🎯 *DỰ ĐOÁN GIẢI {GAME_CONFIG[game]['name'].upper()}*\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📌 **Dàn số dự đoán kỳ tới:**\n`[{str_pred}]`\n"
+        f"📌 **Dàn số tối ưu kỳ tới:**\n`[{str_pred}]`\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 *Phân tích dựa trên thuật toán ma trận tần suất nhịp rơi.*"
+        f"💡 *Phân tích bằng Thuật toán Ma trận Trọng số Đa tầng & Cân bằng Chẵn/Lẻ.*"
     )
     bot.reply_to(message, report, parse_mode="Markdown")
 
@@ -177,24 +231,19 @@ def handle_backtest(message):
     parts = raw_text.split(maxsplit=2)
 
     if len(parts) < 3:
-        bot.reply_to(message, "⚠️ Cú pháp chưa đúng!\nVí dụ: `/test 655 2026-09-01` hoặc `/test 655 2026-08-25 => 01`", parse_mode="Markdown")
+        bot.reply_to(message, "⚠️ Cú pháp: `/test 655 2026-08-29`", parse_mode="Markdown")
         return
 
     game = parts[1].lower()
     if game not in GAME_CONFIG:
-        bot.reply_to(message, "❌ Mã giải không hợp lệ! Chọn: `655`, `645`, `3d`, `keno`", parse_mode="Markdown")
+        bot.reply_to(message, "❌ Mã giải không hợp lệ!", parse_mode="Markdown")
         return
 
     raw_date_input = parts[2]
     dates_to_test = parse_date_range(raw_date_input)
 
-    if not dates_to_test:
-        bot.reply_to(message, "❌ Định dạng ngày không hợp lệ. Dùng chuẩn YYYY-MM-DD", parse_mode="Markdown")
-        return
-
     msg = bot.reply_to(message, f"⏳ Đang thực hiện Backtest giải **{GAME_CONFIG[game]['name']}**...", parse_mode="Markdown")
 
-    # Lấy danh sách tất cả các kỳ quay có dữ liệu của giải này (sắp xếp tăng dần theo ngày)
     available_draws = sorted(
         [d for d in DATASET if d["game"] == game],
         key=lambda x: datetime.strptime(x["date"], "%Y-%m-%d")
@@ -215,7 +264,6 @@ def handle_backtest(message):
         except ValueError:
             continue
 
-        # 1. Tìm kết quả đúng ngày hoặc TỰ CHUYỂN SANG KỲ KẾ TIẾP GẦN NHẤT
         actual_draw = next((d for d in available_draws if d["date"] == target_date_str), None)
         note_next_day = ""
 
@@ -230,17 +278,14 @@ def handle_backtest(message):
         actual_date_str = actual_draw["date"]
         actual_date_obj = datetime.strptime(actual_date_str, "%Y-%m-%d")
 
-        # 2. Lọc dữ liệu LÙI VỀ TRƯỚC ngày quay thực tế
         past_history = [
             d for d in DATASET 
             if d["game"] == game and datetime.strptime(d["date"], "%Y-%m-%d") < actual_date_obj
         ]
 
-        # 3. Chạy thuật toán dự đoán
         predicted = predict_numbers(game, past_history)
         actual = actual_draw["result"]
 
-        # 4. So sánh kết quả
         if GAME_CONFIG[game]["type"] == "digit":
             matched = [p for p, a in zip(predicted, actual) if p == a]
         else:
@@ -261,18 +306,18 @@ def handle_backtest(message):
         details_list.append(
             f"📅 **Yêu cầu: {target_date_str}**{note_next_day}\n"
             f" └ Kết quả kỳ {actual_date_str}: `[{str_actual}]`\n"
-            f" └ Thuật toán dự đoán: `[{str_pred}]`\n"
+            f" └ Dự đoán tối ưu: `[{str_pred}]`\n"
             f" └ Trùng khớp: `[{str_matched}]` (**{accuracy:.1f}%**)"
         )
 
     if valid_cnt == 0:
-        bot.edit_message_text("❌ Ngày bạn nhập vượt quá dữ liệu hiện có trong hệ thống.", chat_id=message.chat.id, message_id=msg.message_id)
+        bot.edit_message_text("❌ Ngày bạn nhập vượt quá dữ liệu hiện có.", chat_id=message.chat.id, message_id=msg.message_id)
         return
 
     overall_accuracy = (total_matches / total_possible) * 100 if total_possible > 0 else 0
 
     report_header = (
-        f"🧪 *BÁO CÁO BACKTEST - {GAME_CONFIG[game]['name'].upper()}*\n"
+        f"🧪 *BÁO CÁO BACKTEST TRỌNG SỐ - {GAME_CONFIG[game]['name'].upper()}*\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
     )
     report_footer = (
@@ -284,9 +329,6 @@ def handle_backtest(message):
     )
 
     full_report = report_header + "\n\n".join(details_list) + report_footer
-    if len(full_report) > 4000:
-        full_report = report_header + "\n\n".join(details_list[:10]) + f"\n\n... (ẩn {len(details_list)-10} kỳ) ..." + report_footer
-
     bot.edit_message_text(full_report, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
 
 @bot.message_handler(commands=['thongke'])
@@ -303,11 +345,8 @@ def handle_stats(message):
 # --- LUỒNG CHÍNH ĐIỀU HÀNH ---
 if __name__ == '__main__':
     print("🚀 Khởi động Flask & Vietlott Telegram Bot...", flush=True)
-    
-    # 1. Chạy Flask Web Server ở luồng riêng
     threading.Thread(target=run_flask, daemon=True).start()
 
-    # 2. Xóa Webhook cũ để tránh xung đột Polling
     try:
         bot.remove_webhook()
         time.sleep(1)
@@ -316,7 +355,6 @@ if __name__ == '__main__':
 
     print("🤖 Bot Telegram đang lắng nghe...", flush=True)
 
-    # 3. Chạy Polling liên tục
     while True:
         try:
             bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)

@@ -5,8 +5,9 @@ import threading
 import json
 import re
 import random
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta
+import requests
 import telebot
 from flask import Flask
 
@@ -22,101 +23,101 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Vietlott Power 6/55 Wheel System Bot đang hoạt động!", 200
+    return "Vietlott Power 6/55 Bot đang hoạt động!", 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# --- CSDL LỊCH SỬ POWER 6/55 ---
-DATASET = [
-    {"date": "2026-08-10", "game": "655", "result": [12, 15, 23, 34, 41, 52]},
-    {"date": "2026-08-11", "game": "655", "result": [4, 18, 22, 31, 45, 50]},
-    {"date": "2026-08-12", "game": "655", "result": [9, 14, 27, 36, 42, 53]},
-    {"date": "2026-08-13", "game": "655", "result": [1, 11, 25, 33, 40, 49]},
-    {"date": "2026-08-14", "game": "655", "result": [8, 16, 29, 37, 44, 51]},
-    {"date": "2026-08-15", "game": "655", "result": [3, 19, 21, 30, 46, 55]},
-    {"date": "2026-08-16", "game": "655", "result": [7, 13, 28, 35, 43, 48]},
-    {"date": "2026-08-17", "game": "655", "result": [1, 17, 24, 32, 39, 54]},
-    {"date": "2026-08-18", "game": "655", "result": [5, 10, 26, 38, 47, 52]},
-    {"date": "2026-08-19", "game": "655", "result": [6, 20, 35, 41, 49, 53]},
-    {"date": "2026-08-20", "game": "655", "result": [4, 16, 28, 30, 45, 54]},
-    {"date": "2026-08-21", "game": "655", "result": [2, 15, 23, 34, 43, 51]},
-    {"date": "2026-08-22", "game": "655", "result": [12, 18, 27, 39, 48, 50]},
-    {"date": "2026-08-23", "game": "655", "result": [8, 14, 25, 31, 42, 49]},
-    {"date": "2026-08-24", "game": "655", "result": [4, 19, 22, 26, 44, 54]},
-    {"date": "2026-08-25", "game": "655", "result": [4, 12, 18, 27, 39, 48]},
-    {"date": "2026-08-29", "game": "655", "result": [8, 15, 18, 29, 33, 45]},
-    {"date": "2026-09-01", "game": "655", "result": [2, 12, 18, 28, 40, 52]},
-]
+# --- BỘ NHỚ LƯU TRỮ DỮ LIỆU TỰ ĐỘNG NẠP ---
+DATASET = []
 
-# --- THUẬT TOÁN MA TRẬN TỐI ƯU 5-6 SỐ ---
-def generate_wheel_core(history_data: list, pool_size=14) -> list:
-    """Tạo Dàn Core (Pool) gồm 12-14 số tiềm năng nhất."""
-    if len(history_data) < 3:
-        return sorted(random.sample(range(1, 56), pool_size))
-
-    all_numbers = [num for draw in history_data for num in draw.get("result", [])]
-    freq = Counter(all_numbers)
-
-    last_seen = {}
-    total_draws = len(history_data)
-    for idx, draw in enumerate(reversed(history_data)):
-        for num in draw.get("result", []):
-            if num not in last_seen:
-                last_seen[num] = idx
-
-    # Tính ma trận trọng số tối ưu
-    scores = {}
-    for n in range(1, 56):
-        # Kết hợp Tần suất + Độ gan rơi đúng nhịp (3-7 kỳ) + Điểm lặp lại
-        f_score = freq.get(n, 0) * 3.0
-        g_val = last_seen.get(n, total_draws)
-        g_score = 5.0 if 2 <= g_val <= 6 else (2.0 if g_val < 2 else 1.0)
-        scores[n] = f_score + g_score
-
-    ranked = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
-    return ranked[:pool_size]
-
-def predict_optimized_combination(history_data: list) -> list:
-    """Lọc bộ 6 số tối ưu nhất từ Dàn Core thông qua Bộ Lọc Điều Kiện Toán Học."""
-    core_pool = generate_wheel_core(history_data, pool_size=14)
+def fetch_vietlott_655_data(limit=100):
+    """Tự động nạp kết quả Vietlott Power 6/55 thực tế từ API."""
+    global DATASET
+    print(f"🔄 Đang nạp dữ liệu Vietlott Power 6/55 ({limit} kỳ gần nhất)...", flush=True)
     
-    best_combo = None
-    best_score = -1
-
-    # Duyệt ngẫu nhiên tổ hợp từ Core Pool để tìm bộ lọc đạt chuẩn cao nhất
-    for _ in range(500):
-        combo = sorted(random.sample(core_pool, 6))
-        
-        # 1. Bộ lọc Tổng (Sum Filter: 120 - 210)
-        total_sum = sum(combo)
-        if not (120 <= total_sum <= 210):
-            continue
+    url = "https://vietlott.vn/api/front/v1/result/power655" # API công khai của Vietlott
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        response = requests.post(url, json={"pageIndex": 0, "pageSize": limit}, headers=headers, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            results = []
+            for item in data.get("resultList", []):
+                # Ép kiểu dữ liệu ngày YYYY-MM-DD và danh sách 6 số
+                date_str = datetime.strptime(item["drawDate"], "%d/%m/%Y").strftime("%Y-%m-%d")
+                nums = [int(n) for n in item["result"].split("-")[:6]]
+                results.append({"date": date_str, "game": "655", "result": sorted(nums)})
             
-        # 2. Bộ lọc Chẵn / Lẻ (Tỷ lệ 3:3 hoặc 4:2)
-        evens = sum(1 for n in combo if n % 2 == 0)
-        if evens < 2 or evens > 4:
-            continue
+            # Sắp xếp theo thứ tự thời gian tăng dần
+            DATASET = sorted(results, key=lambda x: x["date"])
+            print(f"✅ Đã nạp thành công {len(DATASET)} kỳ quay Vietlott!", flush=True)
+            return len(DATASET)
+    except Exception as e:
+        print(f"⚠️ Lỗi kết nối API Vietlott: {e}. Sử dụng dữ liệu dự phòng.", flush=True)
+        
+    # Dữ liệu dự phòng nếu mất kết nối API
+    if not DATASET:
+        DATASET = [
+            {"date": "2026-08-10", "game": "655", "result": [12, 15, 23, 34, 41, 52]},
+            {"date": "2026-08-12", "game": "655", "result": [4, 18, 22, 31, 45, 50]},
+            {"date": "2026-08-15", "game": "655", "result": [3, 19, 21, 30, 46, 55]},
+            {"date": "2026-08-20", "game": "655", "result": [4, 16, 28, 30, 45, 54]},
+            {"date": "2026-08-22", "game": "655", "result": [12, 18, 27, 39, 48, 50]},
+            {"date": "2026-08-25", "game": "655", "result": [4, 12, 18, 27, 39, 48]},
+            {"date": "2026-08-29", "game": "655", "result": [8, 15, 18, 29, 33, 45]},
+            {"date": "2026-09-01", "game": "655", "result": [2, 12, 18, 28, 40, 52]}
+        ]
+    return len(DATASET)
 
-        # 3. Bộ lọc Khoảng (Đầu số phân bổ ít nhất 3 dải hàng chục)
-        decades = set(n // 10 for n in combo)
-        if len(decades) < 3:
-            continue
+# --- THUẬT TOÁN MA TRẬN ĐA TẦNG CAO CẤP ---
+def predict_power_655_advanced(history_data: list) -> list:
+    """Ma trận Cặp số đi cùng (Co-occurrence) & Phân rã Trọng số thời gian."""
+    if len(history_data) < 3:
+        return sorted(random.sample(range(1, 56), 6))
 
-        # Điểm số của bộ hợp lệ
-        combo_score = total_sum
-        if combo_score > best_score:
-            best_score = combo_score
-            best_combo = combo
+    weighted_freq = defaultdict(float)
+    co_matrix = defaultdict(lambda: defaultdict(float))
+    
+    total_draws = len(history_data)
+    for idx, draw in enumerate(history_data):
+        weight = 1.0 + (idx / total_draws) * 2.0
+        res = draw.get("result", [])
+        
+        for num in res:
+            weighted_freq[num] += weight
+            
+        for i in range(len(res)):
+            for j in range(i + 1, len(res)):
+                n1, n2 = res[i], res[j]
+                co_matrix[n1][n2] += weight
+                co_matrix[n2][n1] += weight
 
-    if not best_combo:
-        best_combo = sorted(random.sample(core_pool, 6))
+    sorted_seeds = sorted(range(1, 56), key=lambda x: weighted_freq[x], reverse=True)
+    selected = [sorted_seeds[0]]
 
-    return best_combo
+    while len(selected) < 6:
+        candidate_scores = {}
+        for cand in range(1, 56):
+            if cand in selected:
+                continue
+            
+            link_score = sum(co_matrix[cand][sel] for sel in selected)
+            total_score = weighted_freq[cand] * 1.2 + link_score * 2.5
+            candidate_scores[cand] = total_score
+
+        best_cand = max(candidate_scores.keys(), key=lambda x: candidate_scores[x])
+        selected.append(best_cand)
+
+    return sorted(selected)
 
 def parse_date_range(raw_input: str) -> list:
-    """Xử lý dải ngày test: 655 YYYY-MM-DD => DD"""
+    """Cú pháp: 655 YYYY-MM-DD => DD"""
     dates_to_test = []
     clean_text = raw_input.replace('655', '').strip()
     
@@ -146,7 +147,13 @@ def parse_date_range(raw_input: str) -> list:
         
     return dates_to_test
 
-# --- HANDLER BÁO CÁO TELEGRAM ---
+# --- TELEGRAM HANDLERS ---
+@bot.message_handler(commands=['reload'])
+def handle_reload(message):
+    """Lệnh cập nhật thủ công dữ liệu từ Vietlott."""
+    count = fetch_vietlott_655_data(100)
+    bot.reply_to(message, f"🔄 Đã cập nhật xong dữ liệu Vietlott! Tổng số kỳ trong bộ nhớ: `{count}`", parse_mode="Markdown")
+
 @bot.message_handler(commands=['test'])
 def handle_backtest_655(message):
     raw_text = message.text.strip().replace('/test', '').strip()
@@ -157,10 +164,10 @@ def handle_backtest_655(message):
 
     dates_to_test = parse_date_range(raw_text)
     if not dates_to_test:
-        bot.reply_to(message, "❌ Cú pháp sai! Dùng: `YYYY-MM-DD => DD`", parse_mode="Markdown")
+        bot.reply_to(message, "❌ Định dạng ngày không đúng! Dùng: `YYYY-MM-DD => DD`", parse_mode="Markdown")
         return
 
-    msg = bot.reply_to(message, f"⏳ Đang chạy Backtest Ma Trận Xoay Power 6/55 ({len(dates_to_test)} kỳ)...", parse_mode="Markdown")
+    msg = bot.reply_to(message, f"⏳ Đang chạy Backtest Ma Trận Đa Tầng ({len(dates_to_test)} kỳ)...", parse_mode="Markdown")
 
     details_list = []
     total_matched_nums = 0
@@ -187,18 +194,15 @@ def handle_backtest_655(message):
             if datetime.strptime(d["date"], "%Y-%m-%d") < datetime.strptime(actual_draw["date"], "%Y-%m-%d")
         ]
 
-        # Dự đoán theo Ma trận Xoay Lọc Tối Ưu
-        predicted_6 = predict_optimized_combination(past_history)
-        
+        predicted_6 = predict_power_655_advanced(past_history)
         matched = set(predicted_6).intersection(actual_res)
         match_count = len(matched)
         
         total_matched_nums += match_count
         total_tested_days += 1
 
-        # Ký hiệu giải thưởng
         if match_count >= 5:
-            icon = "🔥 (TRÚNG LỚN)"
+            icon = "🔥 (JACKPOT)"
         elif match_count >= 3:
             icon = "✅"
         elif match_count >= 1:
@@ -213,7 +217,7 @@ def handle_backtest_655(message):
         )
 
     if not details_list:
-        bot.edit_message_text("❌ Không có dữ liệu phù hợp.", chat_id=message.chat.id, message_id=msg.message_id)
+        bot.edit_message_text("❌ Không có dữ liệu trong dải ngày chọn.", chat_id=message.chat.id, message_id=msg.message_id)
         return
 
     avg_acc = (total_matched_nums / (total_tested_days * 6)) * 100
@@ -227,29 +231,29 @@ def handle_backtest_655(message):
         f"• Độ chính xác trung bình: `{avg_acc:.2f}%`"
     )
 
-    full_report = report_header + "\n\n".join(details_list) + report_footer
+    full_report = report_header + "\n".join(details_list) + report_footer
     bot.edit_message_text(full_report, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
 
 @bot.message_handler(commands=['dudoan'])
 def handle_dudoan_655(message):
-    pred = predict_optimized_combination(DATASET)
-    core = generate_wheel_core(DATASET, pool_size=12)
-    
+    pred = predict_power_655_advanced(DATASET)
     pred_str = ", ".join(map(str, pred))
-    core_str = ", ".join(map(str, sorted(core)))
 
     report = (
         f"🎯 *DỰ ĐOÁN POWER 6/55 KỲ TỚI*\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📌 **Bộ 6 số tối ưu nhất:** `[{pred_str}]`\n"
-        f"📦 **Dàn Core lót (12 số):** `[{core_str}]`\n"
+        f"📌 **Dàn số tối ưu (Ma trận tự động):** `[{pred_str}]`\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 *Thuật toán Ma trận Xoay Wheel System & Bộ lọc Toán học Sum/Parity.*"
+        f"💡 *Phân tích Ma trận Cặp số đi cùng trên dữ liệu thực tế.*"
     )
     bot.reply_to(message, report, parse_mode="Markdown")
 
+# --- LUỒNG CHÍNH ---
 if __name__ == '__main__':
-    print("🚀 Khởi động Vietlott Bot...", flush=True)
+    # Nạp dữ liệu Vietlott tự động khi khởi chạy
+    fetch_vietlott_655_data(100)
+    
+    print("🚀 Khởi động Flask & Vietlott Bot...", flush=True)
     threading.Thread(target=run_flask, daemon=True).start()
 
     try:

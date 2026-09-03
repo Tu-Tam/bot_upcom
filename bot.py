@@ -8,6 +8,7 @@ import random
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 import requests
+import numpy as np
 import telebot
 from flask import Flask
 
@@ -23,23 +24,22 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Vietlott Power 6/55 Bot đang hoạt động!", 200
+    return "Vietlott Power 6/55 Super Matrix Bot đang hoạt động!", 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# --- BỘ NHỚ LƯU TRỮ DỮ LIỆU TỰ ĐỘNG NẠP ---
 DATASET = []
 
-def fetch_vietlott_655_data(limit=100):
-    """Tự động nạp kết quả Vietlott Power 6/55 thực tế từ API."""
+def fetch_vietlott_655_data(limit=300):
+    """Tự động nạp 300 kỳ quay gần nhất để đủ không gian mẫu cho Ma trận Tam giác."""
     global DATASET
-    print(f"🔄 Đang nạp dữ liệu Vietlott Power 6/55 ({limit} kỳ gần nhất)...", flush=True)
+    print(f"🔄 Đang nạp dữ liệu Vietlott Power 6/55 ({limit} kỳ)...", flush=True)
     
-    url = "https://vietlott.vn/api/front/v1/result/power655" # API công khai của Vietlott
+    url = "https://vietlott.vn/api/front/v1/result/power655"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "Content-Type": "application/json"
     }
     
@@ -49,75 +49,76 @@ def fetch_vietlott_655_data(limit=100):
             data = response.json()
             results = []
             for item in data.get("resultList", []):
-                # Ép kiểu dữ liệu ngày YYYY-MM-DD và danh sách 6 số
                 date_str = datetime.strptime(item["drawDate"], "%d/%m/%Y").strftime("%Y-%m-%d")
                 nums = [int(n) for n in item["result"].split("-")[:6]]
                 results.append({"date": date_str, "game": "655", "result": sorted(nums)})
             
-            # Sắp xếp theo thứ tự thời gian tăng dần
             DATASET = sorted(results, key=lambda x: x["date"])
             print(f"✅ Đã nạp thành công {len(DATASET)} kỳ quay Vietlott!", flush=True)
             return len(DATASET)
     except Exception as e:
-        print(f"⚠️ Lỗi kết nối API Vietlott: {e}. Sử dụng dữ liệu dự phòng.", flush=True)
+        print(f"⚠️ Lỗi kết nối API: {e}", flush=True)
         
-    # Dữ liệu dự phòng nếu mất kết nối API
-    if not DATASET:
-        DATASET = [
-            {"date": "2026-08-10", "game": "655", "result": [12, 15, 23, 34, 41, 52]},
-            {"date": "2026-08-12", "game": "655", "result": [4, 18, 22, 31, 45, 50]},
-            {"date": "2026-08-15", "game": "655", "result": [3, 19, 21, 30, 46, 55]},
-            {"date": "2026-08-20", "game": "655", "result": [4, 16, 28, 30, 45, 54]},
-            {"date": "2026-08-22", "game": "655", "result": [12, 18, 27, 39, 48, 50]},
-            {"date": "2026-08-25", "game": "655", "result": [4, 12, 18, 27, 39, 48]},
-            {"date": "2026-08-29", "game": "655", "result": [8, 15, 18, 29, 33, 45]},
-            {"date": "2026-09-01", "game": "655", "result": [2, 12, 18, 28, 40, 52]}
-        ]
     return len(DATASET)
 
-# --- THUẬT TOÁN MA TRẬN ĐA TẦNG CAO CẤP ---
-def predict_power_655_advanced(history_data: list) -> list:
-    """Ma trận Cặp số đi cùng (Co-occurrence) & Phân rã Trọng số thời gian."""
-    if len(history_data) < 3:
+# --- THUẬT TOÁN MÔ HÌNH MA TRẬN TỐI ƯU 5-6 SỐ (SUPER MATRIX) ---
+def predict_power_655_super_matrix(history_data: list) -> list:
+    if len(history_data) < 5:
         return sorted(random.sample(range(1, 56), 6))
 
-    weighted_freq = defaultdict(float)
-    co_matrix = defaultdict(lambda: defaultdict(float))
-    
     total_draws = len(history_data)
+    
+    # 1. Trọng số thời gian (Exponential Decay Weight)
+    weights = np.exp(np.linspace(-2, 0, total_draws)) # Kỳ mới nhất trọng số x2.7
+    
+    freq_scores = defaultdict(float)
+    triplet_matrix = defaultdict(float)
+    
     for idx, draw in enumerate(history_data):
-        weight = 1.0 + (idx / total_draws) * 2.0
+        w = weights[idx]
         res = draw.get("result", [])
         
-        for num in res:
-            weighted_freq[num] += weight
+        for n in res:
+            freq_scores[n] += w
             
+        # Tính Ma trận Bộ 3 số hay xuất hiện cùng nhau (Triplet Matrix)
         for i in range(len(res)):
             for j in range(i + 1, len(res)):
-                n1, n2 = res[i], res[j]
-                co_matrix[n1][n2] += weight
-                co_matrix[n2][n1] += weight
+                for k in range(j + 1, len(res)):
+                    triplet_key = tuple(sorted([res[i], res[j], res[k]]))
+                    triplet_matrix[triplet_key] += w
 
-    sorted_seeds = sorted(range(1, 56), key=lambda x: weighted_freq[x], reverse=True)
-    selected = [sorted_seeds[0]]
+    # 2. Tìm bộ 3 số hạt giống (Seed Triplet) có điểm ma trận cao nhất
+    best_triplet = max(triplet_matrix.keys(), key=lambda x: triplet_matrix[x])
+    selected = list(best_triplet)
 
+    # 3. Mở rộng bộ 3 thành bộ 6 bằng thuật toán liên kết tối đa (Maximal Linkage)
     while len(selected) < 6:
-        candidate_scores = {}
+        best_next_num = None
+        max_link_score = -1
+        
         for cand in range(1, 56):
             if cand in selected:
                 continue
             
-            link_score = sum(co_matrix[cand][sel] for sel in selected)
-            total_score = weighted_freq[cand] * 1.2 + link_score * 2.5
-            candidate_scores[cand] = total_score
+            # Tính điểm liên kết của ứng viên với TẤT CẢ các cặp số đã chọn
+            link_score = 0
+            for i in range(len(selected)):
+                for j in range(i + 1, len(selected)):
+                    sub_triplet = tuple(sorted([selected[i], selected[j], cand]))
+                    link_score += triplet_matrix.get(sub_triplet, 0)
+            
+            total_cand_score = freq_scores[cand] * 0.8 + link_score * 3.0
+            
+            if total_cand_score > max_link_score:
+                max_link_score = total_cand_score
+                best_next_num = cand
 
-        best_cand = max(candidate_scores.keys(), key=lambda x: candidate_scores[x])
-        selected.append(best_cand)
+        selected.append(best_next_num)
 
     return sorted(selected)
 
 def parse_date_range(raw_input: str) -> list:
-    """Cú pháp: 655 YYYY-MM-DD => DD"""
     dates_to_test = []
     clean_text = raw_input.replace('655', '').strip()
     
@@ -150,8 +151,7 @@ def parse_date_range(raw_input: str) -> list:
 # --- TELEGRAM HANDLERS ---
 @bot.message_handler(commands=['reload'])
 def handle_reload(message):
-    """Lệnh cập nhật thủ công dữ liệu từ Vietlott."""
-    count = fetch_vietlott_655_data(100)
+    count = fetch_vietlott_655_data(300)
     bot.reply_to(message, f"🔄 Đã cập nhật xong dữ liệu Vietlott! Tổng số kỳ trong bộ nhớ: `{count}`", parse_mode="Markdown")
 
 @bot.message_handler(commands=['test'])
@@ -167,7 +167,7 @@ def handle_backtest_655(message):
         bot.reply_to(message, "❌ Định dạng ngày không đúng! Dùng: `YYYY-MM-DD => DD`", parse_mode="Markdown")
         return
 
-    msg = bot.reply_to(message, f"⏳ Đang chạy Backtest Ma Trận Đa Tầng ({len(dates_to_test)} kỳ)...", parse_mode="Markdown")
+    msg = bot.reply_to(message, f"⏳ Đang chạy Backtest Super Matrix ({len(dates_to_test)} kỳ)...", parse_mode="Markdown")
 
     details_list = []
     total_matched_nums = 0
@@ -194,7 +194,7 @@ def handle_backtest_655(message):
             if datetime.strptime(d["date"], "%Y-%m-%d") < datetime.strptime(actual_draw["date"], "%Y-%m-%d")
         ]
 
-        predicted_6 = predict_power_655_advanced(past_history)
+        predicted_6 = predict_power_655_super_matrix(past_history)
         matched = set(predicted_6).intersection(actual_res)
         match_count = len(matched)
         
@@ -236,22 +236,20 @@ def handle_backtest_655(message):
 
 @bot.message_handler(commands=['dudoan'])
 def handle_dudoan_655(message):
-    pred = predict_power_655_advanced(DATASET)
+    pred = predict_power_655_super_matrix(DATASET)
     pred_str = ", ".join(map(str, pred))
 
     report = (
         f"🎯 *DỰ ĐOÁN POWER 6/55 KỲ TỚI*\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📌 **Dàn số tối ưu (Ma trận tự động):** `[{pred_str}]`\n"
+        f"📌 **Dàn số tối ưu (Super Matrix):** `[{pred_str}]`\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 *Phân tích Ma trận Cặp số đi cùng trên dữ liệu thực tế.*"
+        f"💡 *Phân tích Ma trận Tam giác (Triplet Matrix) & Trọng số Muộn.*"
     )
     bot.reply_to(message, report, parse_mode="Markdown")
 
-# --- LUỒNG CHÍNH ---
 if __name__ == '__main__':
-    # Nạp dữ liệu Vietlott tự động khi khởi chạy
-    fetch_vietlott_655_data(100)
+    fetch_vietlott_655_data(300)
     
     print("🚀 Khởi động Flask & Vietlott Bot...", flush=True)
     threading.Thread(target=run_flask, daemon=True).start()

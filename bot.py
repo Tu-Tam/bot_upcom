@@ -22,13 +22,13 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Vietlott Power 6/55 Bot đang hoạt động!", 200
+    return "Vietlott Power 6/55 Wheel System Bot đang hoạt động!", 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# --- CSDL MẪU LỊCH SỬ POWER 6/55 (1-55) ---
+# --- CSDL LỊCH SỬ POWER 6/55 ---
 DATASET = [
     {"date": "2026-08-10", "game": "655", "result": [12, 15, 23, 34, 41, 52]},
     {"date": "2026-08-11", "game": "655", "result": [4, 18, 22, 31, 45, 50]},
@@ -50,16 +50,15 @@ DATASET = [
     {"date": "2026-09-01", "game": "655", "result": [2, 12, 18, 28, 40, 52]},
 ]
 
-# --- THUẬT TOÁN SOI CẦU DÀN 6 SỐ POWER 6/55 ---
-def predict_power_655(history_data: list) -> list:
-    """Tối ưu dự đoán 6 số bằng Phân tích Tần suất + Cân bằng Chẵn/Lẻ + Độ gan."""
+# --- THUẬT TOÁN MA TRẬN TỐI ƯU 5-6 SỐ ---
+def generate_wheel_core(history_data: list, pool_size=14) -> list:
+    """Tạo Dàn Core (Pool) gồm 12-14 số tiềm năng nhất."""
     if len(history_data) < 3:
-        return sorted(random.sample(range(1, 56), 6))
+        return sorted(random.sample(range(1, 56), pool_size))
 
     all_numbers = [num for draw in history_data for num in draw.get("result", [])]
     freq = Counter(all_numbers)
 
-    # Tính nhịp gan (kỳ gần nhất xuất hiện)
     last_seen = {}
     total_draws = len(history_data)
     for idx, draw in enumerate(reversed(history_data)):
@@ -67,38 +66,57 @@ def predict_power_655(history_data: list) -> list:
             if num not in last_seen:
                 last_seen[num] = idx
 
-    # Trọng số điểm
+    # Tính ma trận trọng số tối ưu
     scores = {}
     for n in range(1, 56):
-        f_score = freq.get(n, 0) * 2.5
-        g_score = last_seen.get(n, total_draws) * 1.0
+        # Kết hợp Tần suất + Độ gan rơi đúng nhịp (3-7 kỳ) + Điểm lặp lại
+        f_score = freq.get(n, 0) * 3.0
+        g_val = last_seen.get(n, total_draws)
+        g_score = 5.0 if 2 <= g_val <= 6 else (2.0 if g_val < 2 else 1.0)
         scores[n] = f_score + g_score
 
     ranked = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+    return ranked[:pool_size]
 
-    # Cân bằng Chẵn / Lẻ (Lấy tối đa 4 chẵn hoặc 4 lẻ)
-    selected = []
-    even_cnt, odd_cnt = 0, 0
-    for num in ranked:
-        if len(selected) == 6:
-            break
-        if num % 2 == 0 and even_cnt < 4:
-            selected.append(num)
-            even_cnt += 1
-        elif num % 2 != 0 and odd_cnt < 4:
-            selected.append(num)
-            odd_cnt += 1
+def predict_optimized_combination(history_data: list) -> list:
+    """Lọc bộ 6 số tối ưu nhất từ Dàn Core thông qua Bộ Lọc Điều Kiện Toán Học."""
+    core_pool = generate_wheel_core(history_data, pool_size=14)
+    
+    best_combo = None
+    best_score = -1
 
-    while len(selected) < 6:
-        for num in ranked:
-            if num not in selected:
-                selected.append(num)
-                break
+    # Duyệt ngẫu nhiên tổ hợp từ Core Pool để tìm bộ lọc đạt chuẩn cao nhất
+    for _ in range(500):
+        combo = sorted(random.sample(core_pool, 6))
+        
+        # 1. Bộ lọc Tổng (Sum Filter: 120 - 210)
+        total_sum = sum(combo)
+        if not (120 <= total_sum <= 210):
+            continue
+            
+        # 2. Bộ lọc Chẵn / Lẻ (Tỷ lệ 3:3 hoặc 4:2)
+        evens = sum(1 for n in combo if n % 2 == 0)
+        if evens < 2 or evens > 4:
+            continue
 
-    return sorted(selected)
+        # 3. Bộ lọc Khoảng (Đầu số phân bổ ít nhất 3 dải hàng chục)
+        decades = set(n // 10 for n in combo)
+        if len(decades) < 3:
+            continue
+
+        # Điểm số của bộ hợp lệ
+        combo_score = total_sum
+        if combo_score > best_score:
+            best_score = combo_score
+            best_combo = combo
+
+    if not best_combo:
+        best_combo = sorted(random.sample(core_pool, 6))
+
+    return best_combo
 
 def parse_date_range(raw_input: str) -> list:
-    """Xử lý cú pháp: 655 YYYY-MM-DD => DD hoặc YYYY-MM-DD => DD"""
+    """Xử lý dải ngày test: 655 YYYY-MM-DD => DD"""
     dates_to_test = []
     clean_text = raw_input.replace('655', '').strip()
     
@@ -128,7 +146,7 @@ def parse_date_range(raw_input: str) -> list:
         
     return dates_to_test
 
-# --- HANDLER LỆNH TELEGRAM ---
+# --- HANDLER BÁO CÁO TELEGRAM ---
 @bot.message_handler(commands=['test'])
 def handle_backtest_655(message):
     raw_text = message.text.strip().replace('/test', '').strip()
@@ -139,10 +157,10 @@ def handle_backtest_655(message):
 
     dates_to_test = parse_date_range(raw_text)
     if not dates_to_test:
-        bot.reply_to(message, "❌ Định dạng ngày không đúng! Dùng: `YYYY-MM-DD => DD`", parse_mode="Markdown")
+        bot.reply_to(message, "❌ Cú pháp sai! Dùng: `YYYY-MM-DD => DD`", parse_mode="Markdown")
         return
 
-    msg = bot.reply_to(message, f"⏳ Đang thực hiện Backtest Power 6/55 ({len(dates_to_test)} kỳ)...", parse_mode="Markdown")
+    msg = bot.reply_to(message, f"⏳ Đang chạy Backtest Ma Trận Xoay Power 6/55 ({len(dates_to_test)} kỳ)...", parse_mode="Markdown")
 
     details_list = []
     total_matched_nums = 0
@@ -154,7 +172,6 @@ def handle_backtest_655(message):
         except ValueError:
             continue
 
-        # Tìm kỳ quay trùng ngày hoặc kỳ kế tiếp
         actual_draw = next((d for d in DATASET if d["date"] == target_date_str), None)
         if not actual_draw:
             future_draws = [d for d in DATASET if datetime.strptime(d["date"], "%Y-%m-%d") >= target_date]
@@ -165,23 +182,30 @@ def handle_backtest_655(message):
 
         actual_res = set(actual_draw["result"])
         
-        # Lấy dữ liệu trước ngày test để dự đoán
         past_history = [
             d for d in DATASET 
             if datetime.strptime(d["date"], "%Y-%m-%d") < datetime.strptime(actual_draw["date"], "%Y-%m-%d")
         ]
 
-        # Dự đoán 6 số
-        predicted_6 = predict_power_655(past_history)
+        # Dự đoán theo Ma trận Xoay Lọc Tối Ưu
+        predicted_6 = predict_optimized_combination(past_history)
         
-        # So sánh kết quả
         matched = set(predicted_6).intersection(actual_res)
         match_count = len(matched)
         
         total_matched_nums += match_count
         total_tested_days += 1
 
-        icon = "✅" if match_count >= 3 else ("🥉" if match_count >= 1 else "❌")
+        # Ký hiệu giải thưởng
+        if match_count >= 5:
+            icon = "🔥 (TRÚNG LỚN)"
+        elif match_count >= 3:
+            icon = "✅"
+        elif match_count >= 1:
+            icon = "🥉"
+        else:
+            icon = "❌"
+
         matched_str = ",".join(map(str, sorted(list(matched)))) if matched else "Không"
         
         details_list.append(
@@ -189,7 +213,7 @@ def handle_backtest_655(message):
         )
 
     if not details_list:
-        bot.edit_message_text("❌ Không có dữ liệu trong dải ngày bạn chọn.", chat_id=message.chat.id, message_id=msg.message_id)
+        bot.edit_message_text("❌ Không có dữ liệu phù hợp.", chat_id=message.chat.id, message_id=msg.message_id)
         return
 
     avg_acc = (total_matched_nums / (total_tested_days * 6)) * 100
@@ -203,26 +227,29 @@ def handle_backtest_655(message):
         f"• Độ chính xác trung bình: `{avg_acc:.2f}%`"
     )
 
-    full_report = report_header + "\n".join(details_list) + report_footer
+    full_report = report_header + "\n\n".join(details_list) + report_footer
     bot.edit_message_text(full_report, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
 
-@bot.message_handler(commands=['dudoan', 'test655'])
+@bot.message_handler(commands=['dudoan'])
 def handle_dudoan_655(message):
-    pred = predict_power_655(DATASET)
+    pred = predict_optimized_combination(DATASET)
+    core = generate_wheel_core(DATASET, pool_size=12)
+    
     pred_str = ", ".join(map(str, pred))
+    core_str = ", ".join(map(str, sorted(core)))
 
     report = (
         f"🎯 *DỰ ĐOÁN POWER 6/55 KỲ TỚI*\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📌 **Dàn số tối ưu:** `[{pred_str}]`\n"
+        f"📌 **Bộ 6 số tối ưu nhất:** `[{pred_str}]`\n"
+        f"📦 **Dàn Core lót (12 số):** `[{core_str}]`\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 *Phân tích Ma trận Trọng số Đa tầng & Cân bằng Chẵn/Lẻ.*"
+        f"💡 *Thuật toán Ma trận Xoay Wheel System & Bộ lọc Toán học Sum/Parity.*"
     )
     bot.reply_to(message, report, parse_mode="Markdown")
 
-# --- LUỒNG CHÍNH ---
 if __name__ == '__main__':
-    print("🚀 Khởi động Flask & Vietlott Bot...", flush=True)
+    print("🚀 Khởi động Vietlott Bot...", flush=True)
     threading.Thread(target=run_flask, daemon=True).start()
 
     try:

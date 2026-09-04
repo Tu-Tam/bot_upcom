@@ -1,79 +1,75 @@
 import random
-import numpy as np
 from collections import defaultdict
 
-def validate_filters(numbers: list) -> bool:
-    """Nới lỏng bộ lọc để không bỏ sót các kết quả đặc biệt."""
-    if len(numbers) < 6:
-        return True
-    sample_6 = numbers[:6]
-    total_sum = sum(sample_6)
-    
-    # Nới dải tổng rộng hơn (100 - 240)
-    if not (100 <= total_sum <= 240):
-        return False
-        
-    return True
-
 def predict_power_655_hybrid_10(history_data: list) -> list:
-    """Thuật toán Hybrid v2: Cân bằng giữa Số Nóng (Hot) & Số Gan (Cold)."""
-    if len(history_data) < 5:
+    """
+    Thuật toán Hybrid v4 (Cluster Strike):
+    Tập trung tìm Cụm số hay ra cùng nhau (Pairing Matrix) + Trọng số Tần suất.
+    Mục tiêu: Đột phá trúng cụm 3-5 số trong Dàn 10.
+    """
+    if len(history_data) < 10:
         return sorted(random.sample(range(1, 56), 10))
 
     total_draws = len(history_data)
     
-    # 1. Đếm tần suất xuất hiện (Tần suất 20 kỳ gần nhất)
-    recent_draws = history_data[-20:]
-    freq = defaultdict(int)
-    for draw in recent_draws:
+    # 1. Tính Tần suất ngắn hạn (15 kỳ gần nhất)
+    recent_15 = history_data[-15:]
+    freq_score = defaultdict(float)
+    for idx, draw in enumerate(recent_15):
+        w = 1.0 + (idx * 0.12)
         for num in draw.get("result", []):
-            freq[num] += 1
+            freq_score[num] += w
 
-    # 2. Phân tích Nhịp Gan (Gap Analysis)
+    # 2. Xây dựng Ma trận Cặp (Tìm các cặp số hay nổ cùng nhau trong 30 kỳ)
+    recent_30 = history_data[-30:]
+    pair_matrix = defaultdict(lambda: defaultdict(int))
+    for draw in recent_30:
+        res = sorted(draw.get("result", []))
+        for i in range(len(res)):
+            for j in range(i + 1, len(res)):
+                pair_matrix[res[i]][res[j]] += 1
+                pair_matrix[res[j]][res[i]] += 1
+
+    # 3. Tính điểm Nhịp Gan Rơi (Tối ưu gan 2-6 kỳ)
     last_seen = {}
     for idx, draw in enumerate(history_data):
         for num in draw.get("result", []):
             last_seen[num] = idx
 
-    # 3. Tính điểm kết hợp
-    scores = {}
+    base_scores = {}
     for num in range(1, 56):
         gap = (total_draws - 1) - last_seen.get(num, -1)
-        
-        # Điểm tần suất (Số xuất hiện vừa phải)
-        f_score = freq[num] * 1.5
-        
-        # Điểm nhịp gan (Ưu tiên nhịp gan từ 3 - 8 kỳ)
-        if 3 <= gap <= 8:
-            g_score = 3.0
-        elif 1 <= gap <= 2:
-            g_score = 1.0
+        if 2 <= gap <= 6:
+            gap_w = 4.5
+        elif gap == 1:
+            gap_w = 2.0
+        elif 7 <= gap <= 10:
+            gap_w = 2.5
         else:
-            g_score = 1.5
+            gap_w = 0.5  # Gan quá lâu trừ điểm nặng
             
-        scores[num] = f_score + g_score
+        base_scores[num] = (freq_score[num] * 2.2) + gap_w
 
-    # Sắp xếp số theo điểm từ cao xuống thấp
-    sorted_candidates = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
-    
-    # 4. Lựa chọn dàn 10 số trải đều dải (Tránh dồn vào 1 đầu số)
-    selected = []
-    head_count = defaultdict(int)
+    # 4. Chọn số Hạt nhân (Seed Number) có điểm cao nhất
+    sorted_base = sorted(base_scores.keys(), key=lambda x: base_scores[x], reverse=True)
+    seed = sorted_base[0]
+    selected = [seed]
 
-    for cand in sorted_candidates:
-        head = cand // 10
-        if head_count[head] < 3: # Mỗi đầu (0x, 1x, 2x, 3x, 4x, 5x) lấy tối đa 3 số
-            selected.append(cand)
-            head_count[head] += 1
-        if len(selected) == 10:
-            break
+    # 5. Chọn 9 số còn lại dựa trên Ma trận đi kèm với các số đã chọn
+    while len(selected) < 10:
+        candidates = {}
+        for num in range(1, 56):
+            if num in selected:
+                continue
+            
+            # Điểm đi kèm (Co-occurrence Score) với tập đã chọn
+            pair_score = sum(pair_matrix[num][sel] for sel in selected)
+            
+            # Tổng điểm = Điểm nền + Điểm đi kèm
+            candidates[num] = base_scores[num] + (pair_score * 1.8)
 
-    # Nếu chưa đủ 10 số thì lấy tiếp từ danh sách
-    if len(selected) < 10:
-        for cand in sorted_candidates:
-            if cand not in selected:
-                selected.append(cand)
-                if len(selected) == 10:
-                    break
+        # Lấy số có tổng điểm liên kết cao nhất
+        best_next = max(candidates.keys(), key=lambda x: candidates[x])
+        selected.append(best_next)
 
     return sorted(selected)

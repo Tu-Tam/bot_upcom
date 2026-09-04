@@ -1,5 +1,6 @@
 import json
 import os
+import copy
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -29,6 +30,7 @@ def save_data_to_json(data):
         print(f"⚠️ Không thể ghi file JSON: {e}", flush=True)
 
 def fetch_vietlott_655_data():
+    """Cào dữ liệu mới từ Vietlott và hợp nhất với file JSON local."""
     global DATASET
     # 1. Nạp dữ liệu hiện có từ file JSON
     local_data = load_data_from_json()
@@ -36,7 +38,9 @@ def fetch_vietlott_655_data():
     
     # 2. Cào dữ liệu mới từ web Vietlott
     url = "https://vietlott.vn/vi/trung-thuong/ket-qua-trung-thuong/655"
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+    }
     
     new_results = []
     try:
@@ -55,21 +59,32 @@ def fetch_vietlott_655_data():
                         
                         # Chỉ thêm nếu kỳ này chưa có trong file JSON
                         if date_str not in existing_dates:
-                            new_results.append({"date": date_str, "game": "655", "result": sorted(nums)})
+                            new_results.append({
+                                "date": date_str, 
+                                "game": "655", 
+                                "result": sorted(nums)
+                            })
     except Exception as e:
-        print(f"⚠️ Lỗi cào web: {e}", flush=True)
+        print(f"⚠️ Lỗi cào web (Dùng dữ liệu JSON hiện có): {e}", flush=True)
 
     # 3. Tổng hợp và lưu lại nếu có kỳ mới
     if new_results:
         local_data.extend(new_results)
-        local_data = sorted(local_data, key=lambda x: x["date"])
         save_data_to_json(local_data)
 
+    # Đảm bảo DATASET toàn cục luôn được sắp xếp TĂNG DẦN theo ngày (CŨ -> MỚI)
     DATASET = sorted(local_data, key=lambda x: x["date"])
     return len(DATASET)
 
 def get_dataset():
+    """
+    Trả về BẢN SAO ĐỘC LẬP (Deep Copy) của DATASET đã được sắp xếp từ CŨ -> MỚI.
+    Đảm bảo việc lọc/sắp xếp ở bên ngoài không làm hỏng dữ liệu gốc trong RAM.
+    """
     global DATASET
     if not DATASET:
         fetch_vietlott_655_data()
-    return DATASET
+    
+    # Luôn sắp xếp chuẩn từ CŨ -> MỚI và trả về bản sao độc lập hoàn toàn
+    sorted_data = sorted(DATASET, key=lambda x: x["date"])
+    return copy.deepcopy(sorted_data)

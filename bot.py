@@ -13,7 +13,8 @@ bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
 @app.route('/')
-def home(): return "Bot đang chạy!", 200
+def home(): 
+    return "Bot Vietlott Power 6/55 đang hoạt động!", 200
 
 def run_flask():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
@@ -77,6 +78,22 @@ def handle_dudoan(msg):
     bot.reply_to(msg, f"🎯 **Dàn 10 Hybrid:**\n`[{', '.join(map(str, dan_10))}]`", parse_mode="Markdown")
 
 if __name__ == '__main__':
+    # 1. Nạp dữ liệu Vietlott
     fetch_vietlott_655_data()
+    
+    # 2. Khởi chạy Web Server cho Render Keep-alive
     threading.Thread(target=run_flask, daemon=True).start()
-    bot.infinity_polling(skip_pending=True)
+    
+    # 3. Gỡ bỏ Webhook cũ để giải phóng Telegram API
+    try:
+        bot.remove_webhook()
+        time.sleep(1)
+    except Exception as e:
+        pass
+
+    # 4. Vòng lặp Polling an toàn chống lỗi 409 Conflict
+    while True:
+        try:
+            bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)
+        except Exception as e:
+            time.sleep(5)

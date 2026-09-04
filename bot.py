@@ -56,42 +56,51 @@ def handle_reload(msg):
 def handle_test(msg):
     dates = parse_date_range(msg.text.replace('/test', '').strip())
     dataset = get_dataset()
+    
+    # Sắp xếp toàn bộ dataset theo thứ tự TĂNG DẦN theo ngày (từ cũ đến mới)
+    sorted_dataset = sorted(dataset, key=lambda x: x["date"])
+    
     details, total_matched = [], 0
 
     for dt in dates:
-        actual = next((d for d in dataset if d["date"] == dt), None)
+        actual = next((d for d in sorted_dataset if d["date"] == dt), None)
         if not actual: continue
-        past = [d for d in dataset if d["date"] < dt]
+        
+        # Chỉ lấy các kỳ TRƯỚC ngày dt và giữ nguyên thứ tự CŨ -> MỚI
+        past = [d for d in sorted_dataset if d["date"] < dt]
+        if not past: continue
+        
         pred = predict_power_655_hybrid_10(past)
         matched = set(pred).intersection(set(actual["result"]))
         total_matched += len(matched)
+        
         icon = "🔥" if len(matched) >= 5 else ("✅" if len(matched) >= 3 else "❌")
-        details.append(f"📅 **{dt}**: Trùng **{len(matched)}/6** {icon} `[{','.join(map(str, sorted(matched)))}]`")
+        matched_str = ','.join(map(str, sorted(list(matched))))
+        details.append(f"📅 **{dt}**: Trùng **{len(matched)}/6** {icon} `[{matched_str}]`")
 
     if details:
         res = f"🧪 *BACKTEST HYBRID ({len(details)} KỲ)*\n" + "\n".join(details) + f"\n\n📊 TB: `{(total_matched/len(details)):.1f}/6` số"
         bot.reply_to(msg, res, parse_mode="Markdown")
+    else:
+        bot.reply_to(msg, "❌ Không tìm thấy dữ liệu kỳ quay phù hợp.", parse_mode="Markdown")
 
 @bot.message_handler(commands=['dudoan'])
 def handle_dudoan(msg):
-    dan_10 = predict_power_655_hybrid_10(get_dataset())
+    dataset = get_dataset()
+    sorted_dataset = sorted(dataset, key=lambda x: x["date"])
+    dan_10 = predict_power_655_hybrid_10(sorted_dataset)
     bot.reply_to(msg, f"🎯 **Dàn 10 Hybrid:**\n`[{', '.join(map(str, dan_10))}]`", parse_mode="Markdown")
 
 if __name__ == '__main__':
-    # 1. Nạp dữ liệu Vietlott
     fetch_vietlott_655_data()
-    
-    # 2. Khởi chạy Web Server cho Render Keep-alive
     threading.Thread(target=run_flask, daemon=True).start()
     
-    # 3. Gỡ bỏ Webhook cũ để giải phóng Telegram API
     try:
         bot.remove_webhook()
         time.sleep(1)
     except Exception as e:
         pass
 
-    # 4. Vòng lặp Polling an toàn chống lỗi 409 Conflict
     while True:
         try:
             bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)

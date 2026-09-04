@@ -24,13 +24,12 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Vietlott Power 6/55 Bot đang hoạt động!", 200
+    return "Vietlott Power 6/55 Super Bot đang hoạt động!", 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# --- DỮ LIỆU CHUẨN ĐÚNG LỊCH QUAY THỨ 3 - THỨ 5 - THỨ 7 ---
 DEFAULT_DATASET = [
     {"date": "2026-08-01", "game": "655", "result": [3, 12, 24, 35, 41, 50]},
     {"date": "2026-08-04", "game": "655", "result": [5, 14, 22, 31, 44, 53]},
@@ -85,58 +84,69 @@ def fetch_vietlott_655_data():
         
     return len(DATASET)
 
-# --- THUẬT TOÁN TẠO DÀN SỐ NẮM BẮT CỤM SỐ (10 SỐ) ---
-def predict_power_655_dan(history_data: list, total_pick=10) -> list:
+# --- THUẬT TOÁN HYBRID MATRIX & GAP ANALYSIS (TỐI ƯU DÀN 10 SỐ) ---
+def predict_power_655_hybrid_10(history_data: list) -> list:
     if len(history_data) < 3:
-        return sorted(random.sample(range(1, 56), total_pick))
+        return sorted(random.sample(range(1, 56), 10))
 
     total_draws = len(history_data)
-    weights = np.exp(np.linspace(-2, 0, total_draws))
     
-    freq_scores = defaultdict(float)
-    triplet_matrix = defaultdict(float)
+    # 1. Tính khoảng cách chưa về (Gap Analysis)
+    last_seen = {}
+    for idx, draw in enumerate(history_data):
+        for num in draw.get("result", []):
+            last_seen[num] = idx
+
+    gap_scores = {}
+    for num in range(1, 56):
+        gap = (total_draws - 1) - last_seen.get(num, -1)
+        # Điểm nhịp rơi tối ưu: Số vừa về trong 1-5 kỳ gần nhất nhận điểm thưởng cao
+        if 1 <= gap <= 5:
+            gap_scores[num] = 2.5
+        elif 6 <= gap <= 10:
+            gap_scores[num] = 1.8
+        else:
+            gap_scores[num] = 1.0
+
+    # 2. Trọng số ma trận cặp số
+    pair_matrix = defaultdict(float)
+    weights = np.exp(np.linspace(-1.5, 0, total_draws))
     
     for idx, draw in enumerate(history_data):
         w = weights[idx]
         res = draw.get("result", [])
-        for n in res:
-            freq_scores[n] += w
         for i in range(len(res)):
             for j in range(i + 1, len(res)):
-                for k in range(j + 1, len(res)):
-                    triplet_key = tuple(sorted([res[i], res[j], res[k]]))
-                    triplet_matrix[triplet_key] += w
+                n1, n2 = res[i], res[j]
+                pair_matrix[(n1, n2)] += w
+                pair_matrix[(n2, n1)] += w
 
-    if not triplet_matrix:
-        return sorted(random.sample(range(1, 56), total_pick))
+    # 3. Lựa chọn hạt giống & mở rộng dàn 10 số cân bằng dải số
+    scores = {}
+    for num in range(1, 56):
+        link_score = sum(pair_matrix.get((num, other), 0) for other in range(1, 56) if other != num)
+        scores[num] = link_score * 0.6 + gap_scores[num] * 2.0
 
-    best_triplet = max(triplet_matrix.keys(), key=lambda x: triplet_matrix[x])
-    selected = list(best_triplet)
+    sorted_candidates = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+    
+    # Lọc lấy 10 số đảm bảo phân bổ đều các đầu số (0x, 1x, 2x, 3x, 4x, 5x)
+    selected = []
+    head_count = defaultdict(int)
 
-    while len(selected) < total_pick:
-        best_next_num = None
-        max_link_score = -1
-        
-        for cand in range(1, 56):
-            if cand in selected:
-                continue
-            
-            link_score = sum(
-                triplet_matrix.get(tuple(sorted([selected[i], selected[j], cand])), 0)
-                for i in range(len(selected)) for j in range(i + 1, len(selected))
-            )
-            
-            total_cand_score = freq_scores[cand] * 0.8 + link_score * 3.0
-            
-            if total_cand_score > max_link_score:
-                max_link_score = total_cand_score
-                best_next_num = cand
+    for cand in sorted_candidates:
+        head = cand // 10
+        if head_count[head] < 3: # Mỗi đầu số không chọn quá 3 con để tránh dồn cục
+            selected.append(cand)
+            head_count[head] += 1
+        if len(selected) == 10:
+            break
 
-        if best_next_num is None:
-            remaining = [n for n in range(1, 56) if n not in selected]
-            selected.append(random.choice(remaining))
-        else:
-            selected.append(best_next_num)
+    while len(selected) < 10:
+        for cand in sorted_candidates:
+            if cand not in selected:
+                selected.append(cand)
+                if len(selected) == 10:
+                    break
 
     return sorted(selected)
 
@@ -153,7 +163,6 @@ def parse_date_range(raw_input: str) -> list:
             end_day = int(end_val_str)
             curr = start_date
             while True:
-                # Chỉ lọc những ngày là Thứ 3 (1), Thứ 5 (3), Thứ 7 (5)
                 if curr.weekday() in [1, 3, 5]:
                     dates_to_test.append(curr.strftime("%Y-%m-%d"))
                 if curr.day == end_day:
@@ -176,12 +185,12 @@ def parse_date_range(raw_input: str) -> list:
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     help_text = (
-        "🧪 **BOT BACKTEST POWER 6/55 (LỊCH QUAY CHUẨN T3-T5-T7)**\n"
+        "🧪 **BOT BACKTEST POWER 6/55 (DÀN 10 SỐ HYBRID)**\n"
         "━━━━━━━━━━━━━━━━━━━━━\n"
         "📌 **Cú pháp Backtest:**\n"
         "`/test 655 2026-08-01 => 29`\n\n"
-        "🎯 **Cú pháp Dự đoán Dàn:**\n"
-        "`/dudoan` - Lấy dàn 10 số tối ưu cho Bao 10\n\n"
+        "🎯 **Cú pháp Dự đoán Dàn 10:**\n"
+        "`/dudoan` - Lấy dàn 10 số tối ưu\n\n"
         "🔄 **Cập nhật dữ liệu:** `/reload`"
     )
     bot.reply_to(message, help_text, parse_mode="Markdown")
@@ -200,10 +209,10 @@ def handle_backtest_655(message):
 
     dates_to_test = parse_date_range(raw_text)
     if not dates_to_test:
-        bot.reply_to(message, "❌ Không tìm thấy kỳ quay khớp trong dải ngày chọn (Chỉ quay T3, T5, T7)!", parse_mode="Markdown")
+        bot.reply_to(message, "❌ Không tìm thấy kỳ quay khớp!", parse_mode="Markdown")
         return
 
-    msg = bot.reply_to(message, f"⏳ Đang Backtest Dàn 10 số ({len(dates_to_test)} kỳ quay thực tế)...", parse_mode="Markdown")
+    msg = bot.reply_to(message, f"⏳ Đang Backtest Dàn 10 Hybrid ({len(dates_to_test)} kỳ)...", parse_mode="Markdown")
 
     details_list = []
     total_matched_nums = 0
@@ -220,8 +229,7 @@ def handle_backtest_655(message):
             if datetime.strptime(d["date"], "%Y-%m-%d") < datetime.strptime(actual_draw["date"], "%Y-%m-%d")
         ]
 
-        # Dự đoán dàn 10 số
-        predicted_10 = predict_power_655_dan(past_history, total_pick=10)
+        predicted_10 = predict_power_655_hybrid_10(past_history)
         matched = set(predicted_10).intersection(actual_res)
         match_count = len(matched)
         
@@ -241,10 +249,10 @@ def handle_backtest_655(message):
         )
 
     if not details_list:
-        bot.edit_message_text("❌ Chưa có dữ liệu kỳ quay trong lịch lịch sử.", chat_id=message.chat.id, message_id=msg.message_id)
+        bot.edit_message_text("❌ Chưa có dữ liệu kỳ quay trong dải ngày chọn.", chat_id=message.chat.id, message_id=msg.message_id)
         return
 
-    report_header = f"🧪 *BÁO CÁO BACKTEST POWER 6/55 ({total_tested_days} KỲ CHUẨN)*\n━━━━━━━━━━━━━━━━━━━━━\n"
+    report_header = f"🧪 *BÁO CÁO BACKTEST POWER 6/55 (DÀN 10 HYBRID)*\n━━━━━━━━━━━━━━━━━━━━━\n"
     report_footer = (
         f"\n━━━━━━━━━━━━━━━━━━━━━\n"
         f"📊 **TỔNG KẾT HỆ THỐNG:**\n"
@@ -257,15 +265,15 @@ def handle_backtest_655(message):
 
 @bot.message_handler(commands=['dudoan'])
 def handle_dudoan_655(message):
-    dan_10 = predict_power_655_dan(DATASET, total_pick=10)
+    dan_10 = predict_power_655_hybrid_10(DATASET)
     pred_str = ", ".join(map(str, dan_10))
 
     report = (
         f"🎯 *DỰ ĐOÁN POWER 6/55 KỲ TỚI*\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📌 **Dàn 10 số tối ưu (Chơi Bao/Gộp bộ):**\n`[{pred_str}]`\n"
+        f"📌 **Dàn 10 số tối ưu Hybrid:**\n`[{pred_str}]`\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 *Phân tích ma trận liên kết cụm cho dải 10 con.*"
+        f"💡 *Đã phân bổ đều dải số & tối ưu nhịp rơi.*"
     )
     bot.reply_to(message, report, parse_mode="Markdown")
 

@@ -1,4 +1,4 @@
-import os, sys, time, threading, re
+import os, sys, time, threading, re, copy
 from datetime import datetime, timedelta
 import telebot
 from flask import Flask
@@ -55,10 +55,10 @@ def handle_reload(msg):
 @bot.message_handler(commands=['test'])
 def handle_test(msg):
     dates = parse_date_range(msg.text.replace('/test', '').strip())
-    dataset = get_dataset()
     
-    # Sắp xếp toàn bộ dataset theo thứ tự TĂNG DẦN theo ngày (từ cũ đến mới)
-    sorted_dataset = sorted(dataset, key=lambda x: x["date"])
+    # Lấy dataset và sắp xếp chuẩn CŨ -> MỚI
+    raw_dataset = get_dataset()
+    sorted_dataset = sorted(raw_dataset, key=lambda x: x["date"])
     
     details, total_matched = [], 0
 
@@ -66,10 +66,11 @@ def handle_test(msg):
         actual = next((d for d in sorted_dataset if d["date"] == dt), None)
         if not actual: continue
         
-        # Chỉ lấy các kỳ TRƯỚC ngày dt và giữ nguyên thứ tự CŨ -> MỚI
-        past = [d for d in sorted_dataset if d["date"] < dt]
+        # Dùng copy.deepcopy để cách ly hoàn toàn danh sách quá khứ
+        past = [copy.deepcopy(d) for d in sorted_dataset if d["date"] < dt]
         if not past: continue
         
+        # Dự đoán dàn số từ dữ liệu quá khứ chuẩn
         pred = predict_power_655_hybrid_10(past)
         matched = set(pred).intersection(set(actual["result"]))
         total_matched += len(matched)
@@ -86,8 +87,8 @@ def handle_test(msg):
 
 @bot.message_handler(commands=['dudoan'])
 def handle_dudoan(msg):
-    dataset = get_dataset()
-    sorted_dataset = sorted(dataset, key=lambda x: x["date"])
+    raw_dataset = get_dataset()
+    sorted_dataset = sorted(raw_dataset, key=lambda x: x["date"])
     dan_10 = predict_power_655_hybrid_10(sorted_dataset)
     bot.reply_to(msg, f"🎯 **Dàn 10 Hybrid:**\n`[{', '.join(map(str, dan_10))}]`", parse_mode="Markdown")
 

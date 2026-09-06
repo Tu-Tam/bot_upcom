@@ -5,58 +5,40 @@ import os
 DATA_FILE_655 = "vietlott_655.json"
 DATA_FILE_645 = "vietlott_645.json"
 
-# Nguồn dữ liệu Vietlott từ GitHub CDN
-GITHUB_655_URLS = [
-    "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/power655.jsonl",
-    "https://raw.githubusercontent.com/fatesinger/vietlott/main/data/power655.json"
-]
-
-GITHUB_645_URLS = [
-    "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/mega645.jsonl",
-    "https://raw.githubusercontent.com/fatesinger/vietlott/main/data/mega645.json"
-]
+# Endpoint dữ liệu chuẩn cho cả 6/55 và 6/45
+URL_655 = "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/power655.jsonl"
+URL_645 = "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/mega645.jsonl"
 
 def fetch_vietlott_655_data(limit=300):
-    return _fetch_multi_source(GITHUB_655_URLS, DATA_FILE_655, limit)
+    return _parse_and_save(URL_655, DATA_FILE_655, limit, default_year="2026")
 
 def fetch_vietlott_645_data(limit=300):
-    return _fetch_multi_source(GITHUB_645_URLS, DATA_FILE_645, limit)
+    return _parse_and_save(URL_645, DATA_FILE_645, limit, default_year="2026")
 
-def _fetch_multi_source(urls, filename, limit):
+def _parse_and_save(url, filename, limit, default_year="2026"):
     results = []
 
-    for url in urls:
-        try:
-            res = requests.get(url, timeout=10)
-            if res.status_code == 200:
-                text_data = res.text.strip()
-                
-                # Trường hợp 1: File JSON Lines (.jsonl)
-                if "\n" in text_data and not text_data.startswith("["):
-                    for line in text_data.split('\n'):
-                        if line.strip():
-                            try:
-                                item = json.loads(line)
-                                parsed = _extract_item(item)
-                                if parsed:
-                                    results.append(parsed)
-                            except Exception:
-                                continue
-                # Trường hợp 2: File mảng JSON chuẩn (.json)
-                else:
-                    data_list = json.loads(text_data)
-                    if isinstance(data_list, list):
-                        for item in data_list:
-                            parsed = _extract_item(item)
-                            if parsed:
-                                results.append(parsed)
+    try:
+        res = requests.get(url, timeout=12)
+        if res.status_code == 200:
+            lines = res.text.strip().split('\n')
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    item = json.loads(line)
+                    date_clean, nums = _extract_data(item, default_year)
+                    if date_clean and len(nums) >= 6:
+                        results.append({
+                            "date": date_clean,
+                            "result": sorted(nums[:6])
+                        })
+                except Exception:
+                    continue
+    except Exception as e:
+        print(f"Lỗi fetch {url}: {e}")
 
-                if results:
-                    break # Lấy thành công từ nguồn tốt nhất thì dừng loop
-        except Exception as e:
-            print(f"Lỗi fetch {url}: {e}")
-
-    # Nếu fetch thất bại hoàn toàn, đọc cache từ đĩa local
+    # Nếu tải lỗi, fallback về đọc file local
     if not results and os.path.exists(filename):
         try:
             with open(filename, "r", encoding="utf-8") as f:
@@ -64,7 +46,7 @@ def _fetch_multi_source(urls, filename, limit):
         except Exception:
             pass
 
-    # Lọc trùng lặp ngày và sắp xếp từ CŨ đến MỚI
+    # Xử lý lọc trùng ngày và lưu lại file
     if results:
         unique_map = {}
         for item in results:
@@ -83,49 +65,38 @@ def _fetch_multi_source(urls, filename, limit):
 
     return results
 
-def _extract_item(item):
-    """ Bóc tách ngày và dãy số linh hoạt bất chấp cấu trúc key JSON """
-    if not isinstance(item, dict):
-        return None
-
-    # Tìm field ngày
-    date_raw = (
-        item.get("date") or item.get("draw_date") or 
-        item.get("run_date") or item.get("drawDate") or 
-        item.get("periodDate") or ""
-    )
+def _extract_data(item, default_year):
+    # Lấy ngày
+    date_raw = item.get("date") or item.get("draw_date") or item.get("run_date") or item.get("drawDate") or ""
     
-    # Tìm field kết quả
-    nums_raw = (
-        item.get("result") or item.get("numbers") or 
-        item.get("draw_result") or item.get("drawResult") or 
-        item.get("winning_numbers") or []
-    )
+    # Lấy chuỗi số
+    nums_raw = item.get("result") or item.get("numbers") or item.get("draw_result") or item.get("drawResult") or []
 
     if not date_raw or not nums_raw:
-        return None
+        return None, []
 
-    # Định dạng ngày YYYY-MM-DD
-    date_clean = str(date_raw).split("T")[0].replace("/", "-")
-    if "/" in str(date_raw):
-        parts = str(date_raw).split("/")
-        if len(parts) == 3:
+    date_str = str(date_raw).split("T")[0].replace("/", "-")
+    
+    # Chuẩn hóa YYYY-MM-DD
+    parts = date_str.split("-")
+    if len(parts) == 3:
+        if len(parts[0]) == 4:
+            date_clean = f"{parts[0]}-{int(parts[1]):02d}-{int(parts[2]):02d}"
+        else:
             date_clean = f"{parts[2]}-{int(parts[1]):02d}-{int(parts[0]):02d}"
+    elif len(parts) == 2:
+        date_clean = f"{default_year}-{int(parts[0]):02d}-{int(parts[1]):02d}"
+    else:
+        date_clean = date_str
 
-    # Xử lý dãy số
+    # Chuẩn hóa Dãy số
     nums = []
     if isinstance(nums_raw, str):
         nums = [int(x) for x in nums_raw.replace("|", ",").split(",") if x.strip().isdigit()]
     elif isinstance(nums_raw, list):
         nums = [int(x) for x in nums_raw if str(x).isdigit()]
 
-    if len(nums) >= 6:
-        return {
-            "date": date_clean,
-            "result": sorted(nums[:6])
-        }
-    
-    return None
+    return date_clean, nums
 
 fetch_and_update_vietlott_655 = fetch_vietlott_655_data
 

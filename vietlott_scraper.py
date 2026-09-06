@@ -3,23 +3,28 @@ import json
 import os
 
 VIETLOTT_655_URL = "https://vietlott.vn/api/front/v1/draw-result/power655"
-DATA_FILE = "vietlott_655.json"
+VIETLOTT_645_URL = "https://vietlott.vn/api/front/v1/draw-result/mega645"
+
+DATA_FILE_655 = "vietlott_655.json"
+DATA_FILE_645 = "vietlott_645.json"
 
 def fetch_vietlott_655_data(limit=200):
-    """
-    Hàm cào dữ liệu chính được gọi từ bot.py
-    """
+    """Cào dữ liệu Power 6/55"""
+    return _fetch_vietlott_generic(VIETLOTT_655_URL, DATA_FILE_655, limit)
+
+def fetch_vietlott_645_data(limit=200):
+    """Cào dữ liệu Mega 6/45"""
+    return _fetch_vietlott_generic(VIETLOTT_645_URL, DATA_FILE_645, limit)
+
+def _fetch_vietlott_generic(url, filename, limit=200):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Content-Type": "application/json"
     }
-    payload = {
-        "pageIndex": 1,
-        "pageSize": limit
-    }
+    payload = {"pageIndex": 1, "pageSize": limit}
 
     try:
-        response = requests.post(VIETLOTT_655_URL, json=payload, headers=headers, timeout=15)
+        response = requests.post(url, json=payload, headers=headers, timeout=15)
         if response.status_code == 200:
             data = response.json()
             draw_list = data.get("result", [])
@@ -48,24 +53,26 @@ def fetch_vietlott_655_data(limit=200):
 
             formatted_data.sort(key=lambda x: x["date"])
 
-            with open(DATA_FILE, "w", encoding="utf-8") as f:
+            with open(filename, "w", encoding="utf-8") as f:
                 json.dump(formatted_data, f, ensure_ascii=False, indent=2)
                 
             return formatted_data
     except Exception as e:
-        print(f"Lỗi cào dữ liệu: {e}")
+        print(f"Lỗi cào dữ liệu từ {url}: {e}")
         
     return []
 
-# Bổ sung alias để gọi tên nào cũng chạy được
+# Giữ nguyên Alias & Getter cho Power 6/55
 fetch_and_update_vietlott_655 = fetch_vietlott_655_data
 
-def get_dataset():
-    """Hàm lấy dataset từ json"""
-    if os.path.exists(DATA_FILE):
+def get_dataset(game="655"):
+    target_file = DATA_FILE_645 if game == "645" else DATA_FILE_655
+    fetch_func = fetch_vietlott_645_data if game == "645" else fetch_vietlott_655_data
+    
+    if os.path.exists(target_file):
         try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
+            with open(target_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
-    return fetch_vietlott_655_data()
+    return fetch_func()

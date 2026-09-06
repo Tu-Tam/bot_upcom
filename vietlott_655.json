@@ -1,16 +1,57 @@
-[
-  {"date": "2026-08-01", "game": "655", "result": [3, 12, 24, 35, 41, 50]},
-  {"date": "2026-08-04", "game": "655", "result": [5, 14, 22, 31, 44, 53]},
-  {"date": "2026-08-06", "game": "655", "result": [8, 19, 27, 33, 40, 52]},
-  {"date": "2026-08-08", "game": "655", "result": [2, 11, 25, 38, 45, 51]},
-  {"date": "2026-08-11", "game": "655", "result": [4, 18, 22, 31, 45, 50]},
-  {"date": "2026-08-13", "game": "655", "result": [1, 15, 23, 34, 42, 49]},
-  {"date": "2026-08-15", "game": "655", "result": [3, 19, 21, 30, 46, 55]},
-  {"date": "2026-08-18", "game": "655", "result": [7, 16, 28, 37, 43, 54]},
-  {"date": "2026-08-20", "game": "655", "result": [4, 16, 28, 30, 45, 54]},
-  {"date": "2026-08-22", "game": "655", "result": [12, 18, 27, 39, 48, 50]},
-  {"date": "2026-08-25", "game": "655", "result": [4, 12, 18, 27, 39, 48]},
-  {"date": "2026-08-27", "game": "655", "result": [6, 14, 20, 32, 41, 53]},
-  {"date": "2026-08-29", "game": "655", "result": [8, 15, 18, 29, 33, 45]},
-  {"date": "2026-09-01", "game": "655", "result": [2, 12, 18, 28, 40, 52]}
-]
+import requests
+import json
+import os
+
+VIETLOTT_655_URL = "https://vietlott.vn/api/front/v1/draw-result/power655"
+DATA_FILE = "vietlott_655.json"
+
+def fetch_and_update_vietlott_655(limit=200):
+    """
+    Cào 200 kỳ gần nhất để đảm bảo backtest được lùi về nhiều tháng trước.
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "pageIndex": 1,
+        "pageSize": limit
+    }
+
+    try:
+        response = requests.post(VIETLOTT_655_URL, json=payload, headers=headers, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            draw_list = data.get("result", [])
+            
+            formatted_data = []
+            for item in draw_list:
+                res_str = item.get("result", "")
+                if not res_str:
+                    continue
+                
+                numbers = [int(x) for x in res_str.split("|")[0].split(",") if x.isdigit()]
+                date_str = item.get("drawDate", "")
+                
+                if len(numbers) >= 6 and date_str:
+                    formatted_data.append({
+                        "date": date_str,
+                        "result": sorted(numbers[:6])
+                    })
+
+            # Sắp xếp tăng dần theo thời gian (cũ -> mới)
+            formatted_data.sort(key=lambda x: x["date"])
+
+            with open(DATA_FILE, "w", encoding="utf-8") as f:
+                json.dump(formatted_data, f, ensure_ascii=False, indent=2)
+                
+            print(f"✅ Đã cập nhật {len(formatted_data)} kỳ quay vào {DATA_FILE}")
+            return formatted_data
+    except Exception as e:
+        print(f"❌ Lỗi cào dữ liệu: {e}")
+        
+    return []
+
+if __name__ == "__main__":
+    fetch_and_update_vietlott_655()

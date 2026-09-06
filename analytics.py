@@ -3,14 +3,14 @@ from collections import defaultdict
 from itertools import combinations
 
 def predict_power_655_hybrid_10(history_data: list) -> list:
-    """Thuật toán Power 6/55 (1 - 55)"""
-    return _predict_hybrid_core(history_data, max_num=55)
+    """Thuật toán dự đoán Power 6/55 (Dải số 1 - 55)"""
+    return _predict_hybrid_core(history_data, max_num=55, sum_min=80, sum_max=220)
 
 def predict_mega_645_hybrid_10(history_data: list) -> list:
-    """Thuật toán Mega 6/45 (1 - 45)"""
-    return _predict_hybrid_core(history_data, max_num=45)
+    """Thuật toán dự đoán Mega 6/45 (Dải số 1 - 45)"""
+    return _predict_hybrid_core(history_data, max_num=45, sum_min=70, sum_max=180)
 
-def _predict_hybrid_core(history_data: list, max_num: int) -> list:
+def _predict_hybrid_core(history_data: list, max_num: int, sum_min: int, sum_max: int) -> list:
     if not history_data:
         return list(range(1, 11))
 
@@ -56,14 +56,14 @@ def _predict_hybrid_core(history_data: list, max_num: int) -> list:
     candidate_pool = sorted_candidates[:14]
 
     best_dan_10 = []
-    max_cluster_score = -1.0
+    max_cluster_score = -9999.0
 
     for combo in combinations(candidate_pool, 10):
         dan = list(combo)
         pair_sum = sum(pair_matrix[dan[i]][dan[j]] for i in range(len(dan)) for j in range(i + 1, len(dan)))
         
         sum_6 = sum(dan[:6])
-        penalty = 5.0 if not (80 <= sum_6 <= 180) else 0.0 # Điều chỉnh dải tổng thích hợp cho 6/45
+        penalty = 5.0 if not (sum_min <= sum_6 <= sum_max) else 0.0
             
         final_score = (pair_sum * 3.0) + sum(base_scores[n] for n in dan) - penalty
 

@@ -1,59 +1,70 @@
-⁵import sys
-from datetime import datetime, timedelta
-import database as db
-import predictor
+import json
+import os
+from datetime import datetime
+from vietlott_scraper import fetch_and_update_vietlott_655
+from analytics import predict_power_655_hybrid_10
 
-def run_backtest_cli(game_type="655", days=30):
-    """
-    Chạy thử nghiệm thuật toán lùi ngày cho một giải Vietlott cụ thể
-    """
-    print(f"🧪 BẮT ĐẦU BACKTEST GIẢI [{game_type.upper()}] TRONG {days} KỲ LẦN TRƯỚC", flush=True)
-    print("=" * 60, flush=True)
+DATA_FILE = "vietlott_655.json"
 
-    all_data = db.get_results(game_type=game_type, limit=500)
-    if not all_data:
-        print("❌ Chưa có dữ liệu trong CSDL! Vui lòng chạy backfill_365_days.py trước.", flush=True)
-        return
-
-    # Lấy danh sách các ngày có dữ liệu
-    available_dates = sorted([r['date'] for r in all_data], reverse=True)[:days]
+def load_data():
+    if not os.path.exists(DATA_FILE) or os.path.getsize(DATA_FILE) == 0:
+        return fetch_and_update_vietlott_655()
     
-    valid_cnt = 0
-    total_matched = 0
-    total_possible = 0
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if not data:
+                return fetch_and_update_vietlott_655()
+            return data
+    except Exception:
+        return fetch_and_update_vietlott_655()
 
-    for target_date in available_dates:
-        # Lọc dữ liệu LÙI VỀ TRƯỚC ngày test
-        historical_data = [r for r in all_data if r['date'] < target_date]
-        actual_row = next((r for r in all_data if r['date'] == target_date), None)
+def run_backtest(start_date_str, num_draws=30):
+    data = load_data()
+    if not data:
+        return "❌ Không thể tải dữ liệu lịch sử Vietlott."
 
-        if not actual_row or not historical_data:
+    # Lọc danh sách kỳ quay từ ngày bắt đầu
+    future_draws = [d for d in data if d["date"] >= start_date_str]
+    
+    if not future_draws:
+        # Nếu không có ngày lớn hơn, thử làm mới dữ liệu
+        data = fetch_and_update_vietlott_655()
+        future_draws = [d for d in data if d["date"] >= start_date_str]
+
+    if not future_draws:
+        return f"❌ Không tìm thấy dữ liệu kỳ quay phù hợp sau ngày {start_date_str}."
+
+    test_draws = future_draws[:num_draws]
+    results_log = []
+    total_matches = 0
+
+    for draw in test_draws:
+        target_date = draw["date"]
+        actual_result = set(draw["result"])
+
+        # Tập dữ liệu quá khứ tính đến trước ngày target
+        history_until_now = [d for d in data if d["date"] < target_date]
+        
+        if not history_until_now:
             continue
 
-        # Chạy kiểm thử
-        res = predictor.test_prediction_accuracy(
-            game_type=game_type, 
-            historical_data=historical_data, 
-            actual_numbers=actual_row['numbers']
-        )
+        # Gọi dự đoán dàn 10 số
+        predicted_10 = predict_power_655_hybrid_10(history_until_now)
+        
+        # So khớp
+        matched = set(predicted_10).intersection(actual_result)
+        match_count = len(matched)
+        total_matches += match_count
+        
+        status = "✅" if match_count >= 3 else "❌"
+        matched_str = ",".join(map(str, sorted(list(matched))))
+        results_log.append(f"📅 {target_date}: Trùng {match_count}/6 {status} [{matched_str}]")
 
-        if not res:
-            continue
-
-        valid_cnt += 1
-        total_matched += res['matched_count']
-        total_possible += res['total_possible']
-
-        print(f"📅 Ngày {target_date}: Dự đoán [{res['predicted']}] | Thực tế [{res['actual']}] | Trùng [{res['matched']}] ({res['accuracy_rate']}%)")
-
-    print("=" * 60, flush=True)
-    if valid_cnt > 0:
-        avg_acc = (total_matched / total_possible) * 100 if total_possible > 0 else 0
-        print(f"📊 TỔNG KẾT [{game_type.upper()}]: Test {valid_cnt} kỳ | Tổng trùng {total_matched}/{total_possible} số | Chính xác TB: {avg_acc:.2f}%")
-    else:
-        print("❌ Không đủ dữ liệu đối soát!")
-
-if __name__ == "__main__":
-    game = sys.argv[1] if len(sys.argv) > 1 else "655"
-    days_cnt = int(sys.argv[2]) if len(sys.argv) > 2 else 15
-    run_backtest_cli(game_type=game, days=days_cnt)
+    avg_matches = total_matches / len(test_draws) if test_draws else 0
+    
+    response = f"🧪 BACKTEST HYBRID ({len(test_draws)} KỲ)\n"
+    response += "\n\n".join(results_log)
+    response += f"\n\n📊 TB: {avg_matches:.1f}/6 số"
+    
+    return response

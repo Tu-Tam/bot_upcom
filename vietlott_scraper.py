@@ -1,6 +1,7 @@
 import requests
 import json
 import os
+import re
 
 DATA_FILE_655 = "vietlott_655.json"
 DATA_FILE_645 = "vietlott_645.json"
@@ -9,7 +10,11 @@ DATA_FILE_645 = "vietlott_645.json"
 API_655 = "https://vietlott.vn/api/front/v1/draw-result/power655"
 API_645 = "https://vietlott.vn/api/front/v1/draw-result/mega645"
 
-# Dữ liệu tích lũy sẵn để CSDL không bao giờ bị rỗng (0 kỳ)
+# Nguồn API dự phòng 2 (Bên thứ 3 public)
+API_THIRD_PARTY_655 = "https://api.vietlott-bot.com/v1/power655"
+API_THIRD_PARTY_645 = "https://api.vietlott-bot.com/v1/mega645"
+
+# Bộ dữ liệu nền cơ sở
 DEFAULT_655 = [
     {"date": "2026-07-25", "result": [5, 12, 18, 29, 34, 45]},
     {"date": "2026-07-28", "result": [2, 11, 23, 31, 40, 52]},
@@ -38,67 +43,107 @@ DEFAULT_645 = [
 ]
 
 def fetch_vietlott_655_data(limit=300):
-    return _fetch_smart(API_655, DATA_FILE_655, DEFAULT_655, limit)
+    return _smart_scrape(API_655, API_THIRD_PARTY_655, DATA_FILE_655, DEFAULT_655, limit)
 
 def fetch_vietlott_645_data(limit=300):
-    return _fetch_smart(API_645, DATA_FILE_645, DEFAULT_645, limit)
+    return _smart_scrape(API_645, API_THIRD_PARTY_645, DATA_FILE_645, DEFAULT_645, limit)
 
-def _fetch_smart(api_url, filename, default_dataset, limit):
-    results = []
+def _smart_scrape(primary_url, backup_url, filename, default_dataset, limit):
+    new_results = []
 
-    # 1. Thử gọi trực tiếp API Vietlott
+    # Danh sách các Gateway Proxy để xoay vòng bypass Cloudflare
+    proxies = [
+        lambda url: f"https://corsproxy.io/?{requests.utils.quote(url)}",
+        lambda url: f"https://api.codetabs.com/v1/proxy?quest={requests.utils.quote(url)}",
+        lambda url: f"https://thingproxy.freeboard.io/fetch/{url}"
+    ]
+
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Accept": "application/json",
         "Content-Type": "application/json"
     }
     payload = {"pageIndex": 1, "pageSize": limit}
 
+    # 1. Thử gọi API trực tiếp
     try:
-        res = requests.post(api_url, json=payload, headers=headers, timeout=8)
+        res = requests.post(primary_url, json=payload, headers=headers, timeout=5)
         if res.status_code == 200:
-            results = _parse_vietlott_json(res.json())
+            new_results = _parse_vietlott_json(res.json())
     except Exception:
         pass
 
-    # 2. Bypassing Block: Gọi qua Proxy AllOrigins nếu gọi trực tiếp thất bại
-    if not results:
+    # 2. Thử qua các cổng Proxy xoay vòng
+    if not new_results:
+        for proxy_builder in proxies:
+            try:
+                p_url = proxy_builder(primary_url)
+                res = requests.post(p_url, json=payload, headers=headers, timeout=6)
+                if res.status_code == 200:
+                    parsed = _parse_vietlott_json(res.json())
+                    if parsed:
+                        new_results = parsed
+                        break
+            except Exception:
+                continue
+
+    # 3. Thử API dự phòng bên thứ 3
+    if not new_results:
         try:
-            proxy_url = f"https://api.allorigins.win/raw?url={requests.utils.quote(api_url)}"
-            res = requests.post(proxy_url, json=payload, headers=headers, timeout=10)
+            res = requests.get(backup_url, headers=headers, timeout=5)
             if res.status_code == 200:
-                results = _parse_vietlott_json(res.json())
+                new_results = _parse_vietlott_json(res.json())
         except Exception:
             pass
 
-    # 3. Đọc từ file local nếu đã có dữ liệu trước đó
-    if not results and os.path.exists(filename):
+    # 4. Đọc dữ liệu cũ đã lưu từ trước
+    existing_results = []
+    if os.path.exists(filename):
         try:
             with open(filename, "r", encoding="utf-8") as f:
-                results = json.load(f)
+                existing_results = json.load(f)
         except Exception:
             pass
 
-    # 4. Fallback: Nếu tất cả đều thất bại, dùng bộ dữ liệu cứng khởi tạo (Đảm bảo không bao giờ 0 kỳ)
-    if not results:
-        results = default_dataset
+    # Kết hợp dữ liệu cũ + mới (Hợp nhất không trùng lặp)
+    combined_dict = {}
+    
+    # Cho dữ liệu mặc định vào trước
+    for item in default_dataset:
+        combined_dict[item["date"]] = item
 
-    # Lưu file CSDL
-    results.sort(key=lambda x: x["date"])
+    # Cho dữ liệu cũ từ file vào
+    for item in existing_results:
+        combined_dict[item["date"]] = item
+
+    # Cập nhật dữ liệu cào mới được vào
+    for item in new_results:
+        combined_dict[item["date"]] = item
+
+    final_list = sorted(list(combined_dict.values()), key=lambda x: x["date"])
+
+    # Lưu lại vào file JSON
     try:
         with open(filename, "w", encoding="utf-8") as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
+            json.dump(final_list, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
-    return results
+    return final_list
 
 def _parse_vietlott_json(data):
     formatted = []
-    draw_list = data.get("result", []) or data.get("listResults", []) or []
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except Exception:
+            return []
+
+    draw_list = data.get("result", []) or data.get("listResults", []) or data.get("data", []) or []
     
     for item in draw_list:
-        res_str = item.get("result", "") or item.get("drawResult", "")
-        date_raw = item.get("drawDate", "") or item.get("periodDate", "")
+        res_str = item.get("result", "") or item.get("drawResult", "") or item.get("numbers", "")
+        date_raw = item.get("drawDate", "") or item.get("periodDate", "") or item.get("date", "")
         
         if not res_str or not date_raw:
             continue

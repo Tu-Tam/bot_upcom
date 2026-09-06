@@ -1,40 +1,46 @@
 import json
 import os
-from datetime import datetime
-from vietlott_scraper import fetch_and_update_vietlott_655
+import re
+from vietlott_scraper import fetch_vietlott_655_data, get_dataset
 from analytics import predict_power_655_hybrid_10
 
 DATA_FILE = "vietlott_655.json"
 
-def load_data():
-    if not os.path.exists(DATA_FILE) or os.path.getsize(DATA_FILE) == 0:
-        return fetch_and_update_vietlott_655()
+def parse_test_params(param_str: str):
+    """
+    Phân tích chuỗi tham số truyền vào từ Telegram.
+    Ví dụ: '2026-08-01 => 20' hoặc '2026-08-01 20' hoặc '2026-08-01'
+    """
+    # Tìm ngày YYYY-MM-DD
+    date_match = re.search(r'(\d{4}-\d{2}-\d{2})', param_str)
+    start_date = date_match.group(1) if date_match else "2026-08-01"
     
-    try:
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if not data:
-                return fetch_and_update_vietlott_655()
-            return data
-    except Exception:
-        return fetch_and_update_vietlott_655()
+    # Tìm số lượng kỳ quay đằng sau
+    num_draws = 30 # Mặc định
+    number_match = re.search(r'(?:=>|\s+)(\d+)\s*$', param_str)
+    if number_match:
+        num_draws = int(number_match.group(1))
 
-def run_backtest(start_date_str, num_draws=30):
-    data = load_data()
+    return start_date, num_draws
+
+def run_backtest_655(raw_args: str):
+    start_date_str, num_draws = parse_test_params(raw_args)
+    
+    # 1. Lấy dữ liệu
+    data = get_dataset()
+    if not data:
+        data = fetch_vietlott_655_data(limit=200)
+
     if not data:
         return "❌ Không thể tải dữ liệu lịch sử Vietlott."
 
-    # Lọc danh sách kỳ quay từ ngày bắt đầu
+    # 2. Lọc các kỳ quay từ start_date_str
     future_draws = [d for d in data if d["date"] >= start_date_str]
-    
-    if not future_draws:
-        # Nếu không có ngày lớn hơn, thử làm mới dữ liệu
-        data = fetch_and_update_vietlott_655()
-        future_draws = [d for d in data if d["date"] >= start_date_str]
 
     if not future_draws:
         return f"❌ Không tìm thấy dữ liệu kỳ quay phù hợp sau ngày {start_date_str}."
 
+    # Lấy đúng N kỳ quay theo yêu cầu (20 hoặc 29 kỳ)
     test_draws = future_draws[:num_draws]
     results_log = []
     total_matches = 0
@@ -43,16 +49,14 @@ def run_backtest(start_date_str, num_draws=30):
         target_date = draw["date"]
         actual_result = set(draw["result"])
 
-        # Tập dữ liệu quá khứ tính đến trước ngày target
+        # Lấy lịch sử tính đến trước ngày target
         history_until_now = [d for d in data if d["date"] < target_date]
         
         if not history_until_now:
             continue
 
-        # Gọi dự đoán dàn 10 số
         predicted_10 = predict_power_655_hybrid_10(history_until_now)
         
-        # So khớp
         matched = set(predicted_10).intersection(actual_result)
         match_count = len(matched)
         total_matches += match_count
@@ -64,7 +68,7 @@ def run_backtest(start_date_str, num_draws=30):
     avg_matches = total_matches / len(test_draws) if test_draws else 0
     
     response = f"🧪 BACKTEST HYBRID ({len(test_draws)} KỲ)\n"
-    response += "\n\n".join(results_log)
+    response += "\n".join(results_log)
     response += f"\n\n📊 TB: {avg_matches:.1f}/6 số"
     
     return response

@@ -5,49 +5,58 @@ import os
 DATA_FILE_655 = "vietlott_655.json"
 DATA_FILE_645 = "vietlott_645.json"
 
-# Kho dữ liệu Vietlott tự động cập nhật liên tục (Bypass 100% Render IP Block)
-GITHUB_RAW_655 = "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/power655.jsonl"
-GITHUB_RAW_645 = "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/mega645.jsonl"
+# Nguồn dữ liệu Vietlott từ GitHub CDN
+GITHUB_655_URLS = [
+    "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/power655.jsonl",
+    "https://raw.githubusercontent.com/fatesinger/vietlott/main/data/power655.json"
+]
+
+GITHUB_645_URLS = [
+    "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/mega645.jsonl",
+    "https://raw.githubusercontent.com/fatesinger/vietlott/main/data/mega645.json"
+]
 
 def fetch_vietlott_655_data(limit=300):
-    return _fetch_from_github_cdn(GITHUB_RAW_655, DATA_FILE_655, limit)
+    return _fetch_multi_source(GITHUB_655_URLS, DATA_FILE_655, limit)
 
 def fetch_vietlott_645_data(limit=300):
-    return _fetch_from_github_cdn(GITHUB_RAW_645, DATA_FILE_645, limit)
+    return _fetch_multi_source(GITHUB_645_URLS, DATA_FILE_645, limit)
 
-def _fetch_from_github_cdn(github_url, filename, limit):
+def _fetch_multi_source(urls, filename, limit):
     results = []
 
-    # 1. Tải CSDL trực tiếp từ CDN GitHub
-    try:
-        res = requests.get(github_url, timeout=10)
-        if res.status_code == 200:
-            lines = res.text.strip().split('\n')
-            for line in lines:
-                if not line.strip():
-                    continue
-                try:
-                    item = json.loads(line)
-                    # Parse ngày và kết quả từ dữ liệu GitHub
-                    date_raw = item.get("date") or item.get("draw_date") or item.get("run_date", "")
-                    nums = item.get("result") or item.get("numbers") or item.get("draw_result", [])
-                    
-                    if date_raw and nums:
-                        date_clean = str(date_raw).split("T")[0].replace("/", "-")
-                        if isinstance(nums, str):
-                            nums = [int(x) for x in nums.replace("|", ",").split(",") if x.strip().isdigit()]
-                        
-                        if len(nums) >= 6:
-                            results.append({
-                                "date": date_clean,
-                                "result": sorted([int(n) for n in nums[:6]])
-                            })
-                except Exception:
-                    continue
-    except Exception as e:
-        print(f"Lỗi tải dữ liệu GitHub: {e}")
+    for url in urls:
+        try:
+            res = requests.get(url, timeout=10)
+            if res.status_code == 200:
+                text_data = res.text.strip()
+                
+                # Trường hợp 1: File JSON Lines (.jsonl)
+                if "\n" in text_data and not text_data.startswith("["):
+                    for line in text_data.split('\n'):
+                        if line.strip():
+                            try:
+                                item = json.loads(line)
+                                parsed = _extract_item(item)
+                                if parsed:
+                                    results.append(parsed)
+                            except Exception:
+                                continue
+                # Trường hợp 2: File mảng JSON chuẩn (.json)
+                else:
+                    data_list = json.loads(text_data)
+                    if isinstance(data_list, list):
+                        for item in data_list:
+                            parsed = _extract_item(item)
+                            if parsed:
+                                results.append(parsed)
 
-    # 2. Nếu lỗi mạng, đọc file lưu trên đĩa nội bộ Render
+                if results:
+                    break # Lấy thành công từ nguồn tốt nhất thì dừng loop
+        except Exception as e:
+            print(f"Lỗi fetch {url}: {e}")
+
+    # Nếu fetch thất bại hoàn toàn, đọc cache từ đĩa local
     if not results and os.path.exists(filename):
         try:
             with open(filename, "r", encoding="utf-8") as f:
@@ -55,16 +64,17 @@ def _fetch_from_github_cdn(github_url, filename, limit):
         except Exception:
             pass
 
-    # 3. Lọc trùng lặp và sắp xếp lại theo thời gian (Từ Cũ đến Mới)
+    # Lọc trùng lặp ngày và sắp xếp từ CŨ đến MỚI
     if results:
-        unique_results = {item['date']: item for item in results}.values()
-        results = sorted(list(unique_results), key=lambda x: x["date"])
+        unique_map = {}
+        for item in results:
+            unique_map[item['date']] = item
+            
+        results = sorted(list(unique_map.values()), key=lambda x: x["date"])
         
-        # Chỉ giữ lại đúng số kỳ giới hạn gần nhất nếu cần (hoặc lấy tất cả)
         if limit and len(results) > limit:
             results = results[-limit:]
 
-        # Lưu vào cache file
         try:
             with open(filename, "w", encoding="utf-8") as f:
                 json.dump(results, f, ensure_ascii=False, indent=2)
@@ -72,6 +82,50 @@ def _fetch_from_github_cdn(github_url, filename, limit):
             pass
 
     return results
+
+def _extract_item(item):
+    """ Bóc tách ngày và dãy số linh hoạt bất chấp cấu trúc key JSON """
+    if not isinstance(item, dict):
+        return None
+
+    # Tìm field ngày
+    date_raw = (
+        item.get("date") or item.get("draw_date") or 
+        item.get("run_date") or item.get("drawDate") or 
+        item.get("periodDate") or ""
+    )
+    
+    # Tìm field kết quả
+    nums_raw = (
+        item.get("result") or item.get("numbers") or 
+        item.get("draw_result") or item.get("drawResult") or 
+        item.get("winning_numbers") or []
+    )
+
+    if not date_raw or not nums_raw:
+        return None
+
+    # Định dạng ngày YYYY-MM-DD
+    date_clean = str(date_raw).split("T")[0].replace("/", "-")
+    if "/" in str(date_raw):
+        parts = str(date_raw).split("/")
+        if len(parts) == 3:
+            date_clean = f"{parts[2]}-{int(parts[1]):02d}-{int(parts[0]):02d}"
+
+    # Xử lý dãy số
+    nums = []
+    if isinstance(nums_raw, str):
+        nums = [int(x) for x in nums_raw.replace("|", ",").split(",") if x.strip().isdigit()]
+    elif isinstance(nums_raw, list):
+        nums = [int(x) for x in nums_raw if str(x).isdigit()]
+
+    if len(nums) >= 6:
+        return {
+            "date": date_clean,
+            "result": sorted(nums[:6])
+        }
+    
+    return None
 
 fetch_and_update_vietlott_655 = fetch_vietlott_655_data
 

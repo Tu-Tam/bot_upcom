@@ -20,7 +20,6 @@ def run_flask():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
 def parse_date_range(raw_text: str, dataset: list) -> list:
-    """Tách chuẩn mốc ngày và số kỳ quay N (ví dụ: => 30)"""
     clean_text = re.sub(r'^(655|645)', '', raw_text).strip()
     
     match = re.search(r'(\d{4}-\d{2}-\d{2})\s*(?:=>|->|-|\s+)\s*(\d{1,3}|\d{4}-\d{2}-\d{2})$', clean_text)
@@ -43,22 +42,52 @@ def parse_date_range(raw_text: str, dataset: list) -> list:
     else:
         return [dt for dt in future_draws if dt <= end_val]
 
-@bot.message_handler(commands=['start', 'help'])
+@app.message_handler(commands=['start', 'help'])
 def send_welcome(msg):
     text = (
         "🧪 **BOT HYBRID VIETLOTT MULTI-GAME**\n\n"
+        "📌 **Lệnh kiểm tra dữ liệu:**\n"
+        "`/checkdb` - Kiểm tra kho dữ liệu hiện tại\n"
+        "`/reload` - Ép cào lại dữ liệu mới nhất từ Vietlott\n\n"
         "📌 **Power 6/55:**\n`/test 655 2026-08-01 => 30`\n`/dudoan 655`\n\n"
         "📌 **Mega 6/45:**\n`/test 645 2026-08-01 => 30`\n`/dudoan 645`"
     )
     bot.reply_to(msg, text, parse_mode="Markdown")
 
-@bot.message_handler(commands=['reload'])
+@app.message_handler(commands=['checkdb'])
+def handle_checkdb(msg):
+    d655 = get_dataset("655") or []
+    d645 = get_dataset("645") or []
+
+    res = "📊 **THỐNG KÊ DỮ LIỆU CSDL HỆ THỐNG**\n\n"
+    
+    if d655:
+        sorted_655 = sorted(d655, key=lambda x: x["date"])
+        res += f"🔹 **Power 6/55:** `{len(d655)} kỳ`\n"
+        res += f"   - Từ ngày: `{sorted_655[0]['date']}`\n"
+        res += f"   - Đến ngày: `{sorted_655[-1]['date']}`\n\n"
+    else:
+        res += "❌ **Power 6/55:** Chưa có dữ liệu.\n\n"
+
+    if d645:
+        sorted_645 = sorted(d645, key=lambda x: x["date"])
+        res += f"🔹 **Mega 6/45:** `{len(d645)} kỳ`\n"
+        res += f"   - Từ ngày: `{sorted_645[0]['date']}`\n"
+        res += f"   - Đến ngày: `{sorted_645[-1]['date']}`\n"
+    else:
+        res += "❌ **Mega 6/45:** Chưa có dữ liệu.\n"
+
+    res += "\n💡 *Dùng lệnh /reload để cào thêm dữ liệu nếu bị thiếu.*"
+    bot.reply_to(msg, res, parse_mode="Markdown")
+
+@app.message_handler(commands=['reload'])
 def handle_reload(msg):
+    bot.reply_to(msg, "⏳ Đang cào dữ liệu mới từ Vietlott, vui lòng chờ...", parse_mode="Markdown")
     d655 = fetch_vietlott_655_data()
     d645 = fetch_vietlott_645_data()
     bot.reply_to(msg, f"🔄 **Đã cập nhật CSDL:**\n- Power 6/55: `{len(d655)} kỳ`\n- Mega 6/45: `{len(d645)} kỳ`", parse_mode="Markdown")
 
-@bot.message_handler(commands=['test'])
+@app.message_handler(commands=['test'])
 def handle_test(msg):
     raw_text = msg.text.replace('/test', '').strip()
     
@@ -70,10 +99,9 @@ def handle_test(msg):
         raw_dataset = fetch_vietlott_645_data() if game == "645" else fetch_vietlott_655_data()
 
     if not raw_dataset:
-        bot.reply_to(msg, "❌ Không thể lấy dữ liệu CSDL.", parse_mode="Markdown")
+        bot.reply_to(msg, "❌ Không thể lấy dữ liệu CSDL. Hãy gõ /reload để cào dữ liệu.", parse_mode="Markdown")
         return
 
-    # Chuẩn hóa ngày về YYYY-MM-DD
     for d in raw_dataset:
         if "/" in d["date"]:
             parts = d["date"].split("/")
@@ -110,7 +138,7 @@ def handle_test(msg):
     else:
         bot.reply_to(msg, "❌ Không thể thực hiện backtest cho dải kỳ quay này.", parse_mode="Markdown")
 
-@bot.message_handler(commands=['dudoan'])
+@app.message_handler(commands=['dudoan'])
 def handle_dudoan(msg):
     raw_text = msg.text.replace('/dudoan', '').strip()
     game = "645" if "645" in raw_text else "655"
@@ -119,6 +147,10 @@ def handle_dudoan(msg):
     raw_dataset = get_dataset(game)
     if not raw_dataset:
         raw_dataset = fetch_vietlott_645_data() if game == "645" else fetch_vietlott_655_data()
+
+    if not raw_dataset:
+        bot.reply_to(msg, "❌ Không thể lấy dữ liệu CSDL. Hãy gõ /reload để cào dữ liệu.", parse_mode="Markdown")
+        return
 
     sorted_dataset = sorted(raw_dataset, key=lambda x: x["date"])
     dan_10 = predict_fn(sorted_dataset)

@@ -5,7 +5,10 @@ import os
 VIETLOTT_655_URL = "https://vietlott.vn/api/front/v1/draw-result/power655"
 DATA_FILE = "vietlott_655.json"
 
-def fetch_and_update_vietlott_655(limit=200):
+def fetch_vietlott_655_data(limit=200):
+    """
+    Hàm cào dữ liệu chính được gọi từ bot.py
+    """
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Content-Type": "application/json"
@@ -24,21 +27,16 @@ def fetch_and_update_vietlott_655(limit=200):
             formatted_data = []
             for item in draw_list:
                 res_str = item.get("result", "")
-                date_raw = item.get("drawDate", "") # Định dạng DD/MM/YYYY hoặc YYYY-MM-DD
+                date_raw = item.get("drawDate", "")
                 
                 if not res_str or not date_raw:
                     continue
                 
-                # Tách lấy 6 số đầu tiên
                 numbers = [int(x) for x in res_str.split("|")[0].split(",") if x.strip().isdigit()]
                 
-                # Chuẩn hóa ngày về định dạng YYYY-MM-DD
                 if "/" in date_raw:
                     parts = date_raw.split("/")
-                    if len(parts) == 3:
-                        date_str = f"{parts[2]}-{parts[1]:0>2}-{parts[0]:0>2}"
-                    else:
-                        date_str = date_raw
+                    date_str = f"{parts[2]}-{parts[1]:0>2}-{parts[0]:0>2}" if len(parts) == 3 else date_raw
                 else:
                     date_str = date_raw
 
@@ -48,18 +46,26 @@ def fetch_and_update_vietlott_655(limit=200):
                         "result": sorted(numbers[:6])
                     })
 
-            # Sắp xếp tăng dần theo thời gian (Cũ -> Mới)
             formatted_data.sort(key=lambda x: x["date"])
 
             with open(DATA_FILE, "w", encoding="utf-8") as f:
                 json.dump(formatted_data, f, ensure_ascii=False, indent=2)
                 
-            print(f"✅ Đã lưu {len(formatted_data)} kỳ quay vào {DATA_FILE}")
             return formatted_data
     except Exception as e:
-        print(f"❌ Lỗi cào dữ liệu: {e}")
+        print(f"Lỗi cào dữ liệu: {e}")
         
     return []
 
-if __name__ == "__main__":
-    fetch_and_update_vietlott_655()
+# Bổ sung alias để gọi tên nào cũng chạy được
+fetch_and_update_vietlott_655 = fetch_vietlott_655_data
+
+def get_dataset():
+    """Hàm lấy dataset từ json"""
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return fetch_vietlott_655_data()

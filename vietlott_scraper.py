@@ -8,15 +8,15 @@ VIETLOTT_645_URL = "https://vietlott.vn/api/front/v1/draw-result/mega645"
 DATA_FILE_655 = "vietlott_655.json"
 DATA_FILE_645 = "vietlott_645.json"
 
-def fetch_vietlott_655_data(limit=200):
+def fetch_vietlott_655_data(limit=300):
     """Cào dữ liệu Power 6/55"""
     return _fetch_vietlott_generic(VIETLOTT_655_URL, DATA_FILE_655, limit)
 
-def fetch_vietlott_645_data(limit=200):
+def fetch_vietlott_645_data(limit=300):
     """Cào dữ liệu Mega 6/45"""
     return _fetch_vietlott_generic(VIETLOTT_645_URL, DATA_FILE_645, limit)
 
-def _fetch_vietlott_generic(url, filename, limit=200):
+def _fetch_vietlott_generic(url, filename, limit=300):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Content-Type": "application/json"
@@ -41,7 +41,7 @@ def _fetch_vietlott_generic(url, filename, limit=200):
                 
                 if "/" in date_raw:
                     parts = date_raw.split("/")
-                    date_str = f"{parts[2]}-{parts[1]:0>2}-{parts[0]:0>2}" if len(parts) == 3 else date_raw
+                    date_str = f"{parts[2]}-{int(parts[1]):02d}-{int(parts[0]):02d}" if len(parts) == 3 else date_raw
                 else:
                     date_str = date_raw
 
@@ -62,17 +62,19 @@ def _fetch_vietlott_generic(url, filename, limit=200):
         
     return []
 
-# Giữ nguyên Alias & Getter cho Power 6/55
+# Giữ alias cho bot.py cũ
 fetch_and_update_vietlott_655 = fetch_vietlott_655_data
 
 def get_dataset(game="655"):
-    target_file = DATA_FILE_645 if game == "645" else DATA_FILE_655
-    fetch_func = fetch_vietlott_645_data if game == "645" else fetch_vietlott_655_data
+    target_file = DATA_FILE_645 if str(game) == "645" else DATA_FILE_655
+    fetch_func = fetch_vietlott_645_data if str(game) == "645" else fetch_vietlott_655_data
     
     if os.path.exists(target_file):
         try:
             with open(target_file, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                if data:
+                    return data
         except Exception:
             pass
     return fetch_func()

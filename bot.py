@@ -20,9 +20,7 @@ def run_flask():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
 def parse_date_range(raw_text: str, dataset: list) -> list:
-    """Tách chuẩn mốc ngày và số kỳ quay N (ví dụ: => 30)"""
     clean_text = re.sub(r'^(655|645)', '', raw_text).strip()
-    
     match = re.search(r'(\d{4}-\d{2}-\d{2})\s*(?:=>|->|-|\s+)\s*(\d{1,3}|\d{4}-\d{2}-\d{2})$', clean_text)
     
     if not match:
@@ -47,9 +45,9 @@ def parse_date_range(raw_text: str, dataset: list) -> list:
 def send_welcome(msg):
     text = (
         "🧪 **BOT HYBRID VIETLOTT MULTI-GAME**\n\n"
-        "📌 **Lệnh kiểm tra dữ liệu:**\n"
-        "`/checkdb` - Kiểm tra kho dữ liệu hiện tại\n"
-        "`/reload` - Ép cào lại dữ liệu mới nhất từ Vietlott\n\n"
+        "📌 **Lệnh kiểm tra:**\n"
+        "`/checkdb` - Thống kê CSDL\n"
+        "`/reload` - Làm mới CSDL\n\n"
         "📌 **Power 6/55:**\n`/test 655 2026-08-01 => 30`\n`/dudoan 655`\n\n"
         "📌 **Mega 6/45:**\n`/test 645 2026-08-01 => 30`\n`/dudoan 645`"
     )
@@ -61,24 +59,18 @@ def handle_checkdb(msg):
     d645 = get_dataset("645") or []
 
     res = "📊 **THỐNG KÊ DỮ LIỆU CSDL HỆ THỐNG**\n\n"
-    
     if d655:
         sorted_655 = sorted(d655, key=lambda x: x["date"])
-        res += f"🔹 **Power 6/55:** `{len(d655)} kỳ`\n"
-        res += f"   - Từ ngày: `{sorted_655[0]['date']}`\n"
-        res += f"   - Đến ngày: `{sorted_655[-1]['date']}`\n\n"
+        res += f"🔹 **Power 6/55:** `{len(d655)} kỳ` (`{sorted_655[0]['date']}` ➔ `{sorted_655[-1]['date']}`)\n"
     else:
-        res += "❌ **Power 6/55:** Chưa có dữ liệu.\n\n"
+        res += "❌ **Power 6/55:** 0 kỳ\n"
 
     if d645:
         sorted_645 = sorted(d645, key=lambda x: x["date"])
-        res += f"🔹 **Mega 6/45:** `{len(d645)} kỳ`\n"
-        res += f"   - Từ ngày: `{sorted_645[0]['date']}`\n"
-        res += f"   - Đến ngày: `{sorted_645[-1]['date']}`\n"
+        res += f"🔹 **Mega 6/45:** `{len(d645)} kỳ` (`{sorted_645[0]['date']}` ➔ `{sorted_645[-1]['date']}`)\n"
     else:
-        res += "❌ **Mega 6/45:** Chưa có dữ liệu.\n"
+        res += "❌ **Mega 6/45:** 0 kỳ\n"
 
-    res += "\n💡 *Dùng lệnh /reload để cào thêm dữ liệu nếu bị thiếu.*"
     bot.reply_to(msg, res, parse_mode="Markdown")
 
 @bot.message_handler(commands=['reload'])
@@ -91,33 +83,22 @@ def handle_reload(msg):
 @bot.message_handler(commands=['test'])
 def handle_test(msg):
     raw_text = msg.text.replace('/test', '').strip()
-    
     game = "645" if "645" in raw_text else "655"
     predict_fn = predict_mega_645_hybrid_10 if game == "645" else predict_power_655_hybrid_10
 
     raw_dataset = get_dataset(game)
     if not raw_dataset:
-        raw_dataset = fetch_vietlott_645_data() if game == "645" else fetch_vietlott_655_data()
-
-    if not raw_dataset:
-        bot.reply_to(msg, "❌ Không thể lấy dữ liệu CSDL. Hãy gõ /reload để cào dữ liệu.", parse_mode="Markdown")
+        bot.reply_to(msg, "❌ Không thể lấy dữ liệu CSDL.", parse_mode="Markdown")
         return
-
-    for d in raw_dataset:
-        if "/" in d["date"]:
-            parts = d["date"].split("/")
-            if len(parts) == 3:
-                d["date"] = f"{parts[2]}-{int(parts[1]):02d}-{int(parts[0]):02d}"
 
     sorted_dataset = sorted(raw_dataset, key=lambda x: x["date"])
     dates = parse_date_range(raw_text, sorted_dataset)
     
     if not dates:
-        bot.reply_to(msg, f"❌ Không tìm thấy dữ liệu kỳ quay phù hợp.\n*(CSDL hiện có từ: `{sorted_dataset[0]['date']}` đến `{sorted_dataset[-1]['date']}`)*", parse_mode="Markdown")
+        bot.reply_to(msg, f"❌ Không tìm thấy dữ liệu kỳ quay phù hợp.\n*(CSDL từ: `{sorted_dataset[0]['date']}` đến `{sorted_dataset[-1]['date']}`)*", parse_mode="Markdown")
         return
 
     details, total_matched = [], 0
-
     for dt in dates:
         actual = next((d for d in sorted_dataset if d["date"] == dt), None)
         if not actual: continue
@@ -146,13 +127,6 @@ def handle_dudoan(msg):
     predict_fn = predict_mega_645_hybrid_10 if game == "645" else predict_power_655_hybrid_10
 
     raw_dataset = get_dataset(game)
-    if not raw_dataset:
-        raw_dataset = fetch_vietlott_645_data() if game == "645" else fetch_vietlott_655_data()
-
-    if not raw_dataset:
-        bot.reply_to(msg, "❌ Không thể lấy dữ liệu CSDL. Hãy gõ /reload để cào dữ liệu.", parse_mode="Markdown")
-        return
-
     sorted_dataset = sorted(raw_dataset, key=lambda x: x["date"])
     dan_10 = predict_fn(sorted_dataset)
     bot.reply_to(msg, f"🎯 **Dàn 10 Hybrid Vietlott {game}:**\n`[{', '.join(map(str, dan_10))}]`", parse_mode="Markdown")
@@ -165,11 +139,11 @@ if __name__ == '__main__':
     try:
         bot.remove_webhook()
         time.sleep(1)
-    except Exception as e:
+    except Exception:
         pass
 
     while True:
         try:
             bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)
-        except Exception as e:
+        except Exception:
             time.sleep(5)

@@ -31,10 +31,11 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v27_dynamic_pivot(history_data: list, game="655", num_combos=150) -> tuple:
+def generate_v28_hybrid_covering(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Thuật toán V27: Multi-Pivot Dynamic Covering & Set-Cover Optimization
-    Phát triển bộ số từ cặp điểm tựa linh hoạt và phủ tối đa tập 3 số.
+    Thuật toán V28: Dual-Core Hybrid Matrix & Full Combinatorial Covering
+    Mega 6/45: Pivot Correlation Covering (Tối ưu từ V27)
+    Power 6/55: Pure Combinatorial Covering trong Top 24 Core Matrix
     """
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
@@ -43,82 +44,105 @@ def generate_v27_dynamic_pivot(history_data: list, game="655", num_combos=150) -
         base = list(range(1, 7))
         return [base], base
 
-    draws_recent = [d["result"] for d in history_data[-50:]]
+    draws_recent = [d["result"] for d in history_data[-60:]]
     freq = Counter([n for draw in draws_recent for n in draw])
     
-    pair_weights = defaultdict(int)
-    for draw in draws_recent:
-        for p1, p2 in itertools.combinations(sorted(draw), 2):
-            pair_weights[(p1, p2)] += 1
-
     sorted_all = sorted(range(1, max_num + 1), key=lambda x: freq.get(x, 0), reverse=True)
-    
-    hot_pool = sorted_all[:18]
-    warm_pool = sorted_all[18:32]
-    top_matrix = sorted(hot_pool + warm_pool[:12])
-
-    # Tạo danh sách các cặp Pivot có trọng số tương quan cao nhất
-    pivot_pairs = []
-    for p1, p2 in itertools.combinations(hot_pool, 2):
-        weight = pair_weights.get(tuple(sorted([p1, p2])), 0)
-        pivot_pairs.append((p1, p2, weight))
-    pivot_pairs.sort(key=lambda x: x[2], reverse=True)
-    top_pivots = [(p[0], p[1]) for p in pivot_pairs[:25]]
 
     combos = []
     attempts = 0
     random.seed(len(history_data) + 2026)
 
-    min_s = 95 if is_655 else 75
-    max_s = 215 if is_655 else 185
+    if is_655:
+        # ---------------------------------------------------------
+        # CHUYÊN BỆNH POWER 6/55: Pure 24-Core Combinatorial Covering
+        # ---------------------------------------------------------
+        top_matrix = sorted(sorted_all[:24]) # Nén chặt không gian vào Top 24 số Hot nhất
+        min_s, max_s = 90, 210
 
-    while len(combos) < num_combos and attempts < 60000:
-        attempts += 1
+        while len(combos) < num_combos and attempts < 60000:
+            attempts += 1
+            combo = sorted(random.sample(top_matrix, 6))
 
-        # 1. Chọn ngẫu nhiên 1 Cặp Điểm Tựa (Pivot Pair) từ Top 25
-        p1, p2 = random.choice(top_pivots)
-
-        # 2. Chọn 3 số từ Top Matrix có độ tương quan cao với cặp Pivot
-        candidates = [n for n in top_matrix if n not in (p1, p2)]
-        candidates.sort(key=lambda x: pair_weights.get(tuple(sorted([p1, x])), 0) + 
-                                     pair_weights.get(tuple(sorted([p2, x])), 0), reverse=True)
-        
-        selected_3 = random.sample(candidates[:12], 3)
-
-        # 3. Chọn 1 số Bắt Lạnh từ ngoài Hot/Warm Pool
-        cold_candidate = random.choice([n for n in sorted_all[30:] if n not in selected_3])
-
-        combo = sorted([p1, p2] + selected_3 + [cold_candidate])
-
-        # Lọc 1: Không quá 1 cặp liền kề
-        adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
-        if adj_count > 1:
-            continue
-
-        # Lọc 2: Tỷ lệ Chẵn/Lẻ (2-4, 3-3, 4-2)
-        evens = sum(1 for x in combo if x % 2 == 0)
-        if evens < 2 or evens > 4:
-            continue
-
-        # Lọc 3: Tổng Chuẩn Gaussian
-        if not (min_s <= sum(combo) <= max_s):
-            continue
-
-        # Lọc 4: Khoảng cách giữa các số (Max Gap <= 22)
-        gaps = [combo[i+1] - combo[i] for i in range(5)]
-        if max(gaps) > 22:
-            continue
-
-        # Lọc 5: Optimal Hamming Distance Limit (ép <= 3 cho 120 bộ đầu)
-        if combos and attempts < 45000:
-            limit = 3 if len(combos) < 120 else 4
-            if max(len(set(combo) & set(c)) for c in combos) > limit:
+            # Điều kiện 1: Tối đa 1 cặp liền kề
+            adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
+            if adj_count > 1:
                 continue
 
-        if combo not in combos:
-            combos.append(combo)
+            # Điều kiện 2: Tỷ lệ Chẵn / Lẻ chuẩn (2-4, 3-3, 4-2)
+            evens = sum(1 for x in combo if x % 2 == 0)
+            if evens < 2 or evens > 4:
+                continue
 
-    # Bổ sung bộ số nếu chưa đủ 150
+            # Điều kiện 3: Tổng Gaussian
+            if not (min_s <= sum(combo) <= max_s):
+                continue
+
+            # Điều kiện 4: Ép khoảng cách trùng lặp Hamming Distance strictly <= 3 (Tạo độ bao phủ rộng nhất)
+            if combos and attempts < 45000:
+                if max(len(set(combo) & set(c)) for c in combos) > 3:
+                    continue
+
+            if combo not in combos:
+                combos.append(combo)
+
+    else:
+        # ---------------------------------------------------------
+        # CHUYÊN BỆNH MEGA 6/45: Pivot Correlation Covering
+        # ---------------------------------------------------------
+        pair_weights = defaultdict(int)
+        for draw in draws_recent:
+            for p1, p2 in itertools.combinations(sorted(draw), 2):
+                pair_weights[(p1, p2)] += 1
+
+        top_matrix = sorted(sorted_all[:28])
+        hot_pool = sorted_all[:18]
+
+        # Lấy Top Pivot Pairs
+        pivot_pairs = []
+        for p1, p2 in itertools.combinations(hot_pool, 2):
+            weight = pair_weights.get(tuple(sorted([p1, p2])), 0)
+            pivot_pairs.append((p1, p2, weight))
+        pivot_pairs.sort(key=lambda x: x[2], reverse=True)
+        top_pivots = [(p[0], p[1]) for p in pivot_pairs[:20]]
+
+        min_s, max_s = 75, 185
+
+        while len(combos) < num_combos and attempts < 60000:
+            attempts += 1
+            p1, p2 = random.choice(top_pivots)
+
+            candidates = [n for n in top_matrix if n not in (p1, p2)]
+            candidates.sort(key=lambda x: pair_weights.get(tuple(sorted([p1, x])), 0) + 
+                                         pair_weights.get(tuple(sorted([p2, x])), 0), reverse=True)
+            
+            selected = random.sample(candidates[:14], 4)
+            combo = sorted([p1, p2] + selected)
+
+            # Lọc liền kề
+            adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
+            if adj_count > 1:
+                continue
+
+            # Lọc Chẵn/Lẻ
+            evens = sum(1 for x in combo if x % 2 == 0)
+            if evens < 2 or evens > 4:
+                continue
+
+            # Lọc Tổng
+            if not (min_s <= sum(combo) <= max_s):
+                continue
+
+            # Lọc Hamming Distance
+            if combos and attempts < 45000:
+                limit = 3 if len(combos) < 110 else 4
+                if max(len(set(combo) & set(c)) for c in combos) > limit:
+                    continue
+
+            if combo not in combos:
+                combos.append(combo)
+
+    # Nới lỏng bổ sung bộ nếu chưa đủ 150 bộ
     while len(combos) < num_combos:
         combo = sorted(random.sample(top_matrix, 6))
         if combo not in combos:
@@ -174,11 +198,11 @@ def handle_dudoan(message):
         bot.reply_to(message, f"❌ Chưa có dữ liệu {game_name}. Hãy gõ /reload trước!")
         return
 
-    combos, top_matrix = generate_v27_dynamic_pivot(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v28_hybrid_covering(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V27 DYNAMIC PIVOT - {game_name.upper()}**",
-        f"📌 **Ma trận Tương Quan Phủ Điểm Tựa ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V28 DUAL-CORE - {game_name.upper()}**",
+        f"📌 **Ma trận Tương Quan Phân Tầng ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
         f"💡 **Dàn 5 bộ số hạt nhân đi kèm:**"
     ]
@@ -203,13 +227,13 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST DYNAMIC PIVOT V27 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST DUAL-CORE COVERING V28 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v27_dynamic_pivot(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v28_hybrid_covering(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0

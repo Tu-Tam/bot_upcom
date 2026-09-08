@@ -3,9 +3,8 @@ import re
 import threading
 from flask import Flask
 import telebot
-from collections import Counter, defaultdict
+from collections import Counter
 import random
-import itertools
 from vietlott_scraper import fetch_vietlott_655_data, fetch_vietlott_645_data, get_dataset
 
 # -------------------------------------------------------------
@@ -31,118 +30,108 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v32_dual_engine(history_data: list, game="655", num_combos=150) -> tuple:
+def weighted_sample_no_replacement(population, weights, k):
     """
-    Thuật toán V32: Dual-Engine Jackpot Multi-Cluster
-    - Mega 6/45: Multi-Pivot Cluster (Triple Anchors 3 số đinh)
-    - Power 6/55: Dynamic Core-Expand Matrix (34 số mở rộng)
+    Rút thăm k phần tử từ population theo trọng số weights mà không lặp lại
+    """
+    chosen = []
+    pop_copy = list(population)
+    w_copy = list(weights)
+    
+    for _ in range(k):
+        if not pop_copy:
+            break
+        total_w = sum(w_copy)
+        if total_w <= 0:
+            picked = random.choice(pop_copy)
+        else:
+            r = random.uniform(0, total_w)
+            upto = 0
+            picked = pop_copy[-1]
+            for item, w in zip(pop_copy, w_copy):
+                if upto + w >= r:
+                    picked = item
+                    break
+                upto += w
+        
+        idx = pop_copy.index(picked)
+        chosen.append(picked)
+        pop_copy.pop(idx)
+        w_copy.pop(idx)
+        
+    return sorted(chosen)
+
+def generate_v33_progressive_hunter(history_data: list, game="655", num_combos=150) -> tuple:
+    """
+    Thuật toán V33: Progressive Coverage & Dynamic Pivot Shift
+    Chia 150 bộ thành 3 tầng phủ có độ mở ma trận tăng tiến để săn nổ Jackpot (5-6 số)
     """
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
     
     if len(history_data) < 20:
         base = list(range(1, 7))
-        return [base], base
+        return [base] * num_combos, base
 
     draws_recent = [d["result"] for d in history_data[-60:]]
     freq = Counter([n for draw in draws_recent for n in draw])
-    sorted_all = sorted(range(1, max_num + 1), key=lambda x: freq.get(x, 0), reverse=True)
+    
+    all_numbers = list(range(1, max_num + 1))
+    weights = [freq.get(n, 1) ** 1.3 for n in all_numbers] # Bình phương trọng số để tạo đột biến
 
+    top_matrix = sorted(all_numbers, key=lambda x: freq.get(x, 0), reverse=True)[:(36 if is_655 else 28)]
+
+    min_s, max_s = (95, 220) if is_655 else (65, 195)
+    
     combos = []
     attempts = 0
 
-    if is_655:
-        # ---------------------------------------------------------
-        # POWER 6/55: Dynamic Core-Expand Matrix (34 số)
-        # ---------------------------------------------------------
-        hot_pool = sorted_all[:16]
-        warm_pool = sorted_all[16:26]
-        cold_pool = sorted_all[26:34]
-        top_matrix = sorted(hot_pool + warm_pool + cold_pool)
+    # Phân bổ tầng: 50 bộ Tầng 1 (Core), 60 bộ Tầng 2 (Mid), 40 bộ Tầng 3 (Long-Tail)
+    tier_limits = [50, 110, num_combos]
 
-        min_s, max_s = 100, 215
+    while len(combos) < num_combos and attempts < 100000:
+        attempts += 1
+        current_tier = 0 if len(combos) < tier_limits[0] else (1 if len(combos) < tier_limits[1] else 2)
 
-        while len(combos) < num_combos and attempts < 80000:
-            attempts += 1
+        if current_tier == 0:
+            # Tầng 1: Rút thăm từ Top 20 Nóng nhất
+            pool = top_matrix[:20]
+            pool_weights = [freq.get(n, 1) ** 1.5 for n in pool]
+            combo = weighted_sample_no_replacement(pool, pool_weights, 6)
+        elif current_tier == 1:
+            # Tầng 2: Rút thăm từ Top 28-32 số
+            pool = top_matrix[:(32 if is_655 else 25)]
+            pool_weights = [freq.get(n, 1) for n in pool]
+            combo = weighted_sample_no_replacement(pool, pool_weights, 6)
+        else:
+            # Tầng 3: Rút thăm toàn bộ không gian số (Phủ dị biệt)
+            combo = weighted_sample_no_replacement(all_numbers, weights, 6)
 
-            n_hot = random.choice([3, 4])
-            n_warm = random.choice([1, 2])
-            n_cold = 6 - n_hot - n_warm
+        if len(combo) < 6:
+            continue
 
-            if n_cold < 0 or n_cold > len(cold_pool):
+        # Lọc 1: Tối đa 2 cặp liền kề
+        adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
+        if adj_count > 2:
+            continue
+
+        # Lọc 2: Tỷ lệ Chẵn / Lẻ mở rộng (1-5 đến 5-1)
+        evens = sum(1 for x in combo if x % 2 == 0)
+        if evens < 1 or evens > 5:
+            continue
+
+        # Lọc 3: Tổng dải rộng
+        if not (min_s <= sum(combo) <= max_s):
+            continue
+
+        # Lọc 4: Giảm trùng lặp nội bộ dàn số
+        if combos and attempts < 70000:
+            limit = 4 if len(combos) < 100 else 5
+            if max(len(set(combo) & set(c)) for c in combos) > limit:
                 continue
 
-            combo = sorted(random.sample(hot_pool, n_hot) + 
-                           random.sample(warm_pool, n_warm) + 
-                           random.sample(cold_pool, n_cold))
-
-            # Cho phép tối đa 2 cặp liền kề
-            adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
-            if adj_count > 2:
-                continue
-
-            # Chẵn / Lẻ: 1-5 tới 5-1
-            evens = sum(1 for x in combo if x % 2 == 0)
-            if evens < 1 or evens > 5:
-                continue
-
-            if not (min_s <= sum(combo) <= max_s):
-                continue
-
-            if combos and attempts < 50000:
-                limit = 4 if len(combos) < 100 else 5
-                if max(len(set(combo) & set(c)) for c in combos) > limit:
-                    continue
-
-            if combo not in combos:
-                combos.append(combo)
-
-    else:
-        # ---------------------------------------------------------
-        # MEGA 6/45: Multi-Pivot Cluster (Triple Anchors)
-        # ---------------------------------------------------------
-        triple_freq = defaultdict(int)
-        for draw in draws_recent:
-            for t in itertools.combinations(sorted(draw), 3):
-                triple_freq[t] += 1
-
-        top_matrix = sorted(sorted_all[:24])
-        hot_triples = sorted(triple_freq.keys(), key=lambda x: triple_freq[x], reverse=True)[:25]
-
-        min_s, max_s = 70, 190
-
-        while len(combos) < num_combos and attempts < 80000:
-            attempts += 1
-
-            if random.random() < 0.65 and hot_triples:
-                t1, t2, t3 = random.choice(hot_triples)
-                if t1 in top_matrix and t2 in top_matrix and t3 in top_matrix:
-                    rem_candidates = [n for n in top_matrix if n not in (t1, t2, t3)]
-                    selected = random.sample(rem_candidates, 3)
-                    combo = sorted([t1, t2, t3] + selected)
-                else:
-                    combo = sorted(random.sample(top_matrix, 6))
-            else:
-                combo = sorted(random.sample(top_matrix, 6))
-
-            adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
-            if adj_count > 2:
-                continue
-
-            evens = sum(1 for x in combo if x % 2 == 0)
-            if evens < 1 or evens > 5:
-                continue
-
-            if not (min_s <= sum(combo) <= max_s):
-                continue
-
-            if combos and attempts < 50000:
-                limit = 4 if len(combos) < 100 else 5
-                if max(len(set(combo) & set(c)) for c in combos) > limit:
-                    continue
-
-            if combo not in combos:
-                combos.append(combo)
+        if combo not in combos:
+            combos.append(combo)
 
     # Nới lỏng bổ sung nếu chưa đủ bộ
     while len(combos) < num_combos:
@@ -206,11 +195,11 @@ def handle_dudoan(message):
         threading.Thread(target=fetch_vietlott_645_data if game == "645" else fetch_vietlott_655_data, args=(300,)).start()
         return
 
-    combos, top_matrix = generate_v32_dual_engine(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v33_progressive_hunter(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V32 DUAL-ENGINE - {game_name.upper()}**",
-        f"📌 **Ma trận Trọng Tâm V32 ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V33 PROGRESSIVE HUNTER - {game_name.upper()}**",
+        f"📌 **Ma trận Trọng Tâm V33 ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
         f"💡 **Dàn 5 bộ số hạt nhân săn Jackpot:**"
     ]
@@ -238,7 +227,7 @@ def handle_test(message):
         bot.reply_to(message, f"❌ Cú pháp chưa đúng hoặc không tìm thấy ngày trong CSDL!\n👉 Thử lại: `/test {game} 2026-08-01 => 30`", parse_mode="Markdown")
         return
 
-    status_msg = bot.reply_to(message, f"⚙️ Đang chạy Backtest V32 Dual-Engine {game_name} ({len(dates)} kỳ)...")
+    status_msg = bot.reply_to(message, f"⚙️ Đang chạy Backtest V33 Progressive Hunter {game_name} ({len(dates)} kỳ)...")
 
     data_map = {d["date"]: d["result"] for d in dataset}
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
@@ -246,13 +235,13 @@ def handle_test(message):
     total_max_match = 0
     count_jackpot = 0
     count_high = 0
-    lines = [f"🧪 BACKTEST V32 DUAL-ENGINE {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST V33 PROGRESSIVE HUNTER {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v32_dual_engine(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v33_progressive_hunter(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0

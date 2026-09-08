@@ -12,17 +12,22 @@ GITHUB_655_URLS = [
     "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/power655.csv"
 ]
 
+# Thêm endpoint chuẩn xác cho Mega 6/45
 GITHUB_645_URLS = [
-    "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/mega.jsonl",
-    "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/mega645.jsonl",
-    "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/mega645.csv"
+    "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/power645.jsonl",
+    "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/mega645.csv",
+    "https://raw.githubusercontent.com/hieund12/Data-Vietlott/master/result645.csv"
 ]
 
 def fetch_vietlott_655_data(limit=300):
     return _fetch_multi_source(GITHUB_655_URLS, DATA_FILE_655, limit)
 
 def fetch_vietlott_645_data(limit=300):
-    return _fetch_multi_source(GITHUB_645_URLS, DATA_FILE_645, limit)
+    res = _fetch_multi_source(GITHUB_645_URLS, DATA_FILE_645, limit)
+    # Nếu CDN lỗi, tự động cào từ API dự phòng
+    if not res or len(res) == 0:
+        res = _fetch_fallback_api("645", DATA_FILE_645, limit)
+    return res
 
 def _fetch_multi_source(urls, filename, limit):
     results = []
@@ -34,7 +39,6 @@ def _fetch_multi_source(urls, filename, limit):
                 text_data = res.text.strip()
                 lines = text_data.splitlines()
                 
-                # Trường hợp File CSV
                 if url.endswith(".csv") or (lines and "," in lines[0] and "date" in lines[0].lower()):
                     reader = csv.reader(lines)
                     header = next(reader, None)
@@ -42,7 +46,6 @@ def _fetch_multi_source(urls, filename, limit):
                         parsed = _extract_csv_row(row, header)
                         if parsed:
                             results.append(parsed)
-                # Trường hợp File JSON Lines (.jsonl)
                 elif "\n" in text_data and not text_data.startswith("["):
                     for line in lines:
                         if line.strip():
@@ -53,7 +56,6 @@ def _fetch_multi_source(urls, filename, limit):
                                     results.append(parsed)
                             except Exception:
                                 continue
-                # Trường hợp Mảng JSON (.json)
                 else:
                     data_list = json.loads(text_data)
                     if isinstance(data_list, list):
@@ -67,7 +69,6 @@ def _fetch_multi_source(urls, filename, limit):
         except Exception as e:
             print(f"Lỗi fetch {url}: {e}")
 
-    # Nếu không tải được từ URL thì đọc file cache local
     if not results and os.path.exists(filename):
         try:
             with open(filename, "r", encoding="utf-8") as f:
@@ -75,7 +76,27 @@ def _fetch_multi_source(urls, filename, limit):
         except Exception:
             pass
 
-    # Lọc sạch trùng lặp và sắp xếp theo ngày
+    return _process_and_save(results, filename, limit)
+
+def _fetch_fallback_api(game_type, filename, limit):
+    """API dự phòng khi GitHub CDN bị lỗi URL"""
+    results = []
+    try:
+        api_url = f"https://api.vietlott.vn/api/v1/result/{game_type}"
+        res = requests.get(api_url, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            items = data.get("data", []) if isinstance(data, dict) else data
+            for item in items:
+                parsed = _extract_json_item(item)
+                if parsed:
+                    results.append(parsed)
+    except Exception as e:
+        print(f"Lỗi API dự phòng {game_type}: {e}")
+        
+    return _process_and_save(results, filename, limit)
+
+def _process_and_save(results, filename, limit):
     if results:
         unique_map = {}
         for item in results:
@@ -92,34 +113,26 @@ def _fetch_multi_source(urls, filename, limit):
                 json.dump(results, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
-
     return results
 
 def _clean_date_string(date_raw):
-    """Bóc tách chính xác định dạng YYYY-MM-DD từ mọi dạng chuỗi rác"""
     if not date_raw:
         return None
-    
-    # Loại bỏ ký tự thừa từ JSON lỗi
     raw_str = str(date_raw).replace('{"date":', '').replace('"', '').replace('{', '').replace('}', '').strip()
     match = re.search(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', raw_str)
     if match:
-        y, m, d = match.group(1), int(match.group(2)), int(match.group(3))
-        return f"{y}-{m:02d}-{d:02d}"
+        return f"{match.group(1)}-{int(match.group(2)):02d}-{int(match.group(3)):02d}"
     
-    # Trường hợp ngày dạng DD-MM-YYYY
     match_rev = re.search(r'(\d{1,2})[-/](\d{1,2})[-/](\d{4})', raw_str)
     if match_rev:
-        d, m, y = int(match_rev.group(1)), int(match_rev.group(2)), match_rev.group(3)
-        return f"{y}-{m:02d}-{d:02d}"
-        
+        return f"{match_rev.group(3)}-{int(match_rev.group(2)):02d}-{int(match_rev.group(1)):02d}"
     return None
 
 def _extract_json_item(item):
     if not isinstance(item, dict):
         return None
 
-    date_raw = item.get("date") or item.get("draw_date") or item.get("run_date") or item.get("drawDate") or ""
+    date_raw = item.get("date") or item.get("draw_date") or item.get("run_date") or item.get("drawDate") or item.get("periodDate") or ""
     nums_raw = item.get("result") or item.get("numbers") or item.get("draw_result") or item.get("winning_numbers") or []
 
     date_clean = _clean_date_string(date_raw)

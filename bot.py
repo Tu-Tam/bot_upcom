@@ -31,10 +31,10 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v25_adaptive_covering(history_data: list, game="655", num_combos=150) -> tuple:
+def generate_v26_centroid_covering(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Thuật toán V25: Dynamic Multi-Layer Partition & Adaptive Covering
-    Tách biệt chiến thuật theo đặc trưng toán học của 6/45 và 6/55.
+    Thuật toán V26: Multi-Centroid Clustering & Weighted Overlap Matrix
+    Gom cụm đa tâm tương quan và kiểm soát cấu trúc hàng đơn vị.
     """
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
@@ -43,86 +43,76 @@ def generate_v25_adaptive_covering(history_data: list, game="655", num_combos=15
         base = list(range(1, 7))
         return [base], base
 
-    draws_recent = [d["result"] for d in history_data[-60:]]
+    draws_recent = [d["result"] for d in history_data[-50:]]
     freq = Counter([n for draw in draws_recent for n in draw])
     
+    pair_weights = defaultdict(int)
+    for draw in draws_recent:
+        for p1, p2 in itertools.combinations(sorted(draw), 2):
+            pair_weights[(p1, p2)] += 1
+
     sorted_all = sorted(range(1, max_num + 1), key=lambda x: freq.get(x, 0), reverse=True)
+    
+    # Lấy 3 tâm mạnh nhất từ Top Hot
+    centroids = sorted_all[:3]
+    top_matrix = sorted(sorted_all[:30])
 
     combos = []
     attempts = 0
     random.seed(len(history_data) + 2026)
 
-    if is_655:
-        # Cấu trúc Power 6/55: 3-Layer Partition (Hot 18, Warm 20, Cold 17)
-        hot_pool = sorted_all[:18]
-        warm_pool = sorted_all[18:38]
-        cold_pool = sorted_all[38:]
-        top_matrix = sorted(hot_pool + warm_pool[:12])
+    min_s = 95 if is_655 else 75
+    max_s = 215 if is_655 else 185
 
-        min_s, max_s = 100, 220
+    combos_per_centroid = num_combos // 3
 
-        while len(combos) < num_combos and attempts < 60000:
+    for c_idx, centroid in enumerate(centroids):
+        # Lấy các số có liên kết cao nhất với centroid này
+        candidates = [n for n in top_matrix if n != centroid]
+        candidates.sort(key=lambda x: pair_weights.get(tuple(sorted([centroid, x])), 0), reverse=True)
+        
+        c_pool = candidates[:14]
+        c_combos = 0
+        local_attempts = 0
+
+        while c_combos < combos_per_centroid and local_attempts < 20000:
+            local_attempts += 1
             attempts += 1
-            combo = sorted(random.sample(hot_pool, 3) + random.sample(warm_pool, 2) + random.sample(cold_pool, 1))
 
-            # Điều kiện 1: Tối đa 1 cặp liền kề
+            # Lấy tâm + 4 số liên quan + 1 số từ ngoài pool để bắt số lạnh
+            sub_select = random.sample(c_pool, 4)
+            outer_select = random.choice([n for n in sorted_all[20:] if n not in sub_select and n != centroid])
+            
+            combo = sorted([centroid] + sub_select + [outer_select])
+
+            # Kiểm tra 1: Hàng đơn vị (không quá 3 số cùng đuôi)
+            mod_counts = Counter([x % 10 for x in combo])
+            if max(mod_counts.values()) > 3:
+                continue
+
+            # Kiểm tra 2: Tối đa 1 cặp liền kề
             adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
             if adj_count > 1:
                 continue
 
-            # Điều kiện 2: Tổng Gaussian & Chẵn/Lẻ
+            # Kiểm tra 3: Tổng Gaussian & Chẵn/Lẻ
             if not (min_s <= sum(combo) <= max_s):
                 continue
             evens = sum(1 for x in combo if x % 2 == 0)
             if evens < 2 or evens > 4:
                 continue
 
-            # Điều kiện 3: Hamming Distance overlap <= 3
-            if combos and attempts < 40000:
-                if max(len(set(combo) & set(c)) for c in combos) > 3:
-                    continue
-
-            if combo not in combos:
-                combos.append(combo)
-
-    else:
-        # Cấu trúc Mega 6/45: Pair Co-Occurrence Matrix
-        pair_weights = defaultdict(int)
-        for draw in draws_recent:
-            for p1, p2 in itertools.combinations(sorted(draw), 2):
-                pair_weights[(p1, p2)] += 1
-
-        top_matrix = sorted(sorted_all[:30])
-        min_s, max_s = 75, 185
-
-        while len(combos) < num_combos and attempts < 60000:
-            attempts += 1
-            seed = random.choice(top_matrix[:15])
-            candidates = [n for n in top_matrix if n != seed]
-            candidates.sort(key=lambda x: pair_weights.get(tuple(sorted([seed, x])), 0), reverse=True)
-
-            sub_pool = candidates[:16]
-            combo = sorted([seed] + random.sample(sub_pool, 5))
-
-            adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
-            if adj_count > 1:
-                continue
-
-            if not (min_s <= sum(combo) <= max_s):
-                continue
-            evens = sum(1 for x in combo if x % 2 == 0)
-            if evens < 2 or evens > 4:
-                continue
-
-            if combos and attempts < 40000:
-                limit = 3 if len(combos) < 110 else 4
+            # Kiểm tra 4: Distance Constraint
+            if combos and local_attempts < 15000:
+                limit = 3 if len(combos) < 120 else 4
                 if max(len(set(combo) & set(c)) for c in combos) > limit:
                     continue
 
             if combo not in combos:
                 combos.append(combo)
+                c_combos += 1
 
-    # Nới lỏng kiểm tra nếu chưa đủ 150 bộ
+    # Bổ sung bộ số phủ nếu chưa đủ 150
     while len(combos) < num_combos:
         combo = sorted(random.sample(top_matrix, 6))
         if combo not in combos:
@@ -178,11 +168,11 @@ def handle_dudoan(message):
         bot.reply_to(message, f"❌ Chưa có dữ liệu {game_name}. Hãy gõ /reload trước!")
         return
 
-    combos, top_matrix = generate_v25_adaptive_covering(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v26_centroid_covering(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V25 ADAPTIVE - {game_name.upper()}**",
-        f"📌 **Ma trận Tương Quan Phân Tầng ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V26 CENTROID - {game_name.upper()}**",
+        f"📌 **Ma trận Cụm Đa Tâm ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
         f"💡 **Dàn 5 bộ số hạt nhân đi kèm:**"
     ]
@@ -207,13 +197,13 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST ADAPTIVE COVERING V25 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST CENTROID COVERING V26 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v25_adaptive_covering(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v26_centroid_covering(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0

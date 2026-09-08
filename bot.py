@@ -31,10 +31,10 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v17_sliding_cluster(history_data: list, game="655", num_combos=150) -> tuple:
+def generate_v18_set_cover_wheeling(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Thuật toán V17: Sliding Window & High-Affinity Cluster Coverage
-    Săn mốc 5 - 6 số bằng nhịp rơi ngắn hạn và đóng gói cặp số đi kèm.
+    Thuật toán V18: Set Cover Optimization & 3-Tier Golden Ratio Wheeling
+    Tối ưu hóa bao phủ ma trận để ép nổ 5-6 số.
     """
     if len(history_data) < 10:
         return [[1, 2, 3, 4, 5, 6]], [1, 2, 3, 4, 5, 6]
@@ -42,68 +42,65 @@ def generate_v17_sliding_cluster(history_data: list, game="655", num_combos=150)
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
     
-    # 1. Cửa sổ trượt ngắn hạn (30 kỳ gần nhất để bắt nhịp cực chuẩn)
-    recent_draws = [d["result"] for d in history_data[-30:]]
-
+    # 1. Thống kê lịch sử 50 kỳ
+    recent_draws = [d["result"] for d in history_data[-50:]]
     flat_nums = [n for draw in recent_draws for n in draw]
     freq = Counter(flat_nums)
 
-    # 2. Tìm các cặp số hay xuất hiện cùng nhau (High-Affinity Pairs)
-    pair_counter = Counter()
-    for draw in recent_draws:
-        for pair in itertools.combinations(sorted(draw), 2):
-            pair_counter[pair] += 1
-
-    top_pairs = [p for p, _ in pair_counter.most_common(12)]
-
-    # 3. Tính điểm Ma trận Top 26
     last_seen = {}
     for idx, draw in enumerate(reversed(recent_draws)):
         for n in draw:
             if n not in last_seen:
                 last_seen[n] = idx
 
+    # 2. Phân tầng Ma trận 3 Tầng
     scores = {}
     for n in range(1, max_num + 1):
         f = freq.get(n, 0)
-        r = last_seen.get(n, 30)
-        scores[n] = (f * 2.0) + (8 / (r + 1)) + random.uniform(0.01, 0.05)
+        r = last_seen.get(n, 50)
+        scores[n] = (f * 1.6) + (10 / (r + 1)) + random.uniform(0.01, 0.05)
 
     sorted_candidates = sorted(scores, key=scores.get, reverse=True)
-    top_matrix = sorted(sorted_candidates[:26])
 
-    # 4. Sinh Dàn 150 bộ tối ưu Bẫy Tổ Hợp (Ép nổ 5-6 số)
+    tier_hot = sorted_candidates[:12]   # Top 12 số Hot
+    tier_warm = sorted_candidates[12:24] # Top 12 số Warm
+    tier_cold = sorted_candidates[24:35] # Top 11 số Cold/Gan
+
+    top_matrix = sorted(tier_hot + tier_warm + tier_cold[:4]) # Top 28 số ma trận chính
+
+    # 3. Thuật toán Set Cover (Ép Tỷ lệ Vàng 3-2-1)
     combos = []
     attempts = 0
     random.seed(len(history_data))
 
-    while len(combos) < num_combos and attempts < 15000:
+    while len(combos) < num_combos and attempts < 20000:
         attempts += 1
-        
-        # Bắt buộc lấy 1 cặp số Hot Affinity làm Hạt nhân
-        chosen_pair = list(random.choice(top_pairs)) if top_pairs and random.random() < 0.7 else []
-        
-        # Chọn các số còn lại từ Ma trận Top 26
-        pool = [x for x in top_matrix if x not in chosen_pair]
-        needed = 6 - len(chosen_pair)
-        
-        if len(pool) < needed:
-            continue
-            
-        remaining = random.sample(pool, needed)
-        combo = sorted(chosen_pair + remaining)
 
-        # Lọc Chẵn/Lẻ (2-4, 3-3, 4-2)
+        # Cấu trúc Tỷ lệ Vàng: 3 Hot + 2 Warm + 1 Cold
+        c_hot = random.sample(tier_hot, 3)
+        c_warm = random.sample(tier_warm, 2)
+        c_cold = random.sample(tier_cold, 1)
+
+        combo = sorted(c_hot + c_warm + c_cold)
+
+        # Điều kiện 1: Tỷ lệ Chẵn / Lẻ (2-4, 3-3, 4-2)
         evens = sum(1 for x in combo if x % 2 == 0)
         if evens < 2 or evens > 4:
             continue
 
-        # Lọc Tổng dãy số
+        # Điều kiện 2: Tổng dãy số
         total_sum = sum(combo)
         min_s = 80 if is_655 else 65
         max_s = 235 if is_655 else 195
         if not (min_s <= total_sum <= max_s):
             continue
+
+        # Điều kiện 3: Tối ưu khoảng cách phủ (Set Cover Distance)
+        if combos:
+            # Loại bỏ nếu trùng quá 4 số với các bộ đã tạo trước đó để tăng độ phủ rộng
+            max_overlap = max(len(set(combo) & set(c)) for c in combos)
+            if max_overlap >= 5 and attempts < 15000:
+                continue
 
         if combo not in combos:
             combos.append(combo)
@@ -158,13 +155,13 @@ def handle_dudoan(message):
         bot.reply_to(message, f"❌ Chưa có dữ liệu {game_name}. Hãy gõ /reload trước!")
         return
 
-    combos, top_matrix = generate_v17_sliding_cluster(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v18_set_cover_wheeling(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V17 SLIDING - {game_name.upper()}**",
-        f"📌 **Ma trận Cửa sổ Trượt ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V18 SET COVER - {game_name.upper()}**",
+        f"📌 **Ma trận Bao Phủ Tỷ Lệ Vàng ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
-        f"💡 **Dàn 5 bộ số hạt nhân đi kèm:**"
+        f"💡 **Dàn 5 bộ số phân tầng tối ưu:**"
     ]
     for i, cb in enumerate(combos, 1):
         msg.append(f"Bộ {i}: `{cb}`")
@@ -187,13 +184,13 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST SLIDING V17 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST SET COVER V18 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v17_sliding_cluster(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v18_set_cover_wheeling(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0

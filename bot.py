@@ -30,11 +30,11 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v36_optimized_swarm(history_data: list, game="655", num_combos=150) -> tuple:
+def generate_v37_swarm(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Thuật toán V36:
-    - Mega 6/45: KHÔI PHỤC 100% V34 ENTROPY SWARM (Đã từng nổ Jackpot 5/6, TB 3.1)
-    - Power 6/55: Mở rộng Ma trận Trọng tâm 42 số + Tỷ lệ ép Warm/Cold chuyên biệt cho dải 55
+    Thuật toán V37:
+    - Mega 6/45: TÁI LẬP CHÍNH XÁC V34 ENTROPY SWARM GỐC (Cơ chế lọc đa dạng bộ số)
+    - Power 6/55: Dynamic Poisson-Entropy Hybrid (Biến thiên tỷ lệ Hot/Warm/Cold rộng để nổ Jackpot)
     """
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
@@ -52,7 +52,7 @@ def generate_v36_optimized_swarm(history_data: list, game="655", num_combos=150)
 
     if not is_655:
         # =========================================================
-        # MEGA 6/45: CHUẨN V34 NGUYÊN BẢN (KHÔNG THAY ĐỔI TẸO NÀO)
+        # MEGA 6/45: V34 GỐC CHUẨN TUYỆT ĐỐI
         # =========================================================
         hot_pool = sorted_all[:14]
         warm_pool = sorted_all[14:28]
@@ -60,13 +60,11 @@ def generate_v36_optimized_swarm(history_data: list, game="655", num_combos=150)
         top_matrix = sorted(sorted_all[:30])
         min_s, max_s = 60, 200
 
-        while len(combos) < num_combos and attempts < 100000:
+        while len(combos) < num_combos and attempts < 120000:
             attempts += 1
             n_hot = random.choice([3, 4])
             n_warm = random.choice([1, 2])
-            n_cold = 6 - n_hot - n_warm
-            if n_cold <= 0:
-                n_cold = 1
+            n_cold = max(1, 6 - n_hot - n_warm)
 
             try:
                 combo = sorted(
@@ -94,8 +92,9 @@ def generate_v36_optimized_swarm(history_data: list, game="655", num_combos=150)
             if not (min_s <= sum(combo) <= max_s):
                 continue
 
-            if combos and attempts < 70000:
-                limit = 4 if len(combos) < 100 else 5
+            # Kiểm tra độ phủ overlap chuẩn V34
+            if combos and attempts < 80000:
+                limit = 4 if len(combos) < 90 else 5
                 if max(len(set(combo) & set(c)) for c in combos) > limit:
                     continue
 
@@ -104,20 +103,23 @@ def generate_v36_optimized_swarm(history_data: list, game="655", num_combos=150)
 
     else:
         # =========================================================
-        # POWER 6/55: V36 DYNAMIC GRID (ÉP BẮT COLD/WARM TỚI CÙNG)
+        # POWER 6/55: DYNAMIC POISSON-ENTROPY (SẮP XẾP ĐA DẠNG HÓA TỔ HỢP)
         # =========================================================
-        hot_pool = sorted_all[:16]
-        warm_pool = sorted_all[16:32]
-        cold_pool = sorted_all[32:]
-        top_matrix = sorted(sorted_all[:42])
-        min_s, max_s = 90, 225
+        hot_pool = sorted_all[:18]
+        warm_pool = sorted_all[18:36]
+        cold_pool = sorted_all[36:]
+        top_matrix = sorted(sorted_all[:40])
+        min_s, max_s = 85, 235
 
-        while len(combos) < num_combos and attempts < 100000:
+        while len(combos) < num_combos and attempts < 120000:
             attempts += 1
-            # Tỷ lệ đặc thù 6/55: Buộc có 2 Warm + 1-2 Cold
-            n_hot = random.choice([2, 3])
-            n_warm = 2
+            # Biến thiên tỷ lệ ngẫu nhiên theo trọng số Poisson cho 55 số
+            n_hot = random.choice([2, 3, 4])
+            n_warm = random.choice([1, 2, 3])
             n_cold = 6 - n_hot - n_warm
+
+            if n_cold < 0 or n_cold > len(cold_pool):
+                continue
 
             try:
                 combo = sorted(
@@ -131,7 +133,6 @@ def generate_v36_optimized_swarm(history_data: list, game="655", num_combos=150)
             if len(combo) < 6:
                 continue
 
-            # Phủ ít nhất 3 khoảng chục
             if len(set(x // 10 for x in combo)) < 3:
                 continue
 
@@ -146,15 +147,15 @@ def generate_v36_optimized_swarm(history_data: list, game="655", num_combos=150)
             if not (min_s <= sum(combo) <= max_s):
                 continue
 
-            if combos and attempts < 70000:
-                limit = 4 if len(combos) < 100 else 5
+            if combos and attempts < 80000:
+                limit = 4 if len(combos) < 80 else 5
                 if max(len(set(combo) & set(c)) for c in combos) > limit:
                     continue
 
             if combo not in combos:
                 combos.append(combo)
 
-    # Nới lỏng bổ sung nếu chưa đủ 150 bộ
+    # Nới lỏng bổ sung nếu thiếu bộ
     while len(combos) < num_combos:
         combo = sorted(random.sample(top_matrix, 6))
         if combo not in combos:
@@ -216,11 +217,11 @@ def handle_dudoan(message):
         threading.Thread(target=fetch_vietlott_645_data if game == "645" else fetch_vietlott_655_data, args=(300,)).start()
         return
 
-    combos, top_matrix = generate_v36_optimized_swarm(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v37_swarm(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V36 OPTIMIZED - {game_name.upper()}**",
-        f"📌 **Ma trận Trọng Tâm V36 ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V37 SWARM - {game_name.upper()}**",
+        f"📌 **Ma trận Trọng Tâm V37 ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
         f"💡 **Dàn 5 bộ số hạt nhân săn Jackpot:**"
     ]
@@ -248,7 +249,7 @@ def handle_test(message):
         bot.reply_to(message, f"❌ Cú pháp chưa đúng hoặc không tìm thấy ngày trong CSDL!\n👉 Thử lại: `/test {game} 2026-08-01 => 30`", parse_mode="Markdown")
         return
 
-    status_msg = bot.reply_to(message, f"⚙️ Đang chạy Backtest V36 Optimized {game_name} ({len(dates)} kỳ)...")
+    status_msg = bot.reply_to(message, f"⚙️ Đang chạy Backtest V37 Swarm {game_name} ({len(dates)} kỳ)...")
 
     data_map = {d["date"]: d["result"] for d in dataset}
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
@@ -256,13 +257,13 @@ def handle_test(message):
     total_max_match = 0
     count_jackpot = 0
     count_high = 0
-    lines = [f"🧪 BACKTEST V36 OPTIMIZED {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST V37 SWARM {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v36_optimized_swarm(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v37_swarm(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0

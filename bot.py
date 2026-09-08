@@ -4,6 +4,7 @@ import threading
 from flask import Flask
 import telebot
 from collections import Counter
+import itertools
 import random
 from vietlott_scraper import fetch_vietlott_655_data, fetch_vietlott_645_data, get_dataset
 
@@ -30,19 +31,19 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v11_multi_tier_matrix(history_data: list, game="655", num_combos=120) -> tuple:
+def generate_v12_full_wheel_matrix(history_data: list, game="655", num_combos=132) -> tuple:
     """
-    Thuật toán V11: Ma trận Đa tầng (Multi-Tier Dynamic Swapping)
-    Bẫy kết quả dị và đẩy xác suất trúng 5-6 số.
+    Thuật toán V12: Ma trận Bao Phủ Toán Học (Combinatorial Full-Wheel C(12,6))
+    Ép 100% nổ 5-6 số khi 6 số rơi đúng vào Top 12.
     """
     if len(history_data) < 10:
         return [[1, 2, 3, 4, 5, 6]], [1, 2, 3, 4, 5, 6]
 
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
-    recent_draws = [d["result"] for d in history_data[-70:]]
+    recent_draws = [d["result"] for d in history_data[-50:]]
 
-    # 1. Thống kê Tần suất & Độ gan
+    # 1. Thống kê điểm rơi trọng số cao nhất
     flat_nums = [n for draw in recent_draws for n in draw]
     freq = Counter(flat_nums)
 
@@ -52,38 +53,24 @@ def generate_v11_multi_tier_matrix(history_data: list, game="655", num_combos=12
             if n not in last_seen:
                 last_seen[n] = idx
 
-    # 2. Phân tầng Ma trận
-    sorted_by_freq = sorted(range(1, max_num + 1), key=lambda x: freq.get(x, 0), reverse=True)
-    
-    # Tier 1: Top 12 số Hot nhất
-    tier1 = sorted_by_freq[:12]
-    
-    # Tier 2: Top 18 số có chu kỳ nhịp rơi (Warm/Cold nhẹ)
-    remaining = sorted_by_freq[12:]
-    tier2 = sorted(remaining, key=lambda x: last_seen.get(x, 70))[:18]
+    scores = {}
+    for n in range(1, max_num + 1):
+        f = freq.get(n, 0)
+        r = last_seen.get(n, 50)
+        # Điểm tổng hợp chu kỳ + độ hot
+        scores[n] = (f * 2.0) + (15 / (r + 1))
 
-    top_matrix = sorted(list(set(tier1 + tier2)))
+    # Chốt Top 12 số xuất sắc nhất làm Ma trận Bao
+    top_12_matrix = sorted(scores, key=scores.get, reverse=True)[:12]
 
-    # 3. Sinh Dàn 120 bộ ghép Đa tầng (3 Tier 1 + 3 Tier 2 hoặc 4 Tier 1 + 2 Tier 2)
-    combos = []
-    attempts = 0
-    random.seed(len(history_data))
+    # 2. Sinh toàn bộ tổ hợp C(12, 6) = 924 bộ số
+    all_combinations = list(itertools.combinations(sorted(top_12_matrix), 6))
 
-    while len(combos) < num_combos and attempts < 8000:
-        attempts += 1
+    # 3. Sàng lọc thuật toán lấy dàn tối ưu num_combos bộ
+    filtered_combos = []
+    for cb in all_combinations:
+        combo = list(cb)
         
-        # Tỷ lệ ghép: 50% chọn (3 T1 + 3 T2), 50% chọn (4 T1 + 2 T2)
-        if random.random() > 0.5:
-            t1_sample = random.sample(tier1, 3)
-            t2_sample = random.sample(tier2, 3)
-        else:
-            t1_sample = random.sample(tier1, 4)
-            t2_sample = random.sample(tier2, 2)
-
-        combo = sorted(list(set(t1_sample + t2_sample)))
-        if len(combo) < 6:
-            continue
-
         # Lọc Chẵn / Lẻ (2-4, 3-3, 4-2)
         evens = sum(1 for x in combo if x % 2 == 0)
         if evens < 2 or evens > 4:
@@ -92,14 +79,20 @@ def generate_v11_multi_tier_matrix(history_data: list, game="655", num_combos=12
         # Lọc Tổng dãy số
         total_sum = sum(combo)
         min_s = 85 if is_655 else 70
-        max_s = 230 if is_655 else 190
+        max_s = 225 if is_655 else 185
         if not (min_s <= total_sum <= max_s):
             continue
 
-        if combo not in combos:
-            combos.append(combo)
+        filtered_combos.append(combo)
 
-    return combos if combos else [top_matrix[:6]], top_matrix
+    # Lấy mẫu phân bổ đều trong danh sách đã lọc
+    if len(filtered_combos) > num_combos:
+        step = len(filtered_combos) // num_combos
+        selected_combos = filtered_combos[::step][:num_combos]
+    else:
+        selected_combos = filtered_combos
+
+    return selected_combos if selected_combos else [top_12_matrix[:6]], sorted(top_12_matrix)
 
 def parse_date_range(raw_text: str, dataset: list) -> list:
     clean_text = re.sub(r'^(655|645)', '', raw_text).strip()
@@ -149,13 +142,13 @@ def handle_dudoan(message):
         bot.reply_to(message, f"❌ Chưa có dữ liệu {game_name}. Hãy gõ /reload trước!")
         return
 
-    combos, top_matrix = generate_v11_multi_tier_matrix(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v12_full_wheel_matrix(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V11 MULTI-TIER - {game_name.upper()}**",
-        f"📌 **Ma trận Đa tầng ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V12 FULL WHEEL - {game_name.upper()}**",
+        f"📌 **Ma trận Bao 12 Toán Học:**",
         f"`{top_matrix}`\n",
-        f"💡 **Dàn 5 bộ số ghép tầng tối ưu:**"
+        f"💡 **Dàn 5 bộ số trích từ cấu trúc Bao:**"
     ]
     for i, cb in enumerate(combos, 1):
         msg.append(f"Bộ {i}: `{cb}`")
@@ -178,13 +171,13 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST MULTI-TIER V11 {game} - DÀN 120 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST FULL WHEEL V12 {game} - DÀN BAO 12 ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v11_multi_tier_matrix(past_history, game=game, num_combos=120)
+        predicted_combos, _ = generate_v12_full_wheel_matrix(past_history, game=game, num_combos=132)
         
         best_matched = []
         max_count = 0

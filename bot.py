@@ -31,11 +31,11 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v30_adaptive_matrix(history_data: list, game="655", num_combos=150) -> tuple:
+def generate_v31_jackpot_hunter(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Thuật toán V30: Hyper-Adaptive Dual-Matrix Engine
-    Power 6/55: Dynamic Cold-Infiltration & Gaussian Adaptive
-    Mega 6/45: Dynamic Pivot Correlation Covering
+    Thuật toán V31: Dynamic High-Cluster Jackpot Hunter
+    Tập trung tối đa xác suất trúng 5-6 số bằng Ma trận Điểm nóng thu hẹp (24-26 số)
+    và Ma trận liên kết Cặp (Co-occurrence Pair Clusters).
     """
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
@@ -44,113 +44,66 @@ def generate_v30_adaptive_matrix(history_data: list, game="655", num_combos=150)
         base = list(range(1, 7))
         return [base], base
 
-    draws_recent = [d["result"] for d in history_data[-60:]]
+    draws_recent = [d["result"] for d in history_data[-50:]]
     freq = Counter([n for draw in draws_recent for n in draw])
     sorted_all = sorted(range(1, max_num + 1), key=lambda x: freq.get(x, 0), reverse=True)
+
+    # Tính toán Ma trận Cặp số thường xuyên đi cùng nhau
+    pair_freq = defaultdict(int)
+    for draw in draws_recent:
+        for p1, p2 in itertools.combinations(sorted(draw), 2):
+            pair_freq[(p1, p2)] += 1
 
     combos = []
     attempts = 0
 
-    if is_655:
-        # ---------------------------------------------------------
-        # POWER 6/55: Dynamic Cold-Infiltration Broad Matrix (33 số)
-        # ---------------------------------------------------------
-        hot_pool = sorted_all[:18]
-        warm_pool = sorted_all[18:28]
-        cold_pool = sorted_all[28:38]
-        top_matrix = sorted(hot_pool + warm_pool + cold_pool[:5])
+    # Thu hẹp Ma trận trọng tâm để dồn mật độ trùng 5-6 số
+    matrix_size = 26 if is_655 else 22
+    top_matrix = sorted(sorted_all[:matrix_size])
+    
+    # Thiết lập khoảng tổng Gaussian linh hoạt
+    min_s, max_s = (100, 210) if is_655 else (70, 190)
 
-        min_s, max_s = 110, 200
+    # Tìm danh sách các cặp Hot Pivots có tần suất đi cùng nhau cao nhất
+    hot_pairs = sorted(pair_freq.keys(), key=lambda x: pair_freq[x], reverse=True)[:30]
 
-        while len(combos) < num_combos and attempts < 60000:
-            attempts += 1
+    while len(combos) < num_combos and attempts < 80000:
+        attempts += 1
 
-            n_hot = random.choice([3, 4])
-            n_cold = random.choice([0, 1, 2])
-            n_warm = 6 - n_hot - n_cold
+        # 60% Dàn bộ số được dựng từ Cặp Điểm Nóng (Hot Pair Anchors)
+        if random.random() < 0.60 and hot_pairs:
+            p1, p2 = random.choice(hot_pairs)
+            if p1 in top_matrix and p2 in top_matrix:
+                rem_candidates = [n for n in top_matrix if n not in (p1, p2)]
+                selected = random.sample(rem_candidates, 4)
+                combo = sorted([p1, p2] + selected)
+            else:
+                combo = sorted(random.sample(top_matrix, 6))
+        else:
+            combo = sorted(random.sample(top_matrix, 6))
 
-            if n_warm < 0 or n_warm > len(warm_pool):
-                continue
-            
-            c_hot = random.sample(hot_pool, n_hot)
-            c_warm = random.sample(warm_pool, n_warm)
-            c_cold = random.sample(cold_pool, n_cold)
+        # Lọc 1: Cho phép tối đa 2 cặp liền kề (Tăng cơ hội nổ Jackpot)
+        adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
+        if adj_count > 2:
+            continue
 
-            combo = sorted(c_hot + c_warm + c_cold)
+        # Lọc 2: Tỷ lệ Chẵn / Lẻ mở rộng
+        evens = sum(1 for x in combo if x % 2 == 0)
+        if evens < 1 or evens > 5:
+            continue
 
-            # Lọc 1: Tối đa 1 cặp liền kề
-            adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
-            if adj_count > 1:
-                continue
+        # Lọc 3: Kiểm tra Tổng Gaussian
+        if not (min_s <= sum(combo) <= max_s):
+            continue
 
-            # Lọc 2: Tỷ lệ Chẵn / Lẻ chuẩn (2-4, 3-3, 4-2)
-            evens = sum(1 for x in combo if x % 2 == 0)
-            if evens < 2 or evens > 4:
-                continue
-
-            # Lọc 3: Tổng Chuẩn Gaussian Tối Tưu
-            if not (min_s <= sum(combo) <= max_s):
-                continue
-
-            # Lọc 4: Distance Limit
-            if combos and attempts < 45000:
-                limit = 3 if len(combos) < 110 else 4
-                if max(len(set(combo) & set(c)) for c in combos) > limit:
-                    continue
-
-            if combo not in combos:
-                combos.append(combo)
-
-    else:
-        # ---------------------------------------------------------
-        # MEGA 6/45: Dynamic Pivot Correlation Covering (28 số)
-        # ---------------------------------------------------------
-        pair_weights = defaultdict(int)
-        for draw in draws_recent:
-            for p1, p2 in itertools.combinations(sorted(draw), 2):
-                pair_weights[(p1, p2)] += 1
-
-        top_matrix = sorted(sorted_all[:28])
-        hot_pool = sorted_all[:16]
-
-        pivot_pairs = []
-        for p1, p2 in itertools.combinations(hot_pool, 2):
-            weight = pair_weights.get(tuple(sorted([p1, p2])), 0)
-            pivot_pairs.append((p1, p2, weight))
-        pivot_pairs.sort(key=lambda x: x[2], reverse=True)
-        top_pivots = [(p[0], p[1]) for p in pivot_pairs[:22]]
-
-        min_s, max_s = 75, 185
-
-        while len(combos) < num_combos and attempts < 60000:
-            attempts += 1
-            p1, p2 = random.choice(top_pivots)
-
-            candidates = [n for n in top_matrix if n not in (p1, p2)]
-            candidates.sort(key=lambda x: pair_weights.get(tuple(sorted([p1, x])), 0) + 
-                                         pair_weights.get(tuple(sorted([p2, x])), 0), reverse=True)
-            
-            selected = random.sample(candidates[:14], 4)
-            combo = sorted([p1, p2] + selected)
-
-            adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
-            if adj_count > 1:
+        # Lọc 4: Giảm khoảng cách tối đa giữa các bộ số để phủ kín Ma trận
+        if combos and attempts < 50000:
+            limit = 4 if len(combos) < 100 else 5
+            if max(len(set(combo) & set(c)) for c in combos) > limit:
                 continue
 
-            evens = sum(1 for x in combo if x % 2 == 0)
-            if evens < 2 or evens > 4:
-                continue
-
-            if not (min_s <= sum(combo) <= max_s):
-                continue
-
-            if combos and attempts < 45000:
-                limit = 3 if len(combos) < 110 else 4
-                if max(len(set(combo) & set(c)) for c in combos) > limit:
-                    continue
-
-            if combo not in combos:
-                combos.append(combo)
+        if combo not in combos:
+            combos.append(combo)
 
     # Nới lỏng bổ sung nếu chưa đủ bộ
     while len(combos) < num_combos:
@@ -162,7 +115,7 @@ def generate_v30_adaptive_matrix(history_data: list, game="655", num_combos=150)
 
 def parse_date_range(raw_text: str, dataset: list) -> list:
     """
-    Hàm bóc tách cú pháp ngày từ tham số lệnh
+    Xử lý bóc tách cú pháp tham số ngày từ lệnh /test
     """
     clean_text = re.sub(r'/(test655|test645|test)', '', raw_text).strip()
     clean_text = re.sub(r'^(655|645)', '', clean_text).strip()
@@ -194,9 +147,16 @@ def parse_date_range(raw_text: str, dataset: list) -> list:
 @bot.message_handler(commands=['reload'])
 def handle_reload(message):
     bot.reply_to(message, "⏳ Đang cào dữ liệu mới từ Vietlott...")
-    data_655 = fetch_vietlott_655_data(300)
-    data_645 = fetch_vietlott_645_data(300)
-    bot.send_message(message.chat.id, f"🔄 Đã cập nhật CSDL:\n- Power 6/55: {len(data_655)} kỳ\n- Mega 6/45: {len(data_645)} kỳ")
+    
+    def async_fetch():
+        data_655 = fetch_vietlott_655_data(300)
+        data_645 = fetch_vietlott_645_data(300)
+        bot.send_message(
+            message.chat.id, 
+            f"🔄 Đã cập nhật xong CSDL:\n- Power 6/55: {len(data_655)} kỳ\n- Mega 6/45: {len(data_645)} kỳ"
+        )
+
+    threading.Thread(target=async_fetch).start()
 
 @bot.message_handler(commands=['dudoan655', 'dudoan645'])
 def handle_dudoan(message):
@@ -206,18 +166,17 @@ def handle_dudoan(message):
 
     dataset = get_dataset(game)
     if not dataset:
-        if game == "645":
-            dataset = fetch_vietlott_645_data(300)
-        else:
-            dataset = fetch_vietlott_655_data(300)
+        bot.reply_to(message, f"⏳ CSDL {game_name} đang trống. Đang tự động cào dữ liệu, vui lòng thử lại sau 15 giây!")
+        threading.Thread(target=fetch_vietlott_645_data if game == "645" else fetch_vietlott_655_data, args=(300,)).start()
+        return
 
-    combos, top_matrix = generate_v30_adaptive_matrix(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v31_jackpot_hunter(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V30 ADAPTIVE - {game_name.upper()}**",
-        f"📌 **Ma trận Phủ Rộng Dynamic ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V31 JACKPOT HUNTER - {game_name.upper()}**",
+        f"📌 **Ma trận Điểm Nóng Săn Jackpot ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
-        f"💡 **Dàn 5 bộ số hạt nhân đi kèm:**"
+        f"💡 **Dàn 5 bộ số hạt nhân cao cấp:**"
     ]
     for i, cb in enumerate(combos, 1):
         msg.append(f"Bộ {i}: `{cb}`")
@@ -232,16 +191,9 @@ def handle_test(message):
     
     dataset = get_dataset(game)
     
-    # TỰ ĐỘNG CÀO LẠI DỮ LIỆU NẾU BỘ NHỚ ĐANG RỖNG
     if not dataset:
-        bot.reply_to(message, f"⏳ Đang khởi tạo CSDL {game_name}... Vui lòng chờ vài giây!")
-        if game == "645":
-            dataset = fetch_vietlott_645_data(300)
-        else:
-            dataset = fetch_vietlott_655_data(300)
-            
-    if not dataset:
-        bot.reply_to(message, f"❌ Không thể lấy dữ liệu từ Vietlott cho {game_name}. Vui lòng thử gõ /reload !")
+        bot.reply_to(message, f"⏳ CSDL {game_name} chưa sẵn sàng. Đang cào dữ liệu chạy ngầm, vui lòng gõ lại lệnh sau 15 giây!")
+        threading.Thread(target=fetch_vietlott_645_data if game == "645" else fetch_vietlott_655_data, args=(300,)).start()
         return
 
     dates = parse_date_range(raw_args, dataset)
@@ -250,17 +202,22 @@ def handle_test(message):
         bot.reply_to(message, f"❌ Cú pháp chưa đúng hoặc không tìm thấy ngày trong CSDL!\n👉 Thử lại: `/test {game} 2026-08-01 => 30`", parse_mode="Markdown")
         return
 
+    # Thông báo cho người dùng biết bot đang tiến hành tính toán
+    status_msg = bot.reply_to(message, f"⚙️ Đang chạy Backtest V31 Săn Jackpot {game_name} cho {len(dates)} kỳ...")
+
     data_map = {d["date"]: d["result"] for d in dataset}
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST V30 ADAPTIVE MATRIX {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    count_jackpot = 0
+    count_high = 0
+    lines = [f"🧪 BACKTEST V31 JACKPOT HUNTER {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v30_adaptive_matrix(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v31_jackpot_hunter(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0
@@ -274,8 +231,10 @@ def handle_test(message):
         
         if max_count >= 5:
             status = "🔥 [JACKPOT / NỔ 5-6 SỐ]"
+            count_jackpot += 1
         elif max_count == 4:
-            status = "⚡ [TRÚNG LỚN]"
+            status = "⚡ [TRÚNG LỚN 4 SỐ]"
+            count_high += 1
         elif max_count == 3:
             status = "✅"
         else:
@@ -285,7 +244,15 @@ def handle_test(message):
 
     avg_match = total_max_match / len(dates) if dates else 0
     lines.append(f"\n📊 TB Trúng Tối Đa: {avg_match:.1f}/6 số")
+    lines.append(f"🎯 Tổng nổ 🔥 Jackpot (5-6 số): {count_jackpot} kỳ")
+    lines.append(f"⚡ Tổng nổ Trúng Lớn (4 số): {count_high} kỳ")
     
+    # Xóa tin nhắn chờ và gửi kết quả hoàn chỉnh
+    try:
+        bot.delete_message(message.chat.id, status_msg.message_id)
+    except Exception:
+        pass
+
     bot.send_message(message.chat.id, "\n".join(lines))
 
 if __name__ == "__main__":

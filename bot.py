@@ -4,7 +4,7 @@ import threading
 from flask import Flask
 import telebot
 from collections import Counter
-import random
+import itertools
 from vietlott_scraper import fetch_vietlott_655_data, fetch_vietlott_645_data, get_dataset
 
 # -------------------------------------------------------------
@@ -30,68 +30,64 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v5_max_matrix(history_data: list, game="655", num_combos=80) -> list:
+def generate_v6_wheeling_matrix(history_data: list, game="655", num_combos=60) -> tuple:
     """
-    Thuật toán V5: Mở rộng Ma trận Top 30 số & Sinh Dàn 80 bộ 
-    để tối đa hóa khả năng trúng 5-6 số trong chuỗi Backtest.
+    Thuật toán V6: Cô đọng Ma trận Top 14 số & Phủ tổ hợp xoay vòng (Wheeling)
+    Giúp tối đa hóa khả năng chạm 5 - 6 số.
     """
     if len(history_data) < 10:
-        return [[1, 2, 3, 4, 5, 6]]
+        return [[1, 2, 3, 4, 5, 6]], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
 
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
-    top_n_matrix = 35 if is_655 else 30  # Mở rộng ma trận phủ
+    top_n = 14  # Tập Ma trận cô đọng
 
-    recent_draws = [d["result"] for d in history_data[-70:]] # Phân tích 70 kỳ gần nhất
+    recent_draws = [d["result"] for d in history_data[-50:]]
 
-    # 1. Thống kê Tần suất
+    # 1. Thống kê Tần suất & Độ gan
     flat_nums = [n for draw in recent_draws for n in draw]
     freq = Counter(flat_nums)
 
-    # 2. Thống kê Chu kỳ Gan (Số kỳ chưa về)
     last_seen = {}
     for idx, draw in enumerate(reversed(recent_draws)):
         for n in draw:
             if n not in last_seen:
                 last_seen[n] = idx
 
-    # 3. Chấm điểm Trọng số V5
+    # 2. Tính điểm đa tầng (Tần suất + Chu kỳ điểm rơi)
     scores = {}
     for n in range(1, max_num + 1):
         f_score = freq.get(n, 0) / len(recent_draws)
-        r_score = last_seen.get(n, 70)
+        r_score = last_seen.get(n, 50)
         
-        # Kết hợp tần suất nóng và chu kỳ điểm rơi
-        scores[n] = (f_score * 0.45) + ((1 / (r_score + 1)) * 0.35) + (random.uniform(0.01, 0.05))
+        # Công thức tối ưu điểm rơi chu kỳ
+        scores[n] = (f_score * 0.6) + ((1 / (r_score + 1)) * 0.4)
 
-    # 4. Lấy Ma trận rộng Top 30-35 số
-    top_candidates = sorted(scores, key=scores.get, reverse=True)[:top_n_matrix]
+    # Lấy Top 14 số tiềm năng nhất
+    top_candidates = sorted(scores, key=scores.get, reverse=True)[:top_n]
 
-    # 5. Sinh Dàn 80 bộ số phủ Ma trận
-    combos = []
-    random.seed(len(history_data))
+    # 3. Tạo tổ hợp bao phủ xoay vòng từ Top 14
+    all_combinations = list(itertools.combinations(sorted(top_candidates), 6))
     
-    attempts = 0
-    while len(combos) < num_combos and attempts < 2500:
-        attempts += 1
-        combo = sorted(random.sample(top_candidates, 6))
-        
-        # Điều kiện 1: Tỷ lệ Chẵn/Lẻ (2/4, 3/3, 4/2)
+    valid_combos = []
+    for combo in all_combinations:
+        # Lọc Chẵn/Lẻ (2/4, 3/3, 4/2)
         evens = sum(1 for x in combo if x % 2 == 0)
         if evens < 2 or evens > 4:
             continue
             
-        # Điều kiện 2: Tổng dãy số
+        # Lọc Tổng dãy số
         total_sum = sum(combo)
-        min_s = 80 if is_655 else 65
-        max_s = 235 if is_655 else 195
+        min_s = 90 if is_655 else 75
+        max_s = 225 if is_655 else 185
         if not (min_s <= total_sum <= max_s):
             continue
 
-        if combo not in combos:
-            combos.append(combo)
+        valid_combos.append(list(combo))
+        if len(valid_combos) >= num_combos:
+            break
 
-    return combos if combos else [top_candidates[:6]]
+    return valid_combos, sorted(top_candidates)
 
 def parse_date_range(raw_text: str, dataset: list) -> list:
     clean_text = re.sub(r'^(655|645)', '', raw_text).strip()
@@ -119,6 +115,10 @@ def parse_date_range(raw_text: str, dataset: list) -> list:
     else:
         return [dt for dt in future_draws if dt <= end_val]
 
+# -------------------------------------------------------------
+# 3. LỆNH DỰ ĐOÁN VÀ BACKTEST
+# -------------------------------------------------------------
+
 @bot.message_handler(commands=['reload'])
 def handle_reload(message):
     bot.reply_to(message, "⏳ Đang cào dữ liệu mới từ Vietlott, vui lòng chờ...")
@@ -127,6 +127,31 @@ def handle_reload(message):
     
     msg = f"🔄 Đã cập nhật CSDL:\n- Power 6/55: {len(data_655)} kỳ\n\n- Mega 6/45: {len(data_645)} kỳ"
     bot.send_message(message.chat.id, msg)
+
+@bot.message_handler(commands=['dudoan655', 'dudoan645'])
+def handle_dudoan(message):
+    cmd = message.text.split()[0].lower()
+    game = "645" if "645" in cmd else "655"
+    game_name = "Power 6/55" if game == "655" else "Mega 6/45"
+
+    dataset = get_dataset(game)
+    if not dataset:
+        bot.reply_to(message, f"❌ Chưa có dữ liệu {game_name}. Hãy gõ /reload trước!")
+        return
+
+    combos, top_matrix = generate_v6_wheeling_matrix(dataset, game=game, num_combos=5)
+
+    msg = [
+        f"🎯 **DỰ ĐOÁN KỲ TỚI - {game_name.upper()}**",
+        f"📌 **Ma trận Top 14 số tiềm năng:**",
+        f"`{top_matrix}`\n",
+        f"💡 **Dàn 5 bộ số chọn lọc nhất:**"
+    ]
+    
+    for i, cb in enumerate(combos, 1):
+        msg.append(f"Bộ {i}: `{cb}`")
+
+    bot.send_message(message.chat.id, "\n".join(msg), parse_mode="Markdown")
 
 @bot.message_handler(commands=['test'])
 def handle_test(message):
@@ -144,16 +169,15 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST MATRIX V5 {game} - DÀN 80 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST WHEELING V6 {game} - DÀN NỔ 60 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        # Sinh dàn 80 bộ số từ Ma trận rộng Top 30
-        predicted_combos = generate_v5_max_matrix(past_history, game=game, num_combos=80)
+        # Tạo dàn tổ hợp phủ xoay vòng
+        predicted_combos, _ = generate_v6_wheeling_matrix(past_history, game=game, num_combos=60)
         
-        # Bóc tách bộ số trùng cao nhất
         best_matched = []
         max_count = 0
         for combo in predicted_combos:
@@ -164,10 +188,9 @@ def handle_test(message):
                 
         total_max_match += max_count
         
-        # Nhãn đánh dấu kết quả
         if max_count >= 5:
-            status = "🔥 [JACKPOT/NỔ LỚN]"
-        elif max_count >= 4:
+            status = "🔥 [NỔ 5-6 SỐ]"
+        elif max_count == 4:
             status = "⚡ [TRÚNG LỚN]"
         elif max_count == 3:
             status = "✅"

@@ -30,41 +30,11 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def weighted_sample_no_replacement(population, weights, k):
+def generate_v34_entropy_swarm(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Rút thăm k phần tử từ population theo trọng số weights mà không lặp lại
-    """
-    chosen = []
-    pop_copy = list(population)
-    w_copy = list(weights)
-    
-    for _ in range(k):
-        if not pop_copy:
-            break
-        total_w = sum(w_copy)
-        if total_w <= 0:
-            picked = random.choice(pop_copy)
-        else:
-            r = random.uniform(0, total_w)
-            upto = 0
-            picked = pop_copy[-1]
-            for item, w in zip(pop_copy, w_copy):
-                if upto + w >= r:
-                    picked = item
-                    break
-                upto += w
-        
-        idx = pop_copy.index(picked)
-        chosen.append(picked)
-        pop_copy.pop(idx)
-        w_copy.pop(idx)
-        
-    return sorted(chosen)
-
-def generate_v33_progressive_hunter(history_data: list, game="655", num_combos=150) -> tuple:
-    """
-    Thuật toán V33: Progressive Coverage & Dynamic Pivot Shift
-    Chia 150 bộ thành 3 tầng phủ có độ mở ma trận tăng tiến để săn nổ Jackpot (5-6 số)
+    Thuật toán V34: Entropy Swarm & Dynamic Coverage Expansion
+    - Phân bổ bắt buộc: HOT (3-4 số), WARM (1-2 số), COLD (1 số)
+    - Trải đều dải chục để tối ưu khả năng ăn trọn 5-6 số Jackpot
     """
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
@@ -76,55 +46,68 @@ def generate_v33_progressive_hunter(history_data: list, game="655", num_combos=1
     draws_recent = [d["result"] for d in history_data[-60:]]
     freq = Counter([n for draw in draws_recent for n in draw])
     
-    all_numbers = list(range(1, max_num + 1))
-    weights = [freq.get(n, 1) ** 1.3 for n in all_numbers] # Bình phương trọng số để tạo đột biến
+    sorted_all = sorted(range(1, max_num + 1), key=lambda x: freq.get(x, 0), reverse=True)
 
-    top_matrix = sorted(all_numbers, key=lambda x: freq.get(x, 0), reverse=True)[:(36 if is_655 else 28)]
+    # Chia nhóm Hot / Warm / Cold linh hoạt
+    if is_655:
+        hot_pool = sorted_all[:18]
+        warm_pool = sorted_all[18:36]
+        cold_pool = sorted_all[36:]
+        top_matrix = sorted(sorted_all[:38])
+    else:
+        hot_pool = sorted_all[:14]
+        warm_pool = sorted_all[14:28]
+        cold_pool = sorted_all[28:]
+        top_matrix = sorted(sorted_all[:30])
 
-    min_s, max_s = (95, 220) if is_655 else (65, 195)
+    min_s, max_s = (90, 225) if is_655 else (60, 200)
     
     combos = []
     attempts = 0
 
-    # Phân bổ tầng: 50 bộ Tầng 1 (Core), 60 bộ Tầng 2 (Mid), 40 bộ Tầng 3 (Long-Tail)
-    tier_limits = [50, 110, num_combos]
-
     while len(combos) < num_combos and attempts < 100000:
         attempts += 1
-        current_tier = 0 if len(combos) < tier_limits[0] else (1 if len(combos) < tier_limits[1] else 2)
 
-        if current_tier == 0:
-            # Tầng 1: Rút thăm từ Top 20 Nóng nhất
-            pool = top_matrix[:20]
-            pool_weights = [freq.get(n, 1) ** 1.5 for n in pool]
-            combo = weighted_sample_no_replacement(pool, pool_weights, 6)
-        elif current_tier == 1:
-            # Tầng 2: Rút thăm từ Top 28-32 số
-            pool = top_matrix[:(32 if is_655 else 25)]
-            pool_weights = [freq.get(n, 1) for n in pool]
-            combo = weighted_sample_no_replacement(pool, pool_weights, 6)
-        else:
-            # Tầng 3: Rút thăm toàn bộ không gian số (Phủ dị biệt)
-            combo = weighted_sample_no_replacement(all_numbers, weights, 6)
+        # Tỷ lệ xuất hiện tự nhiên của Jackpot: HOT (3-4), WARM (1-2), COLD (1)
+        n_hot = random.choice([3, 4])
+        n_warm = random.choice([1, 2])
+        n_cold = 6 - n_hot - n_warm
+
+        if n_cold <= 0:
+            n_cold = 1
+
+        try:
+            combo = sorted(
+                random.sample(hot_pool, n_hot) + 
+                random.sample(warm_pool, n_warm) + 
+                random.sample(cold_pool, n_cold)
+            )
+        except ValueError:
+            continue
 
         if len(combo) < 6:
             continue
 
-        # Lọc 1: Tối đa 2 cặp liền kề
+        # Lọc 1: Kiểm tra khoảng cách các chục (Phải phủ rộng trên ít nhất 3 nhóm chục)
+        tens_coverage = len(set(x // 10 for x in combo))
+        if tens_coverage < 3:
+            continue
+
+        # Lọc 2: Tối đa 2 cặp liền kề
         adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
         if adj_count > 2:
             continue
 
-        # Lọc 2: Tỷ lệ Chẵn / Lẻ mở rộng (1-5 đến 5-1)
+        # Lọc 3: Tỷ lệ Chẵn / Lẻ (1-5 đến 5-1)
         evens = sum(1 for x in combo if x % 2 == 0)
         if evens < 1 or evens > 5:
             continue
 
-        # Lọc 3: Tổng dải rộng
+        # Lọc 4: Tổng dải rộng
         if not (min_s <= sum(combo) <= max_s):
             continue
 
-        # Lọc 4: Giảm trùng lặp nội bộ dàn số
+        # Lọc 5: Giảm trùng lặp nội bộ
         if combos and attempts < 70000:
             limit = 4 if len(combos) < 100 else 5
             if max(len(set(combo) & set(c)) for c in combos) > limit:
@@ -195,11 +178,11 @@ def handle_dudoan(message):
         threading.Thread(target=fetch_vietlott_645_data if game == "645" else fetch_vietlott_655_data, args=(300,)).start()
         return
 
-    combos, top_matrix = generate_v33_progressive_hunter(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v34_entropy_swarm(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V33 PROGRESSIVE HUNTER - {game_name.upper()}**",
-        f"📌 **Ma trận Trọng Tâm V33 ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V34 ENTROPY SWARM - {game_name.upper()}**",
+        f"📌 **Ma trận Trọng Tâm V34 ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
         f"💡 **Dàn 5 bộ số hạt nhân săn Jackpot:**"
     ]
@@ -227,7 +210,7 @@ def handle_test(message):
         bot.reply_to(message, f"❌ Cú pháp chưa đúng hoặc không tìm thấy ngày trong CSDL!\n👉 Thử lại: `/test {game} 2026-08-01 => 30`", parse_mode="Markdown")
         return
 
-    status_msg = bot.reply_to(message, f"⚙️ Đang chạy Backtest V33 Progressive Hunter {game_name} ({len(dates)} kỳ)...")
+    status_msg = bot.reply_to(message, f"⚙️ Đang chạy Backtest V34 Entropy Swarm {game_name} ({len(dates)} kỳ)...")
 
     data_map = {d["date"]: d["result"] for d in dataset}
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
@@ -235,13 +218,13 @@ def handle_test(message):
     total_max_match = 0
     count_jackpot = 0
     count_high = 0
-    lines = [f"🧪 BACKTEST V33 PROGRESSIVE HUNTER {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST V34 ENTROPY SWARM {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v33_progressive_hunter(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v34_entropy_swarm(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0

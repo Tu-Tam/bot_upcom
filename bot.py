@@ -31,10 +31,10 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v18_set_cover_wheeling(history_data: list, game="655", num_combos=150) -> tuple:
+def generate_v19_core_wheel(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Thuật toán V18: Set Cover Optimization & 3-Tier Golden Ratio Wheeling
-    Tối ưu hóa bao phủ ma trận để ép nổ 5-6 số.
+    Thuật toán V19: Core Anchoring & Combinatorial Wheel Optimization
+    Sử dụng 2 số Trục Hạt Nhân để ép gom 5-6 số vào cùng 1 bộ.
     """
     if len(history_data) < 10:
         return [[1, 2, 3, 4, 5, 6]], [1, 2, 3, 4, 5, 6]
@@ -42,8 +42,8 @@ def generate_v18_set_cover_wheeling(history_data: list, game="655", num_combos=1
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
     
-    # 1. Thống kê lịch sử 50 kỳ
-    recent_draws = [d["result"] for d in history_data[-50:]]
+    # 1. Phân tích dữ liệu 40 kỳ gần nhất
+    recent_draws = [d["result"] for d in history_data[-40:]]
     flat_nums = [n for draw in recent_draws for n in draw]
     freq = Counter(flat_nums)
 
@@ -53,59 +53,70 @@ def generate_v18_set_cover_wheeling(history_data: list, game="655", num_combos=1
             if n not in last_seen:
                 last_seen[n] = idx
 
-    # 2. Phân tầng Ma trận 3 Tầng
+    # 2. Chấm điểm ma trận
     scores = {}
     for n in range(1, max_num + 1):
         f = freq.get(n, 0)
-        r = last_seen.get(n, 50)
-        scores[n] = (f * 1.6) + (10 / (r + 1)) + random.uniform(0.01, 0.05)
+        r = last_seen.get(n, 40)
+        scores[n] = (f * 2.2) + (12 / (r + 1)) + random.uniform(0.01, 0.05)
 
     sorted_candidates = sorted(scores, key=scores.get, reverse=True)
 
-    tier_hot = sorted_candidates[:12]   # Top 12 số Hot
-    tier_warm = sorted_candidates[12:24] # Top 12 số Warm
-    tier_cold = sorted_candidates[24:35] # Top 11 số Cold/Gan
+    # Top 2 số có điểm cao nhất làm Trục (Core Anchors)
+    core_anchors = sorted(sorted_candidates[:2])
+    
+    # Top 26 số tiếp theo làm Ma trận xoay vòng (Wheel Matrix)
+    wheel_matrix = sorted(sorted_candidates[2:28])
+    top_matrix = sorted(core_anchors + wheel_matrix)
 
-    top_matrix = sorted(tier_hot + tier_warm + tier_cold[:4]) # Top 28 số ma trận chính
-
-    # 3. Thuật toán Set Cover (Ép Tỷ lệ Vàng 3-2-1)
+    # 3. Thuật toán Xoay Ma Trận (Combinatorial Wheel)
     combos = []
-    attempts = 0
+    
+    # Tạo các tổ hợp 4 số từ Wheel Matrix ghép với 2 số Core Anchors
+    sub_combos = list(itertools.combinations(wheel_matrix, 4))
+    
+    # Xáo trộn có thứ tự dựa trên tổng điểm để chọn ra 150 bộ tối ưu nhất
     random.seed(len(history_data))
+    random.shuffle(sub_combos)
 
-    while len(combos) < num_combos and attempts < 20000:
-        attempts += 1
+    for sub in sub_combos:
+        if len(combos) >= num_combos:
+            break
 
-        # Cấu trúc Tỷ lệ Vàng: 3 Hot + 2 Warm + 1 Cold
-        c_hot = random.sample(tier_hot, 3)
-        c_warm = random.sample(tier_warm, 2)
-        c_cold = random.sample(tier_cold, 1)
-
-        combo = sorted(c_hot + c_warm + c_cold)
+        combo = sorted(list(core_anchors) + list(sub))
 
         # Điều kiện 1: Tỷ lệ Chẵn / Lẻ (2-4, 3-3, 4-2)
         evens = sum(1 for x in combo if x % 2 == 0)
         if evens < 2 or evens > 4:
             continue
 
-        # Điều kiện 2: Tổng dãy số
+        # Điều kiện 2: Tổng dãy số nằm trong dải phân bố chuẩn
         total_sum = sum(combo)
-        min_s = 80 if is_655 else 65
-        max_s = 235 if is_655 else 195
+        min_s = 90 if is_655 else 75
+        max_s = 225 if is_655 else 185
         if not (min_s <= total_sum <= max_s):
             continue
 
-        # Điều kiện 3: Tối ưu khoảng cách phủ (Set Cover Distance)
-        if combos:
-            # Loại bỏ nếu trùng quá 4 số với các bộ đã tạo trước đó để tăng độ phủ rộng
-            max_overlap = max(len(set(combo) & set(c)) for c in combos)
-            if max_overlap >= 5 and attempts < 15000:
-                continue
+        # Điều kiện 3: Không lấy 4 số liên tiếp
+        has_4_consecutive = any(
+            combo[i] + 1 == combo[i+1] == combo[i+2] - 1 == combo[i+3] - 2
+            for i in range(len(combo) - 3)
+        )
+        if has_4_consecutive:
+            continue
 
+        combos.append(combo)
+
+    # Nếu chưa đủ 150 bộ, bù đắp bằng cách nới lỏng nhẹ điều kiện lọc
+    attempts = 0
+    while len(combos) < num_combos and attempts < 5000:
+        attempts += 1
+        sub = random.sample(wheel_matrix, 4)
+        combo = sorted(list(core_anchors) + sub)
         if combo not in combos:
             combos.append(combo)
 
-    return combos if combos else [top_matrix[:6]], top_matrix
+    return combos, top_matrix
 
 def parse_date_range(raw_text: str, dataset: list) -> list:
     clean_text = re.sub(r'^(655|645)', '', raw_text).strip()
@@ -155,13 +166,13 @@ def handle_dudoan(message):
         bot.reply_to(message, f"❌ Chưa có dữ liệu {game_name}. Hãy gõ /reload trước!")
         return
 
-    combos, top_matrix = generate_v18_set_cover_wheeling(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v19_core_wheel(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V18 SET COVER - {game_name.upper()}**",
-        f"📌 **Ma trận Bao Phủ Tỷ Lệ Vàng ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V19 CORE WHEEL - {game_name.upper()}**",
+        f"📌 **Ma trận Trục & Xoay Vòng ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
-        f"💡 **Dàn 5 bộ số phân tầng tối ưu:**"
+        f"💡 **Dàn 5 bộ số hạt nhân đi kèm:**"
     ]
     for i, cb in enumerate(combos, 1):
         msg.append(f"Bộ {i}: `{cb}`")
@@ -184,13 +195,13 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST SET COVER V18 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST CORE WHEEL V19 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v18_set_cover_wheeling(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v19_core_wheel(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0

@@ -8,7 +8,7 @@ import random
 from vietlott_scraper import fetch_vietlott_655_data, fetch_vietlott_645_data, get_dataset
 
 # -------------------------------------------------------------
-# 1. WEB SERVER DỰ PHÒNG CHO RENDER
+# 1. WEB SERVER CHỐNG SẬP RENDER
 # -------------------------------------------------------------
 app = Flask(__name__)
 
@@ -25,23 +25,23 @@ flask_thread.daemon = True
 flask_thread.start()
 
 # -------------------------------------------------------------
-# 2. KHỞI TẠO BOT TELEGRAM
+# 2. KHỞI TẠO TELEGRAM BOT
 # -------------------------------------------------------------
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_multi_hybrid_prediction(history_data: list, game="655", num_combos=5) -> list:
+def generate_super_matrix_prediction(history_data: list, game="655", num_combos=40) -> list:
     """
-    Tạo ra dàn num_combos (mặc định 5 bộ số) từ Top N số tiềm năng nhất
-    để tối ưu hóa độ phủ xác suất.
+    Thuật toán Ma Trận V4: Lọc Top 22 số tiềm năng nhất và tạo Dàn 40 bộ 
+    để ép xác suất trúng 5-6 số xuất hiện trong chuỗi backtest.
     """
     if len(history_data) < 10:
         return [[1, 2, 3, 4, 5, 6]]
 
     max_num = 55 if str(game) == "655" else 45
-    recent_draws = [d["result"] for d in history_data[-50:]]
+    recent_draws = [d["result"] for d in history_data[-60:]]
 
-    # 1. Thống kê tần suất & Độ gan
+    # 1. Thống kê Tần suất & Chu kỳ
     flat_nums = [n for draw in recent_draws for n in draw]
     freq = Counter(flat_nums)
 
@@ -51,35 +51,33 @@ def generate_multi_hybrid_prediction(history_data: list, game="655", num_combos=
             if n not in last_seen:
                 last_seen[n] = idx
 
-    # 2. Tính điểm ưu tiên cho từng số
+    # 2. Tính điểm trọng số
     scores = {}
     for n in range(1, max_num + 1):
         f_score = freq.get(n, 0) / len(recent_draws)
-        r_score = last_seen.get(n, 50)
-        scores[n] = (f_score * 0.6) + ((1 / (r_score + 1)) * 0.4)
+        r_score = last_seen.get(n, 60)
+        scores[n] = (f_score * 0.5) + ((1 / (r_score + 1)) * 0.5)
 
-    # 3. Chọn Top 15 số có điểm cao nhất
-    top_candidates = sorted(scores, key=scores.get, reverse=True)[:15]
+    # 3. Mở rộng Ma trận lên Top 22 số
+    top_candidates = sorted(scores, key=scores.get, reverse=True)[:22]
 
-    # 4. Sinh dàn bộ số từ Top 15 thỏa mãn bộ lọc Chẵn/Lẻ và Tổng dãy
+    # 4. Sinh dàn 40 bộ số phủ ma trận
     combos = []
-    # Khởi tạo seed từ ngày/lịch sử để kết quả backtest đồng nhất
     random.seed(len(history_data))
     
     attempts = 0
-    while len(combos) < num_combos and attempts < 500:
+    while len(combos) < num_combos and attempts < 1500:
         attempts += 1
         combo = sorted(random.sample(top_candidates, 6))
         
-        # Điều kiện 1: Tỷ lệ Chẵn/Lẻ (2/4, 3/3, 4/2)
+        # Điều kiện lọc chuẩn
         evens = sum(1 for x in combo if x % 2 == 0)
         if evens < 2 or evens > 4:
             continue
             
-        # Điều kiện 2: Tổng dãy số
         total_sum = sum(combo)
-        min_s = 100 if str(game) == "655" else 80
-        max_s = 220 if str(game) == "655" else 180
+        min_s = 85 if str(game) == "655" else 70
+        max_s = 230 if str(game) == "655" else 190
         if not (min_s <= total_sum <= max_s):
             continue
 
@@ -139,16 +137,16 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST HYBRID {game} - DÀN 5 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST MATRIX {game} - DÀN 40 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        # Tạo dàn 5 bộ số dự đoán
-        predicted_combos = generate_multi_hybrid_prediction(past_history, game=game, num_combos=5)
+        # Sinh dàn 40 bộ số dự đoán
+        predicted_combos = generate_super_matrix_prediction(past_history, game=game, num_combos=40)
         
-        # Tìm bộ trúng nhiều số nhất trong dàn
+        # Tìm bộ có số trùng cao nhất trong dàn
         best_matched = []
         max_count = 0
         for combo in predicted_combos:
@@ -158,7 +156,15 @@ def handle_test(message):
                 best_matched = matched
                 
         total_max_match += max_count
-        status = "✅" if max_count >= 3 else "❌"
+        
+        # Biểu tượng đánh dấu kết quả
+        if max_count >= 5:
+            status = "🔥 [NỔ LỚN]"
+        elif max_count >= 3:
+            status = "✅"
+        else:
+            status = "❌"
+            
         lines.append(f"📅 {dt}: Trùng tối đa {max_count}/6 {status} {best_matched}")
 
     avg_match = total_max_match / len(dates) if dates else 0

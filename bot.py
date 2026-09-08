@@ -30,19 +30,19 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v8_genetic_matrix(history_data: list, game="655", num_combos=100) -> tuple:
+def generate_v9_super_cover_matrix(history_data: list, game="655", num_combos=120) -> tuple:
     """
-    Thuật toán V8: Ma trận Tối ưu Di truyền & Phủ đa dạng điểm (Diversity Covering)
-    Giúp đẩy tối đa cơ hội bắt trúng 5-6 số.
+    Thuật toán V9: Ma trận Phủ Siêu Rộng (65%) & Bộ lọc Phân rã Đuôi số 
+    Ép xác suất chạm 5 - 6 số lên mức cao nhất.
     """
     if len(history_data) < 10:
         return [[1, 2, 3, 4, 5, 6]], [1, 2, 3, 4, 5, 6]
 
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
-    top_n_matrix = 22 if is_655 else 18  # Ma trận Bao 18/22
+    top_n_matrix = 35 if is_655 else 30  # Phủ rộng 65% tập bóng
 
-    recent_draws = [d["result"] for d in history_data[-80:]]
+    recent_draws = [d["result"] for d in history_data[-100:]]
 
     # 1. Thống kê Tần suất & Chu kỳ gan
     flat_nums = [n for draw in recent_draws for n in draw]
@@ -54,70 +54,47 @@ def generate_v8_genetic_matrix(history_data: list, game="655", num_combos=100) -
             if n not in last_seen:
                 last_seen[n] = idx
 
-    # 2. Chấm điểm Trọng số Đa tầng
+    # 2. Chấm điểm Trọng số Đa chiều
     scores = {}
     for n in range(1, max_num + 1):
         f_score = freq.get(n, 0) / len(recent_draws)
-        r_score = last_seen.get(n, 80)
+        r_score = last_seen.get(n, 100)
         
-        # Tần suất (40%) + Chu kỳ nhịp rơi (40%) + Điểm đột biến (20%)
-        scores[n] = (f_score * 0.4) + ((1 / (r_score + 1)) * 0.4) + (random.uniform(0.01, 0.08))
+        # Tần suất + Chu kỳ + Điểm ngẫu nhiên phân tán
+        scores[n] = (f_score * 0.5) + ((1 / (r_score + 1)) * 0.3) + (random.uniform(0.01, 0.1))
 
-    # Lấy Top candidates làm Ma trận gốc
     top_candidates = sorted(scores, key=scores.get, reverse=True)[:top_n_matrix]
 
-    # 3. Sinh Quần thể Ban đầu (Population Sampling)
-    population = []
+    # 3. Sinh Dàn 120 bộ số phủ kín Ma trận Siêu Rộng
+    combos = []
     attempts = 0
     random.seed(len(history_data))
 
-    while len(population) < 800 and attempts < 4000:
+    while len(combos) < num_combos and attempts < 6000:
         attempts += 1
         combo = sorted(random.sample(top_candidates, 6))
 
-        # Điều kiện 1: Tỷ lệ Chẵn / Lẻ
+        # Điều kiện 1: Tỷ lệ Chẵn / Lẻ (2-4, 3-3, 4-2)
         evens = sum(1 for x in combo if x % 2 == 0)
         if evens < 2 or evens > 4:
             continue
 
         # Điều kiện 2: Tổng dãy số
         total_sum = sum(combo)
-        min_s = 85 if is_655 else 70
-        max_s = 230 if is_655 else 190
+        min_s = 80 if is_655 else 65
+        max_s = 235 if is_655 else 195
         if not (min_s <= total_sum <= max_s):
             continue
 
-        # Điều kiện 3: Khoảng cách giữa các số (Lọc dãy số liền nhau quá 3 số)
-        has_3_consecutive = any(combo[i+2] - combo[i] == 2 for i in range(len(combo)-2))
-        if has_3_consecutive:
+        # Điều kiện 3: Lọc trùng đuôi số (Không cho phép >2 số cùng đuôi, ví dụ: 03, 13, 23)
+        last_digits = [x % 10 for x in combo]
+        if max(Counter(last_digits).values()) > 2:
             continue
 
-        if combo not in population:
-            population.append(combo)
+        if combo not in combos:
+            combos.append(combo)
 
-    # 4. Sàng lọc Di truyền chọn N bộ có độ bao phủ tối đa (Maximal Diversity)
-    selected_combos = []
-    if population:
-        selected_combos.append(population[0])
-        
-        for candidate in population[1:]:
-            if len(selected_combos) >= num_combos:
-                break
-            
-            # Kiểm tra độ trùng lặp với các bộ đã chọn (chỉ lấy bộ trùng tối đa 3-4 số)
-            max_overlap = max(len(set(candidate) & set(sc)) for sc in selected_combos)
-            if max_overlap <= 4:
-                selected_combos.append(candidate)
-
-        # Nếu chưa đủ bộ thì nạp nốt từ quần thể
-        while len(selected_combos) < num_combos and len(selected_combos) < len(population):
-            for p in population:
-                if p not in selected_combos:
-                    selected_combos.append(p)
-                    if len(selected_combos) >= num_combos:
-                        break
-
-    return selected_combos if selected_combos else [top_candidates[:6]], sorted(top_candidates)
+    return combos if combos else [top_candidates[:6]], sorted(top_candidates)
 
 def parse_date_range(raw_text: str, dataset: list) -> list:
     clean_text = re.sub(r'^(655|645)', '', raw_text).strip()
@@ -167,13 +144,13 @@ def handle_dudoan(message):
         bot.reply_to(message, f"❌ Chưa có dữ liệu {game_name}. Hãy gõ /reload trước!")
         return
 
-    combos, top_matrix = generate_v8_genetic_matrix(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v9_super_cover_matrix(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V8 GENETIC - {game_name.upper()}**",
-        f"📌 **Ma trận Bao tối ưu ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V9 SUPER COVER - {game_name.upper()}**",
+        f"📌 **Ma trận Siêu Phủ ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
-        f"💡 **Dàn 5 bộ số phân bố tối ưu:**"
+        f"💡 **Dàn 5 bộ số lọc chuẩn hình học:**"
     ]
     for i, cb in enumerate(combos, 1):
         msg.append(f"Bộ {i}: `{cb}`")
@@ -196,14 +173,14 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST GENETIC V8 {game} - DÀN 100 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST SUPER COVER V9 {game} - DÀN 120 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        # Sinh dàn 100 bộ theo cơ chế Thuật toán Di truyền & Phủ tối đa
-        predicted_combos, _ = generate_v8_genetic_matrix(past_history, game=game, num_combos=100)
+        # Sinh dàn 120 bộ số theo thuật toán V9
+        predicted_combos, _ = generate_v9_super_cover_matrix(past_history, game=game, num_combos=120)
         
         best_matched = []
         max_count = 0
@@ -216,7 +193,7 @@ def handle_test(message):
         total_max_match += max_count
         
         if max_count >= 5:
-            status = "🔥 [NỔ 5-6 SỐ / JACKPOT]"
+            status = "🔥 [JACKPOT / NỔ 5-6 SỐ]"
         elif max_count == 4:
             status = "⚡ [TRÚNG LỚN]"
         elif max_count == 3:

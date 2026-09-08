@@ -31,10 +31,10 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v19_core_wheel(history_data: list, game="655", num_combos=150) -> tuple:
+def generate_v20_multi_anchor(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Thuật toán V19: Core Anchoring & Combinatorial Wheel Optimization
-    Sử dụng 2 số Trục Hạt Nhân để ép gom 5-6 số vào cùng 1 bộ.
+    Thuật toán V20: Dynamic Multi-Anchor & Balanced Cluster Wheeling
+    Phân bổ đa trục linh hoạt để giảm rủi ro lệch trục duy nhất.
     """
     if len(history_data) < 10:
         return [[1, 2, 3, 4, 5, 6]], [1, 2, 3, 4, 5, 6]
@@ -42,8 +42,8 @@ def generate_v19_core_wheel(history_data: list, game="655", num_combos=150) -> t
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
     
-    # 1. Phân tích dữ liệu 40 kỳ gần nhất
-    recent_draws = [d["result"] for d in history_data[-40:]]
+    # 1. Thống kê dữ liệu 35 kỳ gần nhất
+    recent_draws = [d["result"] for d in history_data[-35:]]
     flat_nums = [n for draw in recent_draws for n in draw]
     freq = Counter(flat_nums)
 
@@ -53,66 +53,60 @@ def generate_v19_core_wheel(history_data: list, game="655", num_combos=150) -> t
             if n not in last_seen:
                 last_seen[n] = idx
 
-    # 2. Chấm điểm ma trận
+    # 2. Tính điểm Ma trận
     scores = {}
     for n in range(1, max_num + 1):
         f = freq.get(n, 0)
-        r = last_seen.get(n, 40)
-        scores[n] = (f * 2.2) + (12 / (r + 1)) + random.uniform(0.01, 0.05)
+        r = last_seen.get(n, 35)
+        scores[n] = (f * 2.0) + (10 / (r + 1)) + random.uniform(0.01, 0.05)
 
     sorted_candidates = sorted(scores, key=scores.get, reverse=True)
 
-    # Top 2 số có điểm cao nhất làm Trục (Core Anchors)
-    core_anchors = sorted(sorted_candidates[:2])
+    # Tập 6 số Trục hàng đầu (Anchor Pool)
+    anchor_pool = sorted_candidates[:6]
+    # Tập 22 số Ma trận bổ trợ (Support Matrix)
+    support_matrix = sorted_candidates[6:28]
     
-    # Top 26 số tiếp theo làm Ma trận xoay vòng (Wheel Matrix)
-    wheel_matrix = sorted(sorted_candidates[2:28])
-    top_matrix = sorted(core_anchors + wheel_matrix)
+    top_matrix = sorted(anchor_pool + support_matrix)
 
-    # 3. Thuật toán Xoay Ma Trận (Combinatorial Wheel)
+    # Tạo các cặp Trục đa dạng từ Anchor Pool (15 cặp khả dĩ)
+    anchor_pairs = list(itertools.combinations(anchor_pool, 2))
+
+    # 3. Sinh Dàn 150 bộ số Phủ Đa Trục
     combos = []
-    
-    # Tạo các tổ hợp 4 số từ Wheel Matrix ghép với 2 số Core Anchors
-    sub_combos = list(itertools.combinations(wheel_matrix, 4))
-    
-    # Xáo trộn có thứ tự dựa trên tổng điểm để chọn ra 150 bộ tối ưu nhất
+    attempts = 0
     random.seed(len(history_data))
-    random.shuffle(sub_combos)
 
-    for sub in sub_combos:
-        if len(combos) >= num_combos:
-            break
+    while len(combos) < num_combos and attempts < 25000:
+        attempts += 1
 
-        combo = sorted(list(core_anchors) + list(sub))
+        # Chọn xoay vòng một cặp Trục từ Anchor Pool
+        chosen_pair = list(random.choice(anchor_pairs))
+        
+        # Chọn 4 số còn lại từ Support Matrix & Anchor Pool
+        available_pool = [x for x in top_matrix if x not in chosen_pair]
+        needed_supp = random.sample(available_pool, 4)
+
+        combo = sorted(chosen_pair + needed_supp)
 
         # Điều kiện 1: Tỷ lệ Chẵn / Lẻ (2-4, 3-3, 4-2)
         evens = sum(1 for x in combo if x % 2 == 0)
         if evens < 2 or evens > 4:
             continue
 
-        # Điều kiện 2: Tổng dãy số nằm trong dải phân bố chuẩn
+        # Điều kiện 2: Tổng dãy số tối ưu
         total_sum = sum(combo)
-        min_s = 90 if is_655 else 75
-        max_s = 225 if is_655 else 185
+        min_s = 85 if is_655 else 70
+        max_s = 230 if is_655 else 190
         if not (min_s <= total_sum <= max_s):
             continue
 
-        # Điều kiện 3: Không lấy 4 số liên tiếp
-        has_4_consecutive = any(
-            combo[i] + 1 == combo[i+1] == combo[i+2] - 1 == combo[i+3] - 2
-            for i in range(len(combo) - 3)
-        )
-        if has_4_consecutive:
-            continue
+        # Điều kiện 3: Giới hạn mức độ trùng lặp giữa các bộ số để tăng độ bao phủ
+        if combos and attempts < 18000:
+            max_overlap = max(len(set(combo) & set(c)) for c in combos)
+            if max_overlap >= 5:
+                continue
 
-        combos.append(combo)
-
-    # Nếu chưa đủ 150 bộ, bù đắp bằng cách nới lỏng nhẹ điều kiện lọc
-    attempts = 0
-    while len(combos) < num_combos and attempts < 5000:
-        attempts += 1
-        sub = random.sample(wheel_matrix, 4)
-        combo = sorted(list(core_anchors) + sub)
         if combo not in combos:
             combos.append(combo)
 
@@ -166,11 +160,11 @@ def handle_dudoan(message):
         bot.reply_to(message, f"❌ Chưa có dữ liệu {game_name}. Hãy gõ /reload trước!")
         return
 
-    combos, top_matrix = generate_v19_core_wheel(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v20_multi_anchor(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V19 CORE WHEEL - {game_name.upper()}**",
-        f"📌 **Ma trận Trục & Xoay Vòng ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V20 MULTI-ANCHOR - {game_name.upper()}**",
+        f"📌 **Ma trận Đa Trục ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
         f"💡 **Dàn 5 bộ số hạt nhân đi kèm:**"
     ]
@@ -195,13 +189,13 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST CORE WHEEL V19 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST MULTI-ANCHOR V20 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v19_core_wheel(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v20_multi_anchor(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0

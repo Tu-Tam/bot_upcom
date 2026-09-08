@@ -31,11 +31,11 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v29_hybrid_matrix(history_data: list, game="655", num_combos=150) -> tuple:
+def generate_v30_adaptive_matrix(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Thuật toán V29: Dynamic Broad-Covering Matrix & Non-Deterministic Generator
-    Power 6/55: Phủ Ma trận 32 số Phân tầng (18 Hot + 10 Warm + 4 Cold)
-    Mega 6/45: Phủ Tương quan Cặp Point Pivot Matrix (28 số)
+    Thuật toán V30: Hyper-Adaptive Dual-Matrix Engine
+    Power 6/55: Dynamic Cold-Infiltration & Gaussian Adaptive
+    Mega 6/45: Dynamic Pivot Correlation Covering
     """
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
@@ -53,24 +53,28 @@ def generate_v29_hybrid_matrix(history_data: list, game="655", num_combos=150) -
 
     if is_655:
         # ---------------------------------------------------------
-        # POWER 6/55: Phân tầng 32 số (18 Hot, 10 Warm, 4 Cold)
+        # POWER 6/55: Dynamic Cold-Infiltration Broad Matrix (33 số)
         # ---------------------------------------------------------
         hot_pool = sorted_all[:18]
         warm_pool = sorted_all[18:28]
-        cold_pool = sorted_all[28:35]
-        top_matrix = sorted(hot_pool + warm_pool + cold_pool[:4]) # 32 số Ma trận
+        cold_pool = sorted_all[28:38]
+        top_matrix = sorted(hot_pool + warm_pool + cold_pool[:5])
 
-        min_s, max_s = 95, 215
+        min_s, max_s = 110, 200
 
         while len(combos) < num_combos and attempts < 60000:
             attempts += 1
 
             n_hot = random.choice([3, 4])
-            n_warm = 5 - n_hot
+            n_cold = random.choice([0, 1, 2])
+            n_warm = 6 - n_hot - n_cold
+
+            if n_warm < 0 or n_warm > len(warm_pool):
+                continue
             
             c_hot = random.sample(hot_pool, n_hot)
             c_warm = random.sample(warm_pool, n_warm)
-            c_cold = random.sample(cold_pool, 1)
+            c_cold = random.sample(cold_pool, n_cold)
 
             combo = sorted(c_hot + c_warm + c_cold)
 
@@ -84,11 +88,11 @@ def generate_v29_hybrid_matrix(history_data: list, game="655", num_combos=150) -
             if evens < 2 or evens > 4:
                 continue
 
-            # Lọc 3: Tổng Chuẩn Gaussian
+            # Lọc 3: Tổng Chuẩn Gaussian Tối Tưu
             if not (min_s <= sum(combo) <= max_s):
                 continue
 
-            # Lọc 4: Distance Limit (Chống loãng & chống trùng lặp)
+            # Lọc 4: Distance Limit
             if combos and attempts < 45000:
                 limit = 3 if len(combos) < 110 else 4
                 if max(len(set(combo) & set(c)) for c in combos) > limit:
@@ -99,7 +103,7 @@ def generate_v29_hybrid_matrix(history_data: list, game="655", num_combos=150) -
 
     else:
         # ---------------------------------------------------------
-        # MEGA 6/45: Dynamic Pivot Correlation Covering
+        # MEGA 6/45: Dynamic Pivot Correlation Covering (28 số)
         # ---------------------------------------------------------
         pair_weights = defaultdict(int)
         for draw in draws_recent:
@@ -148,7 +152,7 @@ def generate_v29_hybrid_matrix(history_data: list, game="655", num_combos=150) -
             if combo not in combos:
                 combos.append(combo)
 
-    # Nới lỏng bổ sung nếu chưa đủ 150 bộ
+    # Nới lỏng bổ sung nếu chưa đủ bộ
     while len(combos) < num_combos:
         combo = sorted(random.sample(top_matrix, 6))
         if combo not in combos:
@@ -158,15 +162,13 @@ def generate_v29_hybrid_matrix(history_data: list, game="655", num_combos=150) -
 
 def parse_date_range(raw_text: str, dataset: list) -> list:
     """
-    Sửa lỗi bóc tách chuỗi tham số /test 645 và /test 655
+    Hàm bóc tách cú pháp ngày từ tham số lệnh
     """
-    # 1. Bóc sạch các tiền tố câu lệnh
     clean_text = re.sub(r'/(test655|test645|test)', '', raw_text).strip()
     clean_text = re.sub(r'^(655|645)', '', clean_text).strip()
     
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
-    # 2. Bắt cú pháp "YYYY-MM-DD => Số_Kỳ" hoặc "YYYY-MM-DD => YYYY-MM-DD"
     match = re.search(r'(\d{4}-\d{2}-\d{2})\s*(?:=>|->|-|\s+)\s*(\d{1,3}|\d{4}-\d{2}-\d{2})$', clean_text)
     
     if match:
@@ -178,7 +180,6 @@ def parse_date_range(raw_text: str, dataset: list) -> list:
         else:
             return [dt for dt in future_draws if dt <= end_val]
 
-    # 3. Trường hợp chỉ nhập đúng 1 ngày "YYYY-MM-DD"
     single_date = re.search(r'(\d{4}-\d{2}-\d{2})', clean_text)
     if single_date:
         dt_str = single_date.group(1)
@@ -205,14 +206,16 @@ def handle_dudoan(message):
 
     dataset = get_dataset(game)
     if not dataset:
-        bot.reply_to(message, f"❌ Chưa có dữ liệu {game_name}. Hãy gõ /reload trước!")
-        return
+        if game == "645":
+            dataset = fetch_vietlott_645_data(300)
+        else:
+            dataset = fetch_vietlott_655_data(300)
 
-    combos, top_matrix = generate_v29_hybrid_matrix(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v30_adaptive_matrix(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V29 HYBRID - {game_name.upper()}**",
-        f"📌 **Ma trận Phủ Rộng Phân Tầng ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V30 ADAPTIVE - {game_name.upper()}**",
+        f"📌 **Ma trận Phủ Rộng Dynamic ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
         f"💡 **Dàn 5 bộ số hạt nhân đi kèm:**"
     ]
@@ -224,13 +227,21 @@ def handle_dudoan(message):
 @bot.message_handler(commands=['test'])
 def handle_test(message):
     raw_args = message.text.strip()
-    
-    # Tự động nhận diện Game từ câu lệnh
     game = "645" if "645" in raw_args else "655"
+    game_name = "Mega 6/45" if game == "645" else "Power 6/55"
     
     dataset = get_dataset(game)
+    
+    # TỰ ĐỘNG CÀO LẠI DỮ LIỆU NẾU BỘ NHỚ ĐANG RỖNG
     if not dataset:
-        bot.reply_to(message, f"❌ Chưa có CSDL cho {game}. Vui lòng gõ /reload trước!")
+        bot.reply_to(message, f"⏳ Đang khởi tạo CSDL {game_name}... Vui lòng chờ vài giây!")
+        if game == "645":
+            dataset = fetch_vietlott_645_data(300)
+        else:
+            dataset = fetch_vietlott_655_data(300)
+            
+    if not dataset:
+        bot.reply_to(message, f"❌ Không thể lấy dữ liệu từ Vietlott cho {game_name}. Vui lòng thử gõ /reload !")
         return
 
     dates = parse_date_range(raw_args, dataset)
@@ -243,13 +254,13 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST HYBRID MATRIX V29 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST V30 ADAPTIVE MATRIX {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v29_hybrid_matrix(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v30_adaptive_matrix(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0

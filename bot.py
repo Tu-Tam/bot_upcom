@@ -3,9 +3,12 @@ import re
 import threading
 from flask import Flask
 import telebot
+from collections import Counter
 from vietlott_scraper import fetch_vietlott_655_data, fetch_vietlott_645_data, get_dataset
 
-# 1. TẠO WEB SERVER ĐỂ RENDER KHÔNG BỊ "APPLICATION EXITED EARLY"
+# -------------------------------------------------------------
+# 1. WEB SERVER CHỐNG SẬP TỰ ĐỘNG TRÊN RENDER
+# -------------------------------------------------------------
 app = Flask(__name__)
 
 @app.route('/')
@@ -20,9 +23,44 @@ flask_thread = threading.Thread(target=run_flask)
 flask_thread.daemon = True
 flask_thread.start()
 
-# 2. KHỞI TẠO TELEGRAM BOT
+# -------------------------------------------------------------
+# 2. KHỞI TẠO BOT TELEGRAM
+# -------------------------------------------------------------
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
+
+def generate_hybrid_prediction(history_data: list, game="655") -> list:
+    """
+    Thuật toán Hybrid: Chỉ dùng dữ liệu CÁC KỲ TRƯỚC thời điểm test 
+    để tính toán tần suất + độ gan, tạo ra bộ số dự đoán tối ưu.
+    """
+    if len(history_data) < 10:
+        return [1, 2, 3, 4, 5, 6]
+
+    max_num = 55 if str(game) == "655" else 45
+    recent_draws = [d["result"] for d in history_data[-40:]] # Lấy 40 kỳ liền trước
+
+    # Tần suất
+    flat_nums = [n for draw in recent_draws for n in draw]
+    freq = Counter(flat_nums)
+
+    # Độ gan (số kỳ chưa về)
+    last_seen = {}
+    for idx, draw in enumerate(reversed(recent_draws)):
+        for n in draw:
+            if n not in last_seen:
+                last_seen[n] = idx
+
+    # Tính điểm ưu tiên
+    scores = {}
+    for n in range(1, max_num + 1):
+        f_score = freq.get(n, 0) / len(recent_draws)
+        r_score = last_seen.get(n, 40)
+        scores[n] = (f_score * 0.6) + ((1 / (r_score + 1)) * 0.4)
+
+    # Top 6 số có điểm cao nhất
+    top_6 = sorted(scores, key=scores.get, reverse=True)[:6]
+    return sorted(top_6)
 
 def parse_date_range(raw_text: str, dataset: list) -> list:
     clean_text = re.sub(r'^(655|645)', '', raw_text).strip()
@@ -72,13 +110,20 @@ def handle_test(message):
         return
 
     data_map = {d["date"]: d["result"] for d in dataset}
+    sorted_dataset = sorted(dataset, key=lambda x: x["date"])
+    
     total_match = 0
     lines = [f"🧪 BACKTEST HYBRID {game} ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
-        # Ví dụ bộ dự đoán giả định
-        predicted = [1, 4, 8, 12, 17, 19] 
+        
+        # Lấy lịch sử CÁC KỲ QUAY TRƯỚC ngày đang test để làm dữ liệu dự đoán
+        past_history = [d for d in sorted_dataset if d["date"] < dt]
+        
+        # Tạo bộ số dự đoán động dựa trên thuật toán
+        predicted = generate_hybrid_prediction(past_history, game=game)
+        
         matched = sorted(list(set(actual_result) & set(predicted)))
         count = len(matched)
         total_match += count

@@ -31,11 +31,11 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v31_jackpot_hunter(history_data: list, game="655", num_combos=150) -> tuple:
+def generate_v32_dual_engine(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Thuật toán V31: Dynamic High-Cluster Jackpot Hunter
-    Tập trung tối đa xác suất trúng 5-6 số bằng Ma trận Điểm nóng thu hẹp (24-26 số)
-    và Ma trận liên kết Cặp (Co-occurrence Pair Clusters).
+    Thuật toán V32: Dual-Engine Jackpot Multi-Cluster
+    - Mega 6/45: Multi-Pivot Cluster (Triple Anchors 3 số đinh)
+    - Power 6/55: Dynamic Core-Expand Matrix (34 số mở rộng)
     """
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
@@ -44,66 +44,105 @@ def generate_v31_jackpot_hunter(history_data: list, game="655", num_combos=150) 
         base = list(range(1, 7))
         return [base], base
 
-    draws_recent = [d["result"] for d in history_data[-50:]]
+    draws_recent = [d["result"] for d in history_data[-60:]]
     freq = Counter([n for draw in draws_recent for n in draw])
     sorted_all = sorted(range(1, max_num + 1), key=lambda x: freq.get(x, 0), reverse=True)
-
-    # Tính toán Ma trận Cặp số thường xuyên đi cùng nhau
-    pair_freq = defaultdict(int)
-    for draw in draws_recent:
-        for p1, p2 in itertools.combinations(sorted(draw), 2):
-            pair_freq[(p1, p2)] += 1
 
     combos = []
     attempts = 0
 
-    # Thu hẹp Ma trận trọng tâm để dồn mật độ trùng 5-6 số
-    matrix_size = 26 if is_655 else 22
-    top_matrix = sorted(sorted_all[:matrix_size])
-    
-    # Thiết lập khoảng tổng Gaussian linh hoạt
-    min_s, max_s = (100, 210) if is_655 else (70, 190)
+    if is_655:
+        # ---------------------------------------------------------
+        # POWER 6/55: Dynamic Core-Expand Matrix (34 số)
+        # ---------------------------------------------------------
+        hot_pool = sorted_all[:16]
+        warm_pool = sorted_all[16:26]
+        cold_pool = sorted_all[26:34]
+        top_matrix = sorted(hot_pool + warm_pool + cold_pool)
 
-    # Tìm danh sách các cặp Hot Pivots có tần suất đi cùng nhau cao nhất
-    hot_pairs = sorted(pair_freq.keys(), key=lambda x: pair_freq[x], reverse=True)[:30]
+        min_s, max_s = 100, 215
 
-    while len(combos) < num_combos and attempts < 80000:
-        attempts += 1
+        while len(combos) < num_combos and attempts < 80000:
+            attempts += 1
 
-        # 60% Dàn bộ số được dựng từ Cặp Điểm Nóng (Hot Pair Anchors)
-        if random.random() < 0.60 and hot_pairs:
-            p1, p2 = random.choice(hot_pairs)
-            if p1 in top_matrix and p2 in top_matrix:
-                rem_candidates = [n for n in top_matrix if n not in (p1, p2)]
-                selected = random.sample(rem_candidates, 4)
-                combo = sorted([p1, p2] + selected)
-            else:
-                combo = sorted(random.sample(top_matrix, 6))
-        else:
-            combo = sorted(random.sample(top_matrix, 6))
+            n_hot = random.choice([3, 4])
+            n_warm = random.choice([1, 2])
+            n_cold = 6 - n_hot - n_warm
 
-        # Lọc 1: Cho phép tối đa 2 cặp liền kề (Tăng cơ hội nổ Jackpot)
-        adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
-        if adj_count > 2:
-            continue
-
-        # Lọc 2: Tỷ lệ Chẵn / Lẻ mở rộng
-        evens = sum(1 for x in combo if x % 2 == 0)
-        if evens < 1 or evens > 5:
-            continue
-
-        # Lọc 3: Kiểm tra Tổng Gaussian
-        if not (min_s <= sum(combo) <= max_s):
-            continue
-
-        # Lọc 4: Giảm khoảng cách tối đa giữa các bộ số để phủ kín Ma trận
-        if combos and attempts < 50000:
-            limit = 4 if len(combos) < 100 else 5
-            if max(len(set(combo) & set(c)) for c in combos) > limit:
+            if n_cold < 0 or n_cold > len(cold_pool):
                 continue
 
-        if combo not in combos:
-            combos.append(combo)
+            combo = sorted(random.sample(hot_pool, n_hot) + 
+                           random.sample(warm_pool, n_warm) + 
+                           random.sample(cold_pool, n_cold))
+
+            # Cho phép tối đa 2 cặp liền kề
+            adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
+            if adj_count > 2:
+                continue
+
+            # Chẵn / Lẻ: 1-5 tới 5-1
+            evens = sum(1 for x in combo if x % 2 == 0)
+            if evens < 1 or evens > 5:
+                continue
+
+            if not (min_s <= sum(combo) <= max_s):
+                continue
+
+            if combos and attempts < 50000:
+                limit = 4 if len(combos) < 100 else 5
+                if max(len(set(combo) & set(c)) for c in combos) > limit:
+                    continue
+
+            if combo not in combos:
+                combos.append(combo)
+
+    else:
+        # ---------------------------------------------------------
+        # MEGA 6/45: Multi-Pivot Cluster (Triple Anchors)
+        # ---------------------------------------------------------
+        triple_freq = defaultdict(int)
+        for draw in draws_recent:
+            for t in itertools.combinations(sorted(draw), 3):
+                triple_freq[t] += 1
+
+        top_matrix = sorted(sorted_all[:24])
+        hot_triples = sorted(triple_freq.keys(), key=lambda x: triple_freq[x], reverse=True)[:25]
+
+        min_s, max_s = 70, 190
+
+        while len(combos) < num_combos and attempts < 80000:
+            attempts += 1
+
+            if random.random() < 0.65 and hot_triples:
+                t1, t2, t3 = random.choice(hot_triples)
+                if t1 in top_matrix and t2 in top_matrix and t3 in top_matrix:
+                    rem_candidates = [n for n in top_matrix if n not in (t1, t2, t3)]
+                    selected = random.sample(rem_candidates, 3)
+                    combo = sorted([t1, t2, t3] + selected)
+                else:
+                    combo = sorted(random.sample(top_matrix, 6))
+            else:
+                combo = sorted(random.sample(top_matrix, 6))
+
+            adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
+            if adj_count > 2:
+                continue
+
+            evens = sum(1 for x in combo if x % 2 == 0)
+            if evens < 1 or evens > 5:
+                continue
+
+            if not (min_s <= sum(combo) <= max_s):
+                continue
+
+            if combos and attempts < 50000:
+                limit = 4 if len(combos) < 100 else 5
+                if max(len(set(combo) & set(c)) for c in combos) > limit:
+                    continue
+
+            if combo not in combos:
+                combos.append(combo)
 
     # Nới lỏng bổ sung nếu chưa đủ bộ
     while len(combos) < num_combos:
@@ -114,9 +153,6 @@ def generate_v31_jackpot_hunter(history_data: list, game="655", num_combos=150) 
     return combos, top_matrix
 
 def parse_date_range(raw_text: str, dataset: list) -> list:
-    """
-    Xử lý bóc tách cú pháp tham số ngày từ lệnh /test
-    """
     clean_text = re.sub(r'/(test655|test645|test)', '', raw_text).strip()
     clean_text = re.sub(r'^(655|645)', '', clean_text).strip()
     
@@ -166,17 +202,17 @@ def handle_dudoan(message):
 
     dataset = get_dataset(game)
     if not dataset:
-        bot.reply_to(message, f"⏳ CSDL {game_name} đang trống. Đang tự động cào dữ liệu, vui lòng thử lại sau 15 giây!")
+        bot.reply_to(message, f"⏳ CSDL {game_name} đang trống. Đang cào dữ liệu, vui lòng gõ lại lệnh sau 15 giây!")
         threading.Thread(target=fetch_vietlott_645_data if game == "645" else fetch_vietlott_655_data, args=(300,)).start()
         return
 
-    combos, top_matrix = generate_v31_jackpot_hunter(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v32_dual_engine(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V31 JACKPOT HUNTER - {game_name.upper()}**",
-        f"📌 **Ma trận Điểm Nóng Săn Jackpot ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V32 DUAL-ENGINE - {game_name.upper()}**",
+        f"📌 **Ma trận Trọng Tâm V32 ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
-        f"💡 **Dàn 5 bộ số hạt nhân cao cấp:**"
+        f"💡 **Dàn 5 bộ số hạt nhân săn Jackpot:**"
     ]
     for i, cb in enumerate(combos, 1):
         msg.append(f"Bộ {i}: `{cb}`")
@@ -192,7 +228,7 @@ def handle_test(message):
     dataset = get_dataset(game)
     
     if not dataset:
-        bot.reply_to(message, f"⏳ CSDL {game_name} chưa sẵn sàng. Đang cào dữ liệu chạy ngầm, vui lòng gõ lại lệnh sau 15 giây!")
+        bot.reply_to(message, f"⏳ CSDL {game_name} chưa sẵn sàng. Đang cào dữ liệu chạy ngầm, vui lòng thử lại sau 15 giây!")
         threading.Thread(target=fetch_vietlott_645_data if game == "645" else fetch_vietlott_655_data, args=(300,)).start()
         return
 
@@ -202,8 +238,7 @@ def handle_test(message):
         bot.reply_to(message, f"❌ Cú pháp chưa đúng hoặc không tìm thấy ngày trong CSDL!\n👉 Thử lại: `/test {game} 2026-08-01 => 30`", parse_mode="Markdown")
         return
 
-    # Thông báo cho người dùng biết bot đang tiến hành tính toán
-    status_msg = bot.reply_to(message, f"⚙️ Đang chạy Backtest V31 Săn Jackpot {game_name} cho {len(dates)} kỳ...")
+    status_msg = bot.reply_to(message, f"⚙️ Đang chạy Backtest V32 Dual-Engine {game_name} ({len(dates)} kỳ)...")
 
     data_map = {d["date"]: d["result"] for d in dataset}
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
@@ -211,13 +246,13 @@ def handle_test(message):
     total_max_match = 0
     count_jackpot = 0
     count_high = 0
-    lines = [f"🧪 BACKTEST V31 JACKPOT HUNTER {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST V32 DUAL-ENGINE {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v31_jackpot_hunter(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v32_dual_engine(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0
@@ -247,7 +282,6 @@ def handle_test(message):
     lines.append(f"🎯 Tổng nổ 🔥 Jackpot (5-6 số): {count_jackpot} kỳ")
     lines.append(f"⚡ Tổng nổ Trúng Lớn (4 số): {count_high} kỳ")
     
-    # Xóa tin nhắn chờ và gửi kết quả hoàn chỉnh
     try:
         bot.delete_message(message.chat.id, status_msg.message_id)
     except Exception:

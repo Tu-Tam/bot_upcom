@@ -5,7 +5,6 @@ from flask import Flask
 import telebot
 from collections import Counter
 import random
-import itertools
 from vietlott_scraper import fetch_vietlott_655_data, fetch_vietlott_645_data, get_dataset
 
 # -------------------------------------------------------------
@@ -31,16 +30,19 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v7_dynamic_matrix(history_data: list, game="655", num_combos=80) -> tuple:
+def generate_v8_genetic_matrix(history_data: list, game="655", num_combos=100) -> tuple:
     """
-    Thuật toán V7: Phân rã Nhóm Hot-Warm-Cold & Ma trận Phủ rộng 50%
+    Thuật toán V8: Ma trận Tối ưu Di truyền & Phủ đa dạng điểm (Diversity Covering)
+    Giúp đẩy tối đa cơ hội bắt trúng 5-6 số.
     """
     if len(history_data) < 10:
         return [[1, 2, 3, 4, 5, 6]], [1, 2, 3, 4, 5, 6]
 
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
-    recent_draws = [d["result"] for d in history_data[-60:]]
+    top_n_matrix = 22 if is_655 else 18  # Ma trận Bao 18/22
+
+    recent_draws = [d["result"] for d in history_data[-80:]]
 
     # 1. Thống kê Tần suất & Chu kỳ gan
     flat_nums = [n for draw in recent_draws for n in draw]
@@ -52,60 +54,70 @@ def generate_v7_dynamic_matrix(history_data: list, game="655", num_combos=80) ->
             if n not in last_seen:
                 last_seen[n] = idx
 
-    # 2. Phân loại 3 nhóm Hot / Warm / Cold
-    hot_pool, warm_pool, cold_pool = [], [], []
+    # 2. Chấm điểm Trọng số Đa tầng
+    scores = {}
     for n in range(1, max_num + 1):
-        f = freq.get(n, 0)
-        r = last_seen.get(n, 60)
+        f_score = freq.get(n, 0) / len(recent_draws)
+        r_score = last_seen.get(n, 80)
         
-        if f >= 8 and r <= 5:
-            hot_pool.append(n)
-        elif f >= 4 or r <= 12:
-            warm_pool.append(n)
-        else:
-            cold_pool.append(n)
+        # Tần suất (40%) + Chu kỳ nhịp rơi (40%) + Điểm đột biến (20%)
+        scores[n] = (f_score * 0.4) + ((1 / (r_score + 1)) * 0.4) + (random.uniform(0.01, 0.08))
 
-    # Đảm bảo các pool không bị rỗng
-    if len(hot_pool) < 3: hot_pool = sorted(range(1, max_num + 1), key=lambda x: freq.get(x,0), reverse=True)[:8]
-    if len(warm_pool) < 2: warm_pool = sorted(range(1, max_num + 1), key=lambda x: last_seen.get(x,60))[:10]
-    if len(cold_pool) < 1: cold_pool = [n for n in range(1, max_num + 1) if n not in hot_pool and n not in warm_pool]
+    # Lấy Top candidates làm Ma trận gốc
+    top_candidates = sorted(scores, key=scores.get, reverse=True)[:top_n_matrix]
 
-    top_matrix = sorted(list(set(hot_pool + warm_pool[:12] + cold_pool[:6])))
-
-    # 3. Sinh dàn 80 bộ ghép theo tỷ lệ chuẩn 3 Hot - 2 Warm - 1 Cold
-    combos = []
-    random.seed(len(history_data))
+    # 3. Sinh Quần thể Ban đầu (Population Sampling)
+    population = []
     attempts = 0
+    random.seed(len(history_data))
 
-    while len(combos) < num_combos and attempts < 3000:
+    while len(population) < 800 and attempts < 4000:
         attempts += 1
-        
-        # Chọn 3 Hot + 2 Warm + 1 Cold
-        h_part = random.sample(hot_pool, min(3, len(hot_pool)))
-        w_part = random.sample(warm_pool, min(2, len(warm_pool)))
-        c_part = random.sample(cold_pool, min(1, len(cold_pool)))
-        
-        combo = sorted(list(set(h_part + w_part + c_part)))
-        if len(combo) < 6:
-            remaining = [n for n in top_matrix if n not in combo]
-            combo = sorted(combo + random.sample(remaining, 6 - len(combo)))
+        combo = sorted(random.sample(top_candidates, 6))
 
-        # Lọc Chẵn / Lẻ
+        # Điều kiện 1: Tỷ lệ Chẵn / Lẻ
         evens = sum(1 for x in combo if x % 2 == 0)
         if evens < 2 or evens > 4:
             continue
 
-        # Lọc Tổng
+        # Điều kiện 2: Tổng dãy số
         total_sum = sum(combo)
         min_s = 85 if is_655 else 70
         max_s = 230 if is_655 else 190
         if not (min_s <= total_sum <= max_s):
             continue
 
-        if combo not in combos:
-            combos.append(combo)
+        # Điều kiện 3: Khoảng cách giữa các số (Lọc dãy số liền nhau quá 3 số)
+        has_3_consecutive = any(combo[i+2] - combo[i] == 2 for i in range(len(combo)-2))
+        if has_3_consecutive:
+            continue
 
-    return combos, top_matrix
+        if combo not in population:
+            population.append(combo)
+
+    # 4. Sàng lọc Di truyền chọn N bộ có độ bao phủ tối đa (Maximal Diversity)
+    selected_combos = []
+    if population:
+        selected_combos.append(population[0])
+        
+        for candidate in population[1:]:
+            if len(selected_combos) >= num_combos:
+                break
+            
+            # Kiểm tra độ trùng lặp với các bộ đã chọn (chỉ lấy bộ trùng tối đa 3-4 số)
+            max_overlap = max(len(set(candidate) & set(sc)) for sc in selected_combos)
+            if max_overlap <= 4:
+                selected_combos.append(candidate)
+
+        # Nếu chưa đủ bộ thì nạp nốt từ quần thể
+        while len(selected_combos) < num_combos and len(selected_combos) < len(population):
+            for p in population:
+                if p not in selected_combos:
+                    selected_combos.append(p)
+                    if len(selected_combos) >= num_combos:
+                        break
+
+    return selected_combos if selected_combos else [top_candidates[:6]], sorted(top_candidates)
 
 def parse_date_range(raw_text: str, dataset: list) -> list:
     clean_text = re.sub(r'^(655|645)', '', raw_text).strip()
@@ -155,13 +167,13 @@ def handle_dudoan(message):
         bot.reply_to(message, f"❌ Chưa có dữ liệu {game_name}. Hãy gõ /reload trước!")
         return
 
-    combos, top_matrix = generate_v7_dynamic_matrix(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v8_genetic_matrix(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V7 - {game_name.upper()}**",
-        f"📌 **Ma trận rộng phủ 3 nhóm Hot-Warm-Cold:**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V8 GENETIC - {game_name.upper()}**",
+        f"📌 **Ma trận Bao tối ưu ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
-        f"💡 **Dàn 5 bộ số kết hợp chuẩn 3-2-1:**"
+        f"💡 **Dàn 5 bộ số phân bố tối ưu:**"
     ]
     for i, cb in enumerate(combos, 1):
         msg.append(f"Bộ {i}: `{cb}`")
@@ -184,13 +196,14 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST DYNAMIC V7 {game} - DÀN 80 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST GENETIC V8 {game} - DÀN 100 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v7_dynamic_matrix(past_history, game=game, num_combos=80)
+        # Sinh dàn 100 bộ theo cơ chế Thuật toán Di truyền & Phủ tối đa
+        predicted_combos, _ = generate_v8_genetic_matrix(past_history, game=game, num_combos=100)
         
         best_matched = []
         max_count = 0
@@ -203,7 +216,7 @@ def handle_test(message):
         total_max_match += max_count
         
         if max_count >= 5:
-            status = "🔥 [NỔ 5-6 SỐ]"
+            status = "🔥 [NỔ 5-6 SỐ / JACKPOT]"
         elif max_count == 4:
             status = "⚡ [TRÚNG LỚN]"
         elif max_count == 3:

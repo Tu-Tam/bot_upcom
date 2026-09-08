@@ -30,11 +30,11 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v35_dual_mode_swarm(history_data: list, game="655", num_combos=150) -> tuple:
+def generate_v36_optimized_swarm(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Thuật toán V35: Dual-Mode Entropy & Dynamic Span Calibration
-    - Mega 6/45: Giữ nguyên Entropy Swarm V34 (Đã nổ Jackpot 5/6)
-    - Power 6/55: Adaptive Sub-Group Swarm 5 Tầng Tần Suất
+    Thuật toán V36:
+    - Mega 6/45: KHÔI PHỤC 100% V34 ENTROPY SWARM (Đã từng nổ Jackpot 5/6, TB 3.1)
+    - Power 6/55: Mở rộng Ma trận Trọng tâm 42 số + Tỷ lệ ép Warm/Cold chuyên biệt cho dải 55
     """
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
@@ -51,9 +51,9 @@ def generate_v35_dual_mode_swarm(history_data: list, game="655", num_combos=150)
     attempts = 0
 
     if not is_655:
-        # ---------------------------------------------------------
-        # MEGA 6/45: GIỮ NGUYÊN CHUẨN V34 (ĐÃ NỔ JACKPOT)
-        # ---------------------------------------------------------
+        # =========================================================
+        # MEGA 6/45: CHUẨN V34 NGUYÊN BẢN (KHÔNG THAY ĐỔI TẸO NÀO)
+        # =========================================================
         hot_pool = sorted_all[:14]
         warm_pool = sorted_all[14:28]
         cold_pool = sorted_all[28:]
@@ -64,7 +64,9 @@ def generate_v35_dual_mode_swarm(history_data: list, game="655", num_combos=150)
             attempts += 1
             n_hot = random.choice([3, 4])
             n_warm = random.choice([1, 2])
-            n_cold = max(1, 6 - n_hot - n_warm)
+            n_cold = 6 - n_hot - n_warm
+            if n_cold <= 0:
+                n_cold = 1
 
             try:
                 combo = sorted(
@@ -101,38 +103,27 @@ def generate_v35_dual_mode_swarm(history_data: list, game="655", num_combos=150)
                 combos.append(combo)
 
     else:
-        # ---------------------------------------------------------
-        # POWER 6/55: ADAPTIVE SUB-GROUP SWARM (5 TẦNG TẦN SUẤT)
-        # ---------------------------------------------------------
-        g1_u_hot = sorted_all[:10]
-        g2_hot = sorted_all[10:22]
-        g3_warm = sorted_all[22:34]
-        g4_cold = sorted_all[34:45]
-        g5_u_cold = sorted_all[45:]
-        top_matrix = sorted(sorted_all[:38])
-
-        min_s, max_s = 105, 230
+        # =========================================================
+        # POWER 6/55: V36 DYNAMIC GRID (ÉP BẮT COLD/WARM TỚI CÙNG)
+        # =========================================================
+        hot_pool = sorted_all[:16]
+        warm_pool = sorted_all[16:32]
+        cold_pool = sorted_all[32:]
+        top_matrix = sorted(sorted_all[:42])
+        min_s, max_s = 90, 225
 
         while len(combos) < num_combos and attempts < 100000:
             attempts += 1
-
-            # Phân bổ tỷ lệ mềm hóa cho 55 số
-            c_g1 = random.choice([1, 2])
-            c_g2 = random.choice([1, 2])
-            c_g3 = random.choice([1, 2])
-            c_g4 = random.choice([0, 1])
-            c_g5 = 6 - (c_g1 + c_g2 + c_g3 + c_g4)
-
-            if c_g5 < 0 or c_g5 > len(g5_u_cold):
-                continue
+            # Tỷ lệ đặc thù 6/55: Buộc có 2 Warm + 1-2 Cold
+            n_hot = random.choice([2, 3])
+            n_warm = 2
+            n_cold = 6 - n_hot - n_warm
 
             try:
                 combo = sorted(
-                    random.sample(g1_u_hot, c_g1) +
-                    random.sample(g2_hot, c_g2) +
-                    random.sample(g3_warm, c_g3) +
-                    random.sample(g4_cold, c_g4) +
-                    random.sample(g5_u_cold, c_g5)
+                    random.sample(hot_pool, n_hot) + 
+                    random.sample(warm_pool, n_warm) + 
+                    random.sample(cold_pool, n_cold)
                 )
             except ValueError:
                 continue
@@ -140,7 +131,7 @@ def generate_v35_dual_mode_swarm(history_data: list, game="655", num_combos=150)
             if len(combo) < 6:
                 continue
 
-            # Phủ tối thiểu 3 khoảng chục
+            # Phủ ít nhất 3 khoảng chục
             if len(set(x // 10 for x in combo)) < 3:
                 continue
 
@@ -163,7 +154,7 @@ def generate_v35_dual_mode_swarm(history_data: list, game="655", num_combos=150)
             if combo not in combos:
                 combos.append(combo)
 
-    # Nới lỏng bổ sung nếu chưa đủ bộ
+    # Nới lỏng bổ sung nếu chưa đủ 150 bộ
     while len(combos) < num_combos:
         combo = sorted(random.sample(top_matrix, 6))
         if combo not in combos:
@@ -225,11 +216,11 @@ def handle_dudoan(message):
         threading.Thread(target=fetch_vietlott_645_data if game == "645" else fetch_vietlott_655_data, args=(300,)).start()
         return
 
-    combos, top_matrix = generate_v35_dual_mode_swarm(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v36_optimized_swarm(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V35 DUAL-SWARM - {game_name.upper()}**",
-        f"📌 **Ma trận Trọng Tâm V35 ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V36 OPTIMIZED - {game_name.upper()}**",
+        f"📌 **Ma trận Trọng Tâm V36 ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
         f"💡 **Dàn 5 bộ số hạt nhân săn Jackpot:**"
     ]
@@ -257,7 +248,7 @@ def handle_test(message):
         bot.reply_to(message, f"❌ Cú pháp chưa đúng hoặc không tìm thấy ngày trong CSDL!\n👉 Thử lại: `/test {game} 2026-08-01 => 30`", parse_mode="Markdown")
         return
 
-    status_msg = bot.reply_to(message, f"⚙️ Đang chạy Backtest V35 Dual-Swarm {game_name} ({len(dates)} kỳ)...")
+    status_msg = bot.reply_to(message, f"⚙️ Đang chạy Backtest V36 Optimized {game_name} ({len(dates)} kỳ)...")
 
     data_map = {d["date"]: d["result"] for d in dataset}
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
@@ -265,13 +256,13 @@ def handle_test(message):
     total_max_match = 0
     count_jackpot = 0
     count_high = 0
-    lines = [f"🧪 BACKTEST V35 DUAL-SWARM {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST V36 OPTIMIZED {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v35_dual_mode_swarm(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v36_optimized_swarm(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0

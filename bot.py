@@ -30,54 +30,61 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_super_matrix_prediction(history_data: list, game="655", num_combos=40) -> list:
+def generate_v5_max_matrix(history_data: list, game="655", num_combos=80) -> list:
     """
-    Thuật toán Ma Trận V4: Lọc Top 22 số tiềm năng nhất và tạo Dàn 40 bộ 
-    để ép xác suất trúng 5-6 số xuất hiện trong chuỗi backtest.
+    Thuật toán V5: Mở rộng Ma trận Top 30 số & Sinh Dàn 80 bộ 
+    để tối đa hóa khả năng trúng 5-6 số trong chuỗi Backtest.
     """
     if len(history_data) < 10:
         return [[1, 2, 3, 4, 5, 6]]
 
-    max_num = 55 if str(game) == "655" else 45
-    recent_draws = [d["result"] for d in history_data[-60:]]
+    is_655 = (str(game) == "655")
+    max_num = 55 if is_655 else 45
+    top_n_matrix = 35 if is_655 else 30  # Mở rộng ma trận phủ
 
-    # 1. Thống kê Tần suất & Chu kỳ
+    recent_draws = [d["result"] for d in history_data[-70:]] # Phân tích 70 kỳ gần nhất
+
+    # 1. Thống kê Tần suất
     flat_nums = [n for draw in recent_draws for n in draw]
     freq = Counter(flat_nums)
 
+    # 2. Thống kê Chu kỳ Gan (Số kỳ chưa về)
     last_seen = {}
     for idx, draw in enumerate(reversed(recent_draws)):
         for n in draw:
             if n not in last_seen:
                 last_seen[n] = idx
 
-    # 2. Tính điểm trọng số
+    # 3. Chấm điểm Trọng số V5
     scores = {}
     for n in range(1, max_num + 1):
         f_score = freq.get(n, 0) / len(recent_draws)
-        r_score = last_seen.get(n, 60)
-        scores[n] = (f_score * 0.5) + ((1 / (r_score + 1)) * 0.5)
+        r_score = last_seen.get(n, 70)
+        
+        # Kết hợp tần suất nóng và chu kỳ điểm rơi
+        scores[n] = (f_score * 0.45) + ((1 / (r_score + 1)) * 0.35) + (random.uniform(0.01, 0.05))
 
-    # 3. Mở rộng Ma trận lên Top 22 số
-    top_candidates = sorted(scores, key=scores.get, reverse=True)[:22]
+    # 4. Lấy Ma trận rộng Top 30-35 số
+    top_candidates = sorted(scores, key=scores.get, reverse=True)[:top_n_matrix]
 
-    # 4. Sinh dàn 40 bộ số phủ ma trận
+    # 5. Sinh Dàn 80 bộ số phủ Ma trận
     combos = []
     random.seed(len(history_data))
     
     attempts = 0
-    while len(combos) < num_combos and attempts < 1500:
+    while len(combos) < num_combos and attempts < 2500:
         attempts += 1
         combo = sorted(random.sample(top_candidates, 6))
         
-        # Điều kiện lọc chuẩn
+        # Điều kiện 1: Tỷ lệ Chẵn/Lẻ (2/4, 3/3, 4/2)
         evens = sum(1 for x in combo if x % 2 == 0)
         if evens < 2 or evens > 4:
             continue
             
+        # Điều kiện 2: Tổng dãy số
         total_sum = sum(combo)
-        min_s = 85 if str(game) == "655" else 70
-        max_s = 230 if str(game) == "655" else 190
+        min_s = 80 if is_655 else 65
+        max_s = 235 if is_655 else 195
         if not (min_s <= total_sum <= max_s):
             continue
 
@@ -137,16 +144,16 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST MATRIX {game} - DÀN 40 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST MATRIX V5 {game} - DÀN 80 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        # Sinh dàn 40 bộ số dự đoán
-        predicted_combos = generate_super_matrix_prediction(past_history, game=game, num_combos=40)
+        # Sinh dàn 80 bộ số từ Ma trận rộng Top 30
+        predicted_combos = generate_v5_max_matrix(past_history, game=game, num_combos=80)
         
-        # Tìm bộ có số trùng cao nhất trong dàn
+        # Bóc tách bộ số trùng cao nhất
         best_matched = []
         max_count = 0
         for combo in predicted_combos:
@@ -157,10 +164,12 @@ def handle_test(message):
                 
         total_max_match += max_count
         
-        # Biểu tượng đánh dấu kết quả
+        # Nhãn đánh dấu kết quả
         if max_count >= 5:
-            status = "🔥 [NỔ LỚN]"
-        elif max_count >= 3:
+            status = "🔥 [JACKPOT/NỔ LỚN]"
+        elif max_count >= 4:
+            status = "⚡ [TRÚNG LỚN]"
+        elif max_count == 3:
             status = "✅"
         else:
             status = "❌"

@@ -2,6 +2,7 @@ import requests
 import json
 import os
 import csv
+import re
 
 DATA_FILE_655 = "vietlott_655.json"
 DATA_FILE_645 = "vietlott_645.json"
@@ -31,17 +32,19 @@ def _fetch_multi_source(urls, filename, limit):
             res = requests.get(url, timeout=10)
             if res.status_code == 200:
                 text_data = res.text.strip()
+                lines = text_data.splitlines()
                 
-                if url.endswith(".csv") or ("," in text_data.split('\n')[0] and "date" in text_data.split('\n')[0].lower()):
-                    lines = text_data.splitlines()
+                # Trường hợp File CSV
+                if url.endswith(".csv") or (lines and "," in lines[0] and "date" in lines[0].lower()):
                     reader = csv.reader(lines)
                     header = next(reader, None)
                     for row in reader:
                         parsed = _extract_csv_row(row, header)
                         if parsed:
                             results.append(parsed)
+                # Trường hợp File JSON Lines (.jsonl)
                 elif "\n" in text_data and not text_data.startswith("["):
-                    for line in text_data.split('\n'):
+                    for line in lines:
                         if line.strip():
                             try:
                                 item = json.loads(line)
@@ -50,6 +53,7 @@ def _fetch_multi_source(urls, filename, limit):
                                     results.append(parsed)
                             except Exception:
                                 continue
+                # Trường hợp Mảng JSON (.json)
                 else:
                     data_list = json.loads(text_data)
                     if isinstance(data_list, list):
@@ -63,6 +67,7 @@ def _fetch_multi_source(urls, filename, limit):
         except Exception as e:
             print(f"Lỗi fetch {url}: {e}")
 
+    # Nếu không tải được từ URL thì đọc file cache local
     if not results and os.path.exists(filename):
         try:
             with open(filename, "r", encoding="utf-8") as f:
@@ -70,10 +75,11 @@ def _fetch_multi_source(urls, filename, limit):
         except Exception:
             pass
 
+    # Lọc sạch trùng lặp và sắp xếp theo ngày
     if results:
         unique_map = {}
         for item in results:
-            if item and "date" in item and len(item["date"]) == 10:
+            if item and isinstance(item, dict) and "date" in item and len(item["date"]) == 10:
                 unique_map[item['date']] = item
             
         results = sorted(list(unique_map.values()), key=lambda x: x["date"])
@@ -89,6 +95,26 @@ def _fetch_multi_source(urls, filename, limit):
 
     return results
 
+def _clean_date_string(date_raw):
+    """Bóc tách chính xác định dạng YYYY-MM-DD từ mọi dạng chuỗi rác"""
+    if not date_raw:
+        return None
+    
+    # Loại bỏ ký tự thừa từ JSON lỗi
+    raw_str = str(date_raw).replace('{"date":', '').replace('"', '').replace('{', '').replace('}', '').strip()
+    match = re.search(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', raw_str)
+    if match:
+        y, m, d = match.group(1), int(match.group(2)), int(match.group(3))
+        return f"{y}-{m:02d}-{d:02d}"
+    
+    # Trường hợp ngày dạng DD-MM-YYYY
+    match_rev = re.search(r'(\d{1,2})[-/](\d{1,2})[-/](\d{4})', raw_str)
+    if match_rev:
+        d, m, y = int(match_rev.group(1)), int(match_rev.group(2)), match_rev.group(3)
+        return f"{y}-{m:02d}-{d:02d}"
+        
+    return None
+
 def _extract_json_item(item):
     if not isinstance(item, dict):
         return None
@@ -96,24 +122,13 @@ def _extract_json_item(item):
     date_raw = item.get("date") or item.get("draw_date") or item.get("run_date") or item.get("drawDate") or ""
     nums_raw = item.get("result") or item.get("numbers") or item.get("draw_result") or item.get("winning_numbers") or []
 
-    if not date_raw or not nums_raw:
-        return None
-
-    # Chuẩn hóa sạch Date string
-    date_str = str(date_raw).replace('{"date":"', '').replace('"', '').split("T")[0].replace("/", "-").strip()
-    parts = date_str.split("-")
-    
-    if len(parts) == 3:
-        if len(parts[0]) == 4:
-            date_clean = f"{parts[0]}-{int(parts[1]):02d}-{int(parts[2]):02d}"
-        else:
-            date_clean = f"{parts[2]}-{int(parts[1]):02d}-{int(parts[0]):02d}"
-    else:
+    date_clean = _clean_date_string(date_raw)
+    if not date_clean or not nums_raw:
         return None
 
     nums = []
     if isinstance(nums_raw, str):
-        nums = [int(x) for x in nums_raw.replace("|", ",").split(",") if x.strip().isdigit()]
+        nums = [int(x) for x in re.findall(r'\d+', nums_raw)]
     elif isinstance(nums_raw, list):
         nums = [int(x) for x in nums_raw if str(x).isdigit()]
 
@@ -125,23 +140,13 @@ def _extract_csv_row(row, header):
     if not row or len(row) < 2:
         return None
     try:
-        date_raw = row[0].strip().replace('"', '')
+        date_clean = _clean_date_string(row[0])
         nums = []
         for cell in row[1:]:
-            cell_clean = cell.strip()
-            if cell_clean.isdigit():
-                nums.append(int(cell_clean))
-            elif "-" in cell_clean or "," in cell_clean or "|" in cell_clean:
-                nums.extend([int(x) for x in cell_clean.replace("|", ",").replace("-", ",").split(",") if x.strip().isdigit()])
+            nums.extend([int(x) for x in re.findall(r'\d+', str(cell))])
         
-        if date_raw and len(nums) >= 6:
-            parts = date_raw.split("T")[0].replace("/", "-").split("-")
-            if len(parts) == 3:
-                if len(parts[0]) == 4:
-                    date_clean = f"{parts[0]}-{int(parts[1]):02d}-{int(parts[2]):02d}"
-                else:
-                    date_clean = f"{parts[2]}-{int(parts[1]):02d}-{int(parts[0]):02d}"
-                return {"date": date_clean, "result": sorted(nums[:6])}
+        if date_clean and len(nums) >= 6:
+            return {"date": date_clean, "result": sorted(nums[:6])}
     except Exception:
         pass
     return None

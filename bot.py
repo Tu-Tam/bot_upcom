@@ -31,28 +31,21 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v13_dynamic_expansion(history_data: list, game="655", num_combos=150) -> tuple:
+def generate_v14_partition_wheeling(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Thuật toán V13: Ma trận Mở rộng Dynamic & Phủ Hình học Hamming
-    Đẩy tối đa khả năng bắt dính 5-6 số.
+    Thuật toán V14: Phân Lớp Đa Tầng Cực Đại (Anchor Core + Satellite + Wildcard)
+    Ép cụm điểm rơi để săn mốc 5 - 6 số.
     """
     if len(history_data) < 10:
         return [[1, 2, 3, 4, 5, 6]], [1, 2, 3, 4, 5, 6]
 
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
-    top_n_matrix = 32 if is_655 else 28  # Phủ rộng không gian số
+    recent_draws = [d["result"] for d in history_data[-80:]]
 
-    recent_draws = [d["result"] for d in history_data[-100:]]
-
-    # 1. Thống kê Tần suất & Cặp số hay đi cùng nhau (Affinity Matrix)
+    # 1. Thống kê Tần suất & Chu kỳ nhịp rơi
     flat_nums = [n for draw in recent_draws for n in draw]
     freq = Counter(flat_nums)
-
-    pair_counter = Counter()
-    for draw in recent_draws:
-        for pair in itertools.combinations(sorted(draw), 2):
-            pair_counter[pair] += 1
 
     last_seen = {}
     for idx, draw in enumerate(reversed(recent_draws)):
@@ -60,25 +53,42 @@ def generate_v13_dynamic_expansion(history_data: list, game="655", num_combos=15
             if n not in last_seen:
                 last_seen[n] = idx
 
-    # 2. Tính điểm Ma trận Top
+    # 2. Chấm điểm & Phân tầng Ma trận
     scores = {}
     for n in range(1, max_num + 1):
         f = freq.get(n, 0)
-        r = last_seen.get(n, 100)
-        scores[n] = (f * 1.2) + (12 / (r + 1)) + random.uniform(0.01, 0.2)
+        r = last_seen.get(n, 80)
+        scores[n] = (f * 1.5) + (10 / (r + 1))
 
-    top_candidates = sorted(scores, key=scores.get, reverse=True)[:top_n_matrix]
+    sorted_candidates = sorted(scores, key=scores.get, reverse=True)
 
-    # 3. Sinh dàn 150 bộ số tối ưu khoảng cách Hamming & Cặp đi kèm
+    # Chia 3 Phân Lớp
+    anchor_core = sorted_candidates[:4]       # Trục Cố Định (4 số cực Hot)
+    satellite_pool = sorted_candidates[4:20]  # Vệ Tinh (16 số)
+    wildcard_pool = sorted_candidates[20:30]   # Bẫy Rác (10 số)
+
+    top_matrix = sorted(anchor_core + satellite_pool + wildcard_pool)
+
+    # 3. Sinh Dàn 150 bộ số ghép Cụm Chiến Thuật
     combos = []
     attempts = 0
     random.seed(len(history_data))
 
-    while len(combos) < num_combos and attempts < 12000:
+    while len(combos) < num_combos and attempts < 15000:
         attempts += 1
         
-        # Lựa chọn 6 số từ Ma trận
-        combo = sorted(random.sample(top_candidates, 6))
+        # Công thức ghép: (1-2 Anchor) + (3-4 Satellite) + (0-1 Wildcard)
+        num_anchor = random.choice([1, 2])
+        num_wildcard = random.choice([0, 1])
+        num_satellite = 6 - num_anchor - num_wildcard
+
+        c_anchor = random.sample(anchor_core, num_anchor)
+        c_sat = random.sample(satellite_pool, num_satellite)
+        c_wild = random.sample(wildcard_pool, num_wildcard) if num_wildcard > 0 else []
+
+        combo = sorted(list(set(c_anchor + c_sat + c_wild)))
+        if len(combo) < 6:
+            continue
 
         # Điều kiện 1: Tỷ lệ Chẵn / Lẻ (2-4, 3-3, 4-2)
         evens = sum(1 for x in combo if x % 2 == 0)
@@ -92,16 +102,10 @@ def generate_v13_dynamic_expansion(history_data: list, game="655", num_combos=15
         if not (min_s <= total_sum <= max_s):
             continue
 
-        # Điều kiện 3: Khoảng cách Hamming (Không chọn bộ quá giống bộ đã có)
-        if combos:
-            max_overlap = max(len(set(combo) & set(c)) for c in combos)
-            if max_overlap >= 5 and attempts < 9000:
-                continue
-
         if combo not in combos:
             combos.append(combo)
 
-    return combos if combos else [top_candidates[:6]], sorted(top_candidates)
+    return combos if combos else [top_matrix[:6]], top_matrix
 
 def parse_date_range(raw_text: str, dataset: list) -> list:
     clean_text = re.sub(r'^(655|645)', '', raw_text).strip()
@@ -151,13 +155,13 @@ def handle_dudoan(message):
         bot.reply_to(message, f"❌ Chưa có dữ liệu {game_name}. Hãy gõ /reload trước!")
         return
 
-    combos, top_matrix = generate_v13_dynamic_expansion(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v14_partition_wheeling(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V13 DYNAMIC - {game_name.upper()}**",
-        f"📌 **Ma trận Mở rộng ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V14 PARTITION - {game_name.upper()}**",
+        f"📌 **Ma trận Phân Lớp ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
-        f"💡 **Dàn 5 bộ số lọc Hamming tối ưu:**"
+        f"💡 **Dàn 5 bộ số trích từ Trục Cố Định:**"
     ]
     for i, cb in enumerate(combos, 1):
         msg.append(f"Bộ {i}: `{cb}`")
@@ -180,13 +184,13 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST DYNAMIC V13 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST PARTITION V14 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v13_dynamic_expansion(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v14_partition_wheeling(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0

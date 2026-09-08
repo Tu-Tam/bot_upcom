@@ -31,19 +31,19 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v14_partition_wheeling(history_data: list, game="655", num_combos=150) -> tuple:
+def generate_v15_multi_anchor_ensemble(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Thuật toán V14: Phân Lớp Đa Tầng Cực Đại (Anchor Core + Satellite + Wildcard)
-    Ép cụm điểm rơi để săn mốc 5 - 6 số.
+    Thuật toán V15: Ma trận Đa Trục Linh Hoạt (Multi-Anchor Ensemble Wheeling)
+    Chia nhỏ rủi ro và ép tối đa cơ hội trúng 5-6 số khi 1 trong các Trục nổ.
     """
     if len(history_data) < 10:
         return [[1, 2, 3, 4, 5, 6]], [1, 2, 3, 4, 5, 6]
 
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
-    recent_draws = [d["result"] for d in history_data[-80:]]
+    recent_draws = [d["result"] for d in history_data[-90:]]
 
-    # 1. Thống kê Tần suất & Chu kỳ nhịp rơi
+    # 1. Thống kê & Tính điểm trọng số
     flat_nums = [n for draw in recent_draws for n in draw]
     freq = Counter(flat_nums)
 
@@ -53,57 +53,59 @@ def generate_v14_partition_wheeling(history_data: list, game="655", num_combos=1
             if n not in last_seen:
                 last_seen[n] = idx
 
-    # 2. Chấm điểm & Phân tầng Ma trận
     scores = {}
     for n in range(1, max_num + 1):
         f = freq.get(n, 0)
-        r = last_seen.get(n, 80)
-        scores[n] = (f * 1.5) + (10 / (r + 1))
+        r = last_seen.get(n, 90)
+        scores[n] = (f * 1.3) + (12 / (r + 1)) + random.uniform(0.01, 0.1)
 
     sorted_candidates = sorted(scores, key=scores.get, reverse=True)
+    top_matrix = sorted(sorted_candidates[:30])
 
-    # Chia 3 Phân Lớp
-    anchor_core = sorted_candidates[:4]       # Trục Cố Định (4 số cực Hot)
-    satellite_pool = sorted_candidates[4:20]  # Vệ Tinh (16 số)
-    wildcard_pool = sorted_candidates[20:30]   # Bẫy Rác (10 số)
-
-    top_matrix = sorted(anchor_core + satellite_pool + wildcard_pool)
-
-    # 3. Sinh Dàn 150 bộ số ghép Cụm Chiến Thuật
-    combos = []
-    attempts = 0
+    # 2. Tạo 5 Cụm Trục Core độc lập (Mỗi cụm 3 số)
+    top_15 = sorted_candidates[:15]
     random.seed(len(history_data))
+    shuffled_top15 = top_15.copy()
+    random.shuffle(shuffled_top15)
+    
+    anchor_groups = [shuffled_top15[i:i+3] for i in range(0, 15, 3)]
+    satellite_pool = sorted_candidates[15:30]
 
-    while len(combos) < num_combos and attempts < 15000:
-        attempts += 1
-        
-        # Công thức ghép: (1-2 Anchor) + (3-4 Satellite) + (0-1 Wildcard)
-        num_anchor = random.choice([1, 2])
-        num_wildcard = random.choice([0, 1])
-        num_satellite = 6 - num_anchor - num_wildcard
+    # 3. Sinh Dàn 150 bộ phân bổ đều qua 5 Trục (30 bộ/Trục)
+    combos = []
+    combos_per_group = num_combos // len(anchor_groups)
 
-        c_anchor = random.sample(anchor_core, num_anchor)
-        c_sat = random.sample(satellite_pool, num_satellite)
-        c_wild = random.sample(wildcard_pool, num_wildcard) if num_wildcard > 0 else []
+    for grp_idx, core_anchor in enumerate(anchor_groups):
+        grp_combos = []
+        attempts = 0
 
-        combo = sorted(list(set(c_anchor + c_sat + c_wild)))
-        if len(combo) < 6:
-            continue
+        while len(grp_combos) < combos_per_group and attempts < 5000:
+            attempts += 1
 
-        # Điều kiện 1: Tỷ lệ Chẵn / Lẻ (2-4, 3-3, 4-2)
-        evens = sum(1 for x in combo if x % 2 == 0)
-        if evens < 2 or evens > 4:
-            continue
+            # Lấy 2 số từ Trục Core hiện tại + 4 số từ Tập Vệ Tinh/Trục khác
+            num_core = 2
+            c_core = random.sample(core_anchor, num_core)
+            
+            other_pool = [x for x in top_matrix if x not in c_core]
+            c_sat = random.sample(other_pool, 4)
 
-        # Điều kiện 2: Tổng dãy số
-        total_sum = sum(combo)
-        min_s = 80 if is_655 else 65
-        max_s = 235 if is_655 else 195
-        if not (min_s <= total_sum <= max_s):
-            continue
+            combo = sorted(c_core + c_sat)
 
-        if combo not in combos:
-            combos.append(combo)
+            # Lọc Chẵn / Lẻ (2-4, 3-3, 4-2)
+            evens = sum(1 for x in combo if x % 2 == 0)
+            if evens < 2 or evens > 4:
+                continue
+
+            # Lọc Tổng dãy số
+            total_sum = sum(combo)
+            min_s = 80 if is_655 else 65
+            max_s = 235 if is_655 else 195
+            if not (min_s <= total_sum <= max_s):
+                continue
+
+            if combo not in combos:
+                combos.append(combo)
+                grp_combos.append(combo)
 
     return combos if combos else [top_matrix[:6]], top_matrix
 
@@ -155,13 +157,13 @@ def handle_dudoan(message):
         bot.reply_to(message, f"❌ Chưa có dữ liệu {game_name}. Hãy gõ /reload trước!")
         return
 
-    combos, top_matrix = generate_v14_partition_wheeling(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v15_multi_anchor_ensemble(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V14 PARTITION - {game_name.upper()}**",
-        f"📌 **Ma trận Phân Lớp ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V15 MULTI-ANCHOR - {game_name.upper()}**",
+        f"📌 **Ma trận Đa Trục ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
-        f"💡 **Dàn 5 bộ số trích từ Trục Cố Định:**"
+        f"💡 **Dàn 5 bộ số trích từ các Trục Linh Hoạt:**"
     ]
     for i, cb in enumerate(combos, 1):
         msg.append(f"Bộ {i}: `{cb}`")
@@ -184,13 +186,13 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST PARTITION V14 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST MULTI-ANCHOR V15 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v14_partition_wheeling(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v15_multi_anchor_ensemble(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0

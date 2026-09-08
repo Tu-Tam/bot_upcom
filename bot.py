@@ -31,10 +31,10 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v22_multi_period_matrix(history_data: list, game="655", num_combos=150) -> tuple:
+def generate_v23_combinatorial_covering(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Thuật toán V22: Multi-Period Density Matrix & Subset Intersection Coverage
-    Cân bằng xác suất giữa tần suất lịch sử và độ bao phủ ma trận tập con.
+    Thuật toán V23: Pure Combinatorial Minimum Distance Covering
+    Phủ tối ưu bằng tỷ lệ 70% HOT - 30% COLD và ép khoảng cách Hamming.
     """
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
@@ -43,58 +43,59 @@ def generate_v22_multi_period_matrix(history_data: list, game="655", num_combos=
         base = list(range(1, 7))
         return [base], base
 
-    # 1. Thống kê tần suất ngắn hạn (20 kỳ) và trung hạn (80 kỳ)
-    draws_short = [d["result"] for d in history_data[-20:]]
-    draws_mid = [d["result"] for d in history_data[-80:]]
+    # 1. Thống kê tần suất để chia nhóm HOT / COLD
+    draws_50 = [d["result"] for d in history_data[-50:]]
+    freq = Counter([n for draw in draws_50 for n in draw])
 
-    freq_short = Counter([n for draw in draws_short for n in draw])
-    freq_mid = Counter([n for draw in draws_mid for n in draw])
+    # Xếp hạng số theo tần suất
+    sorted_all = sorted(range(1, max_num + 1), key=lambda x: freq.get(x, 0), reverse=True)
+    
+    # 70% Hot (21 số) & 30% Cold/Outlier (9 số)
+    hot_pool = sorted_all[:21]
+    cold_pool = sorted_all[21:]
 
-    scores = {}
-    for n in range(1, max_num + 1):
-        s_score = freq_short.get(n, 0) * 2.5
-        m_score = freq_mid.get(n, 0) * 1.0
-        scores[n] = s_score + m_score + random.uniform(0.01, 0.1)
+    top_matrix = sorted(hot_pool + cold_pool[:9])  # Ma trận 30 số cân bằng
 
-    sorted_candidates = sorted(scores, key=scores.get, reverse=True)
-    top_matrix = sorted(sorted_candidates[:30])  # Top 30 số có mật độ cao nhất
-
-    # 2. Sinh Dàn 150 bộ tối ưu bao phủ tập con
+    # 2. Sinh dàn 150 bộ phủ tối ưu
     combos = []
     attempts = 0
     random.seed(len(history_data) + 2026)
 
-    min_s = 100 if is_655 else 80
-    max_s = 210 if is_655 else 185
+    min_s = 95 if is_655 else 75
+    max_s = 215 if is_655 else 185
 
-    while len(combos) < num_combos and attempts < 35000:
+    while len(combos) < num_combos and attempts < 40000:
         attempts += 1
 
-        # Lấy 6 số ngẫu nhiên từ Top 30 ma trận
-        combo = sorted(random.sample(top_matrix, 6))
+        # Cấu trúc bộ: 4 số từ HOT pool + 2 số từ COLD pool
+        h_selected = random.sample(hot_pool, 4)
+        c_selected = random.sample(cold_pool, 2)
+        combo = sorted(h_selected + c_selected)
 
-        # Điều kiện 1: Tỷ lệ Chẵn / Lẻ (2-4, 3-3, 4-2)
+        # Điều kiện 1: Tỷ lệ Chẵn / Lẻ chuẩn (2-4, 3-3, 4-2)
         evens = sum(1 for x in combo if x % 2 == 0)
         if evens < 2 or evens > 4:
             continue
 
-        # Điều kiện 2: Khống chế Tổng dãy số
+        # Điều kiện 2: Tổng Gaussian Standard
         total_sum = sum(combo)
         if not (min_s <= total_sum <= max_s):
             continue
 
-        # Điều kiện 3: Giới hạn trùng lặp tối đa 4 số để xòe rộng ma trận
-        if combos and attempts < 25000:
+        # Điều kiện 3: Hamming Distance Constraint (Chỉ cho phép trùng tối đa 3 số với các bộ đã chọn)
+        if combos and attempts < 30000:
             max_overlap = max(len(set(combo) & set(c)) for c in combos)
-            if max_overlap > 4:
+            if max_overlap > 3:  # Ép dàn rải rộng cực đại
                 continue
 
         if combo not in combos:
             combos.append(combo)
 
-    # Nới lỏng nhẹ nếu chưa đủ bộ
+    # Nới lỏng kiểm tra trùng lặp nếu chưa đủ 150 bộ
     while len(combos) < num_combos:
-        combo = sorted(random.sample(top_matrix, 6))
+        h_selected = random.sample(hot_pool, 4)
+        c_selected = random.sample(cold_pool, 2)
+        combo = sorted(h_selected + c_selected)
         if combo not in combos:
             combos.append(combo)
 
@@ -148,11 +149,11 @@ def handle_dudoan(message):
         bot.reply_to(message, f"❌ Chưa có dữ liệu {game_name}. Hãy gõ /reload trước!")
         return
 
-    combos, top_matrix = generate_v22_multi_period_matrix(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v23_combinatorial_covering(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V22 MULTI-PERIOD - {game_name.upper()}**",
-        f"📌 **Ma trận Tần số Cân bằng ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V23 COMBINATORIAL COVERING - {game_name.upper()}**",
+        f"📌 **Ma trận Phủ Vàng 70/30 ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
         f"💡 **Dàn 5 bộ số hạt nhân đi kèm:**"
     ]
@@ -177,13 +178,13 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST MULTI-PERIOD V22 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST COMBINATORIAL COVERING V23 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v22_multi_period_matrix(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v23_combinatorial_covering(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0

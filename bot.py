@@ -31,10 +31,10 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v26_centroid_covering(history_data: list, game="655", num_combos=150) -> tuple:
+def generate_v27_dynamic_pivot(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Thuật toán V26: Multi-Centroid Clustering & Weighted Overlap Matrix
-    Gom cụm đa tâm tương quan và kiểm soát cấu trúc hàng đơn vị.
+    Thuật toán V27: Multi-Pivot Dynamic Covering & Set-Cover Optimization
+    Phát triển bộ số từ cặp điểm tựa linh hoạt và phủ tối đa tập 3 số.
     """
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
@@ -53,9 +53,17 @@ def generate_v26_centroid_covering(history_data: list, game="655", num_combos=15
 
     sorted_all = sorted(range(1, max_num + 1), key=lambda x: freq.get(x, 0), reverse=True)
     
-    # Lấy 3 tâm mạnh nhất từ Top Hot
-    centroids = sorted_all[:3]
-    top_matrix = sorted(sorted_all[:30])
+    hot_pool = sorted_all[:18]
+    warm_pool = sorted_all[18:32]
+    top_matrix = sorted(hot_pool + warm_pool[:12])
+
+    # Tạo danh sách các cặp Pivot có trọng số tương quan cao nhất
+    pivot_pairs = []
+    for p1, p2 in itertools.combinations(hot_pool, 2):
+        weight = pair_weights.get(tuple(sorted([p1, p2])), 0)
+        pivot_pairs.append((p1, p2, weight))
+    pivot_pairs.sort(key=lambda x: x[2], reverse=True)
+    top_pivots = [(p[0], p[1]) for p in pivot_pairs[:25]]
 
     combos = []
     attempts = 0
@@ -64,55 +72,53 @@ def generate_v26_centroid_covering(history_data: list, game="655", num_combos=15
     min_s = 95 if is_655 else 75
     max_s = 215 if is_655 else 185
 
-    combos_per_centroid = num_combos // 3
+    while len(combos) < num_combos and attempts < 60000:
+        attempts += 1
 
-    for c_idx, centroid in enumerate(centroids):
-        # Lấy các số có liên kết cao nhất với centroid này
-        candidates = [n for n in top_matrix if n != centroid]
-        candidates.sort(key=lambda x: pair_weights.get(tuple(sorted([centroid, x])), 0), reverse=True)
+        # 1. Chọn ngẫu nhiên 1 Cặp Điểm Tựa (Pivot Pair) từ Top 25
+        p1, p2 = random.choice(top_pivots)
+
+        # 2. Chọn 3 số từ Top Matrix có độ tương quan cao với cặp Pivot
+        candidates = [n for n in top_matrix if n not in (p1, p2)]
+        candidates.sort(key=lambda x: pair_weights.get(tuple(sorted([p1, x])), 0) + 
+                                     pair_weights.get(tuple(sorted([p2, x])), 0), reverse=True)
         
-        c_pool = candidates[:14]
-        c_combos = 0
-        local_attempts = 0
+        selected_3 = random.sample(candidates[:12], 3)
 
-        while c_combos < combos_per_centroid and local_attempts < 20000:
-            local_attempts += 1
-            attempts += 1
+        # 3. Chọn 1 số Bắt Lạnh từ ngoài Hot/Warm Pool
+        cold_candidate = random.choice([n for n in sorted_all[30:] if n not in selected_3])
 
-            # Lấy tâm + 4 số liên quan + 1 số từ ngoài pool để bắt số lạnh
-            sub_select = random.sample(c_pool, 4)
-            outer_select = random.choice([n for n in sorted_all[20:] if n not in sub_select and n != centroid])
-            
-            combo = sorted([centroid] + sub_select + [outer_select])
+        combo = sorted([p1, p2] + selected_3 + [cold_candidate])
 
-            # Kiểm tra 1: Hàng đơn vị (không quá 3 số cùng đuôi)
-            mod_counts = Counter([x % 10 for x in combo])
-            if max(mod_counts.values()) > 3:
+        # Lọc 1: Không quá 1 cặp liền kề
+        adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
+        if adj_count > 1:
+            continue
+
+        # Lọc 2: Tỷ lệ Chẵn/Lẻ (2-4, 3-3, 4-2)
+        evens = sum(1 for x in combo if x % 2 == 0)
+        if evens < 2 or evens > 4:
+            continue
+
+        # Lọc 3: Tổng Chuẩn Gaussian
+        if not (min_s <= sum(combo) <= max_s):
+            continue
+
+        # Lọc 4: Khoảng cách giữa các số (Max Gap <= 22)
+        gaps = [combo[i+1] - combo[i] for i in range(5)]
+        if max(gaps) > 22:
+            continue
+
+        # Lọc 5: Optimal Hamming Distance Limit (ép <= 3 cho 120 bộ đầu)
+        if combos and attempts < 45000:
+            limit = 3 if len(combos) < 120 else 4
+            if max(len(set(combo) & set(c)) for c in combos) > limit:
                 continue
 
-            # Kiểm tra 2: Tối đa 1 cặp liền kề
-            adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
-            if adj_count > 1:
-                continue
+        if combo not in combos:
+            combos.append(combo)
 
-            # Kiểm tra 3: Tổng Gaussian & Chẵn/Lẻ
-            if not (min_s <= sum(combo) <= max_s):
-                continue
-            evens = sum(1 for x in combo if x % 2 == 0)
-            if evens < 2 or evens > 4:
-                continue
-
-            # Kiểm tra 4: Distance Constraint
-            if combos and local_attempts < 15000:
-                limit = 3 if len(combos) < 120 else 4
-                if max(len(set(combo) & set(c)) for c in combos) > limit:
-                    continue
-
-            if combo not in combos:
-                combos.append(combo)
-                c_combos += 1
-
-    # Bổ sung bộ số phủ nếu chưa đủ 150
+    # Bổ sung bộ số nếu chưa đủ 150
     while len(combos) < num_combos:
         combo = sorted(random.sample(top_matrix, 6))
         if combo not in combos:
@@ -168,11 +174,11 @@ def handle_dudoan(message):
         bot.reply_to(message, f"❌ Chưa có dữ liệu {game_name}. Hãy gõ /reload trước!")
         return
 
-    combos, top_matrix = generate_v26_centroid_covering(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v27_dynamic_pivot(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V26 CENTROID - {game_name.upper()}**",
-        f"📌 **Ma trận Cụm Đa Tâm ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V27 DYNAMIC PIVOT - {game_name.upper()}**",
+        f"📌 **Ma trận Tương Quan Phủ Điểm Tựa ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
         f"💡 **Dàn 5 bộ số hạt nhân đi kèm:**"
     ]
@@ -197,13 +203,13 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST CENTROID COVERING V26 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST DYNAMIC PIVOT V27 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v26_centroid_covering(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v27_dynamic_pivot(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0

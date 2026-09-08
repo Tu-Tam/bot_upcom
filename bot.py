@@ -31,86 +31,70 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v20_multi_anchor(history_data: list, game="655", num_combos=150) -> tuple:
+def generate_v21_max_coverage(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Thuật toán V20: Dynamic Multi-Anchor & Balanced Cluster Wheeling
-    Phân bổ đa trục linh hoạt để giảm rủi ro lệch trục duy nhất.
+    Thuật toán V21: Greedy Maximum Coverage & Pure Uniform Quadrant Distribution
+    Tối đa hóa khoảng cách giữa các bộ số để tăng diện tích phủ bẫy 5-6 số.
     """
-    if len(history_data) < 10:
-        return [[1, 2, 3, 4, 5, 6]], [1, 2, 3, 4, 5, 6]
-
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
-    
-    # 1. Thống kê dữ liệu 35 kỳ gần nhất
-    recent_draws = [d["result"] for d in history_data[-35:]]
-    flat_nums = [n for draw in recent_draws for n in draw]
-    freq = Counter(flat_nums)
 
-    last_seen = {}
-    for idx, draw in enumerate(reversed(recent_draws)):
-        for n in draw:
-            if n not in last_seen:
-                last_seen[n] = idx
+    # 1. Phân ma trận thành 4 Quadrant (Dải số)
+    q1 = list(range(1, max_num // 4 + 1))
+    q2 = list(range(max_num // 4 + 1, max_num // 2 + 1))
+    q3 = list(range(max_num // 2 + 1, (3 * max_num) // 4 + 1))
+    q4 = list(range((3 * max_num) // 4 + 1, max_num + 1))
 
-    # 2. Tính điểm Ma trận
-    scores = {}
-    for n in range(1, max_num + 1):
-        f = freq.get(n, 0)
-        r = last_seen.get(n, 35)
-        scores[n] = (f * 2.0) + (10 / (r + 1)) + random.uniform(0.01, 0.05)
+    top_matrix = list(range(1, max_num + 1))
 
-    sorted_candidates = sorted(scores, key=scores.get, reverse=True)
-
-    # Tập 6 số Trục hàng đầu (Anchor Pool)
-    anchor_pool = sorted_candidates[:6]
-    # Tập 22 số Ma trận bổ trợ (Support Matrix)
-    support_matrix = sorted_candidates[6:28]
-    
-    top_matrix = sorted(anchor_pool + support_matrix)
-
-    # Tạo các cặp Trục đa dạng từ Anchor Pool (15 cặp khả dĩ)
-    anchor_pairs = list(itertools.combinations(anchor_pool, 2))
-
-    # 3. Sinh Dàn 150 bộ số Phủ Đa Trục
+    # 2. Thuật toán Phủ Tham Ăn Cực Đại (Greedy Maximum Coverage)
     combos = []
     attempts = 0
-    random.seed(len(history_data))
+    random.seed(len(history_data) + 2026)
 
-    while len(combos) < num_combos and attempts < 25000:
+    while len(combos) < num_combos and attempts < 30000:
         attempts += 1
 
-        # Chọn xoay vòng một cặp Trục từ Anchor Pool
-        chosen_pair = list(random.choice(anchor_pairs))
+        # Phân bổ quy chuẩn: 1-2 số từ mỗi Dải Quadrant
+        c1 = random.sample(q1, random.choice([1, 2]))
+        c2 = random.sample(q2, random.choice([1, 2]))
+        c3 = random.sample(q3, random.choice([1, 2]))
         
-        # Chọn 4 số còn lại từ Support Matrix & Anchor Pool
-        available_pool = [x for x in top_matrix if x not in chosen_pair]
-        needed_supp = random.sample(available_pool, 4)
+        needed = 6 - len(c1) - len(c2) - len(c3)
+        if needed <= 0 or needed > len(q4):
+            continue
 
-        combo = sorted(chosen_pair + needed_supp)
+        c4 = random.sample(q4, needed)
+        combo = sorted(c1 + c2 + c3 + c4)
 
-        # Điều kiện 1: Tỷ lệ Chẵn / Lẻ (2-4, 3-3, 4-2)
+        # Điều kiện 1: Tỷ lệ Chẵn/Lẻ chuẩn (2-4, 3-3, 4-2)
         evens = sum(1 for x in combo if x % 2 == 0)
         if evens < 2 or evens > 4:
             continue
 
-        # Điều kiện 2: Tổng dãy số tối ưu
+        # Điều kiện 2: Khống chế Tổng dãy số
         total_sum = sum(combo)
-        min_s = 85 if is_655 else 70
-        max_s = 230 if is_655 else 190
+        min_s = 90 if is_655 else 70
+        max_s = 230 if is_655 else 185
         if not (min_s <= total_sum <= max_s):
             continue
 
-        # Điều kiện 3: Giới hạn mức độ trùng lặp giữa các bộ số để tăng độ bao phủ
-        if combos and attempts < 18000:
+        # Điều kiện 3: Ép khoảng cách tối đa (Chỉ cho phép trùng tối đa 3 số với các bộ đã chọn)
+        if combos and attempts < 22000:
             max_overlap = max(len(set(combo) & set(c)) for c in combos)
-            if max_overlap >= 5:
+            if max_overlap > 3:  # Ép không gian phủ rải rộng tuyệt đối
                 continue
 
         if combo not in combos:
             combos.append(combo)
 
-    return combos, top_matrix
+    # Nới lỏng nhẹ nếu chưa đủ 150 bộ
+    while len(combos) < num_combos:
+        combo = sorted(random.sample(top_matrix, 6))
+        if combo not in combos:
+            combos.append(combo)
+
+    return combos, top_matrix[:28]
 
 def parse_date_range(raw_text: str, dataset: list) -> list:
     clean_text = re.sub(r'^(655|645)', '', raw_text).strip()
@@ -160,11 +144,11 @@ def handle_dudoan(message):
         bot.reply_to(message, f"❌ Chưa có dữ liệu {game_name}. Hãy gõ /reload trước!")
         return
 
-    combos, top_matrix = generate_v20_multi_anchor(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v21_max_coverage(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V20 MULTI-ANCHOR - {game_name.upper()}**",
-        f"📌 **Ma trận Đa Trục ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V21 MAX COVERAGE - {game_name.upper()}**",
+        f"📌 **Ma trận Bao Phủ Tuyệt Đối ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
         f"💡 **Dàn 5 bộ số hạt nhân đi kèm:**"
     ]
@@ -189,13 +173,13 @@ def handle_test(message):
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
     
     total_max_match = 0
-    lines = [f"🧪 BACKTEST MULTI-ANCHOR V20 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST MAX COVERAGE V21 {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v20_multi_anchor(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v21_max_coverage(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0

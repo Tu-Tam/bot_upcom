@@ -30,12 +30,9 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-# =============================================================
-# THUẬT TOÁN V34: ENTROPY SWARM & DYNAMIC COVERAGE EXPANSION
-# =============================================================
 def generate_v34_entropy_swarm(history_data: list, game="655", num_combos=150) -> tuple:
     """
-    Thuật toán V34 gốc:
+    Thuật toán V34: Entropy Swarm & Dynamic Coverage Expansion
     - Phân bổ bắt buộc: HOT (3-4 số), WARM (1-2 số), COLD (1 số)
     - Trải đều dải chục để tối ưu khả năng ăn trọn 5-6 số Jackpot
     """
@@ -110,7 +107,7 @@ def generate_v34_entropy_swarm(history_data: list, game="655", num_combos=150) -
         if not (min_s <= sum(combo) <= max_s):
             continue
 
-        # Lọc 5: Giảm trùng lặp nội bộ (Giữ chuẩn ngưỡng 70.000 lượt thử)
+        # Lọc 5: Giảm trùng lặp nội bộ
         if combos and attempts < 70000:
             limit = 4 if len(combos) < 100 else 5
             if max(len(set(combo) & set(c)) for c in combos) > limit:
@@ -119,7 +116,7 @@ def generate_v34_entropy_swarm(history_data: list, game="655", num_combos=150) -
         if combo not in combos:
             combos.append(combo)
 
-    # Nới lỏng bổ sung từ Ma trận trọng tâm nếu chưa đủ bộ
+    # Nới lỏng bổ sung nếu chưa đủ bộ
     while len(combos) < num_combos:
         combo = sorted(random.sample(top_matrix, 6))
         if combo not in combos:

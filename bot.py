@@ -30,138 +30,158 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v37_swarm(history_data: list, game="655", num_combos=150) -> tuple:
-    """
-    Thuật toán V37:
-    - Mega 6/45: TÁI LẬP CHÍNH XÁC V34 ENTROPY SWARM GỐC (Cơ chế lọc đa dạng bộ số)
-    - Power 6/55: Dynamic Poisson-Entropy Hybrid (Biến thiên tỷ lệ Hot/Warm/Cold rộng để nổ Jackpot)
-    """
-    is_655 = (str(game) == "655")
-    max_num = 55 if is_655 else 45
-    
+# =============================================================
+# THUẬT TOÁN 1: MEGA 6/45 (PURE V34 CORE - TÁI LẬP CHUẨN 100%)
+# =============================================================
+def generate_v34_pure_645(history_data: list, num_combos=150) -> tuple:
     if len(history_data) < 20:
         base = list(range(1, 7))
         return [base] * num_combos, base
 
     draws_recent = [d["result"] for d in history_data[-60:]]
     freq = Counter([n for draw in draws_recent for n in draw])
-    sorted_all = sorted(range(1, max_num + 1), key=lambda x: freq.get(x, 0), reverse=True)
+    sorted_all = sorted(range(1, 46), key=lambda x: freq.get(x, 0), reverse=True)
 
+    hot_pool = sorted_all[:14]
+    warm_pool = sorted_all[14:28]
+    cold_pool = sorted_all[28:]
+    top_matrix = sorted(sorted_all[:30])
+    
     combos = []
     attempts = 0
 
-    if not is_655:
-        # =========================================================
-        # MEGA 6/45: V34 GỐC CHUẨN TUYỆT ĐỐI
-        # =========================================================
-        hot_pool = sorted_all[:14]
-        warm_pool = sorted_all[14:28]
-        cold_pool = sorted_all[28:]
-        top_matrix = sorted(sorted_all[:30])
-        min_s, max_s = 60, 200
+    while len(combos) < num_combos and attempts < 150000:
+        attempts += 1
+        n_hot = random.choice([3, 4])
+        n_warm = random.choice([1, 2])
+        n_cold = 6 - n_hot - n_warm
+        if n_cold <= 0:
+            n_cold = 1
 
-        while len(combos) < num_combos and attempts < 120000:
-            attempts += 1
-            n_hot = random.choice([3, 4])
-            n_warm = random.choice([1, 2])
-            n_cold = max(1, 6 - n_hot - n_warm)
+        try:
+            combo = sorted(
+                random.sample(hot_pool, n_hot) + 
+                random.sample(warm_pool, n_warm) + 
+                random.sample(cold_pool, n_cold)
+            )
+        except ValueError:
+            continue
 
-            try:
-                combo = sorted(
-                    random.sample(hot_pool, n_hot) + 
-                    random.sample(warm_pool, n_warm) + 
-                    random.sample(cold_pool, n_cold)
-                )
-            except ValueError:
+        if len(combo) < 6:
+            continue
+
+        # Lọc khoảng chục >= 3
+        if len(set(x // 10 for x in combo)) < 3:
+            continue
+
+        # Lọc số liền kề <= 2
+        adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
+        if adj_count > 2:
+            continue
+
+        # Chẵn lẻ
+        evens = sum(1 for x in combo if x % 2 == 0)
+        if evens < 1 or evens > 5:
+            continue
+
+        # Tổng dải chuẩn 60 - 200
+        if not (60 <= sum(combo) <= 200):
+            continue
+
+        # Cơ chế lọc trùng lặp đa dạng V34 gốc giúp săn Jackpot 5/6
+        if combos and attempts < 90000:
+            limit = 4 if len(combos) < 100 else 5
+            if max(len(set(combo) & set(c)) for c in combos) > limit:
                 continue
 
-            if len(combo) < 6:
-                continue
+        if combo not in combos:
+            combos.append(combo)
 
-            if len(set(x // 10 for x in combo)) < 3:
-                continue
-
-            adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
-            if adj_count > 2:
-                continue
-
-            evens = sum(1 for x in combo if x % 2 == 0)
-            if evens < 1 or evens > 5:
-                continue
-
-            if not (min_s <= sum(combo) <= max_s):
-                continue
-
-            # Kiểm tra độ phủ overlap chuẩn V34
-            if combos and attempts < 80000:
-                limit = 4 if len(combos) < 90 else 5
-                if max(len(set(combo) & set(c)) for c in combos) > limit:
-                    continue
-
-            if combo not in combos:
-                combos.append(combo)
-
-    else:
-        # =========================================================
-        # POWER 6/55: DYNAMIC POISSON-ENTROPY (SẮP XẾP ĐA DẠNG HÓA TỔ HỢP)
-        # =========================================================
-        hot_pool = sorted_all[:18]
-        warm_pool = sorted_all[18:36]
-        cold_pool = sorted_all[36:]
-        top_matrix = sorted(sorted_all[:40])
-        min_s, max_s = 85, 235
-
-        while len(combos) < num_combos and attempts < 120000:
-            attempts += 1
-            # Biến thiên tỷ lệ ngẫu nhiên theo trọng số Poisson cho 55 số
-            n_hot = random.choice([2, 3, 4])
-            n_warm = random.choice([1, 2, 3])
-            n_cold = 6 - n_hot - n_warm
-
-            if n_cold < 0 or n_cold > len(cold_pool):
-                continue
-
-            try:
-                combo = sorted(
-                    random.sample(hot_pool, n_hot) + 
-                    random.sample(warm_pool, n_warm) + 
-                    random.sample(cold_pool, n_cold)
-                )
-            except ValueError:
-                continue
-
-            if len(combo) < 6:
-                continue
-
-            if len(set(x // 10 for x in combo)) < 3:
-                continue
-
-            adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
-            if adj_count > 2:
-                continue
-
-            evens = sum(1 for x in combo if x % 2 == 0)
-            if evens < 1 or evens > 5:
-                continue
-
-            if not (min_s <= sum(combo) <= max_s):
-                continue
-
-            if combos and attempts < 80000:
-                limit = 4 if len(combos) < 80 else 5
-                if max(len(set(combo) & set(c)) for c in combos) > limit:
-                    continue
-
-            if combo not in combos:
-                combos.append(combo)
-
-    # Nới lỏng bổ sung nếu thiếu bộ
     while len(combos) < num_combos:
         combo = sorted(random.sample(top_matrix, 6))
         if combo not in combos:
             combos.append(combo)
 
     return combos, top_matrix
+
+
+# =============================================================
+# THUẬT TOÁN 2: POWER 6/55 (V38 4-TIER QUANTUM SWARM)
+# =============================================================
+def generate_v38_quantum_655(history_data: list, num_combos=150) -> tuple:
+    if len(history_data) < 20:
+        base = list(range(1, 7))
+        return [base] * num_combos, base
+
+    draws_recent = [d["result"] for d in history_data[-60:]]
+    freq = Counter([n for draw in draws_recent for n in draw])
+    sorted_all = sorted(range(1, 56), key=lambda x: freq.get(x, 0), reverse=True)
+
+    # Chia 4 tầng chuyên biệt cho dải bóng 55 số
+    super_hot = sorted_all[:10]
+    hot = sorted_all[10:22]
+    warm = sorted_all[22:38]
+    cold = sorted_all[38:]
+    top_matrix = sorted(sorted_all[:42])
+
+    combos = []
+    attempts = 0
+
+    while len(combos) < num_combos and attempts < 150000:
+        attempts += 1
+        n_super = 2
+        n_hot = random.choice([1, 2])
+        n_warm = random.choice([1, 2])
+        n_cold = 6 - n_super - n_hot - n_warm
+
+        if n_cold < 1:
+            n_cold = 1
+            n_warm = 1
+
+        try:
+            combo = sorted(
+                random.sample(super_hot, n_super) +
+                random.sample(hot, n_hot) +
+                random.sample(warm, n_warm) +
+                random.sample(cold, n_cold)
+            )
+        except ValueError:
+            continue
+
+        if len(combo) < 6:
+            continue
+
+        # Phủ ít nhất 3-4 khoảng chục
+        if len(set(x // 10 for x in combo)) < 3:
+            continue
+
+        adj_count = sum(1 for i in range(5) if combo[i+1] - combo[i] == 1)
+        if adj_count > 2:
+            continue
+
+        evens = sum(1 for x in combo if x % 2 == 0)
+        if evens < 1 or evens > 5:
+            continue
+
+        if not (90 <= sum(combo) <= 240):
+            continue
+
+        # Phân tán bộ số cho 6/55
+        if combos and attempts < 90000:
+            limit = 4 if len(combos) < 80 else 5
+            if max(len(set(combo) & set(c)) for c in combos) > limit:
+                continue
+
+        if combo not in combos:
+            combos.append(combo)
+
+    while len(combos) < num_combos:
+        combo = sorted(random.sample(top_matrix, 6))
+        if combo not in combos:
+            combos.append(combo)
+
+    return combos, top_matrix
+
 
 def parse_date_range(raw_text: str, dataset: list) -> list:
     clean_text = re.sub(r'/(test655|test645|test)', '', raw_text).strip()
@@ -217,11 +237,14 @@ def handle_dudoan(message):
         threading.Thread(target=fetch_vietlott_645_data if game == "645" else fetch_vietlott_655_data, args=(300,)).start()
         return
 
-    combos, top_matrix = generate_v37_swarm(dataset, game=game, num_combos=5)
+    if game == "645":
+        combos, top_matrix = generate_v34_pure_645(dataset, num_combos=5)
+    else:
+        combos, top_matrix = generate_v38_quantum_655(dataset, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V37 SWARM - {game_name.upper()}**",
-        f"📌 **Ma trận Trọng Tâm V37 ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V38 PURE - {game_name.upper()}**",
+        f"📌 **Ma trận Trọng Tâm V38 ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
         f"💡 **Dàn 5 bộ số hạt nhân săn Jackpot:**"
     ]
@@ -249,7 +272,7 @@ def handle_test(message):
         bot.reply_to(message, f"❌ Cú pháp chưa đúng hoặc không tìm thấy ngày trong CSDL!\n👉 Thử lại: `/test {game} 2026-08-01 => 30`", parse_mode="Markdown")
         return
 
-    status_msg = bot.reply_to(message, f"⚙️ Đang chạy Backtest V37 Swarm {game_name} ({len(dates)} kỳ)...")
+    status_msg = bot.reply_to(message, f"⚙️ Đang chạy Backtest V38 Pure {game_name} ({len(dates)} kỳ)...")
 
     data_map = {d["date"]: d["result"] for d in dataset}
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
@@ -257,13 +280,16 @@ def handle_test(message):
     total_max_match = 0
     count_jackpot = 0
     count_high = 0
-    lines = [f"🧪 BACKTEST V37 SWARM {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST V38 PURE {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v37_swarm(past_history, game=game, num_combos=150)
+        if game == "645":
+            predicted_combos, _ = generate_v34_pure_645(past_history, num_combos=150)
+        else:
+            predicted_combos, _ = generate_v38_quantum_655(past_history, num_combos=150)
         
         best_matched = []
         max_count = 0

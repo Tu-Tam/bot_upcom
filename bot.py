@@ -30,12 +30,10 @@ flask_thread.start()
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 bot = telebot.TeleBot(TOKEN)
 
-def generate_v34_entropy_swarm(history_data: list, game="655", num_combos=150) -> tuple:
-    """
-    Thuật toán V34: Entropy Swarm & Dynamic Coverage Expansion
-    - Phân bổ bắt buộc: HOT (3-4 số), WARM (1-2 số), COLD (1 số)
-    - Trải đều dải chục để tối ưu khả năng ăn trọn 5-6 số Jackpot
-    """
+# =============================================================
+# THUẬT TOÁN V35: SYNERGY CLUSTER & ADAPTIVE MATRIX
+# =============================================================
+def generate_v35_synergy_cluster(history_data: list, game="655", num_combos=150) -> tuple:
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
     
@@ -48,27 +46,28 @@ def generate_v34_entropy_swarm(history_data: list, game="655", num_combos=150) -
     
     sorted_all = sorted(range(1, max_num + 1), key=lambda x: freq.get(x, 0), reverse=True)
 
-    # Chia nhóm Hot / Warm / Cold linh hoạt
+    # Cấu hình Pool & Top Matrix tối ưu V35
     if is_655:
-        hot_pool = sorted_all[:18]
-        warm_pool = sorted_all[18:36]
-        cold_pool = sorted_all[36:]
-        top_matrix = sorted(sorted_all[:38])
+        hot_pool = sorted_all[:16]
+        warm_pool = sorted_all[16:34]
+        cold_pool = sorted_all[34:]
+        top_matrix = sorted(sorted_all[:36])  # Thu gọn 6/55 về 36 số trọng tâm
+        super_hot = sorted_all[:5]            # Top 5 số cực hot
     else:
-        hot_pool = sorted_all[:14]
-        warm_pool = sorted_all[14:28]
-        cold_pool = sorted_all[28:]
-        top_matrix = sorted(sorted_all[:30])
+        hot_pool = sorted_all[:12]
+        warm_pool = sorted_all[12:26]
+        cold_pool = sorted_all[26:]
+        top_matrix = sorted(sorted_all[:26])  # Thu gọn 6/45 về 26 số trọng tâm
+        super_hot = sorted_all[:4]            # Top 4 số cực hot
 
-    min_s, max_s = (90, 225) if is_655 else (60, 200)
+    min_s, max_s = (85, 230) if is_655 else (55, 205)
     
     combos = []
     attempts = 0
 
-    while len(combos) < num_combos and attempts < 100000:
+    while len(combos) < num_combos and attempts < 120000:
         attempts += 1
 
-        # Tỷ lệ xuất hiện tự nhiên của Jackpot: HOT (3-4), WARM (1-2), COLD (1)
         n_hot = random.choice([3, 4])
         n_warm = random.choice([1, 2])
         n_cold = 6 - n_hot - n_warm
@@ -88,9 +87,13 @@ def generate_v34_entropy_swarm(history_data: list, game="655", num_combos=150) -
         if len(combo) < 6:
             continue
 
-        # Lọc 1: Kiểm tra khoảng cách các chục (Phải phủ rộng trên ít nhất 3 nhóm chục)
+        # Đảm bảo chứa ít nhất 1 số Super Hot
+        if not any(x in super_hot for x in combo):
+            continue
+
+        # Lọc 1: Kiểm tra khoảng cách các chục (Cho phép 2 chục nếu chứa Super Hot)
         tens_coverage = len(set(x // 10 for x in combo))
-        if tens_coverage < 3:
+        if tens_coverage < 2:
             continue
 
         # Lọc 2: Tối đa 2 cặp liền kề
@@ -107,19 +110,21 @@ def generate_v34_entropy_swarm(history_data: list, game="655", num_combos=150) -
         if not (min_s <= sum(combo) <= max_s):
             continue
 
-        # Lọc 5: Giảm trùng lặp nội bộ
-        if combos and attempts < 70000:
-            limit = 4 if len(combos) < 100 else 5
+        # Lọc 5: Kiểm tra trùng lặp nội bộ linh hoạt
+        if combos and attempts < 80000:
+            limit = 4 if len(combos) < 90 else 5
             if max(len(set(combo) & set(c)) for c in combos) > limit:
                 continue
 
         if combo not in combos:
             combos.append(combo)
 
-    # Nới lỏng bổ sung nếu chưa đủ bộ
+    # Nới lỏng bổ sung từ Ma trận trọng tâm tinh chỉnh nếu chưa đủ 150 bộ
     while len(combos) < num_combos:
         combo = sorted(random.sample(top_matrix, 6))
-        if combo not in combos:
+        # Vẫn đảm bảo tỷ lệ chẵn lẻ cơ bản
+        evens = sum(1 for x in combo if x % 2 == 0)
+        if 1 <= evens <= 5 and combo not in combos:
             combos.append(combo)
 
     return combos, top_matrix
@@ -178,11 +183,11 @@ def handle_dudoan(message):
         threading.Thread(target=fetch_vietlott_645_data if game == "645" else fetch_vietlott_655_data, args=(300,)).start()
         return
 
-    combos, top_matrix = generate_v34_entropy_swarm(dataset, game=game, num_combos=5)
+    combos, top_matrix = generate_v35_synergy_cluster(dataset, game=game, num_combos=5)
 
     msg = [
-        f"🎯 **DỰ ĐOÁN KỲ TỚI V34 ENTROPY SWARM - {game_name.upper()}**",
-        f"📌 **Ma trận Trọng Tâm V34 ({len(top_matrix)} số):**",
+        f"🎯 **DỰ ĐOÁN KỲ TỚI V35 SYNERGY CLUSTER - {game_name.upper()}**",
+        f"📌 **Ma trận Trọng Tâm V35 ({len(top_matrix)} số):**",
         f"`{top_matrix}`\n",
         f"💡 **Dàn 5 bộ số hạt nhân săn Jackpot:**"
     ]
@@ -210,7 +215,7 @@ def handle_test(message):
         bot.reply_to(message, f"❌ Cú pháp chưa đúng hoặc không tìm thấy ngày trong CSDL!\n👉 Thử lại: `/test {game} 2026-08-01 => 30`", parse_mode="Markdown")
         return
 
-    status_msg = bot.reply_to(message, f"⚙️ Đang chạy Backtest V34 Entropy Swarm {game_name} ({len(dates)} kỳ)...")
+    status_msg = bot.reply_to(message, f"⚙️ Đang chạy Backtest V35 Synergy Cluster {game_name} ({len(dates)} kỳ)...")
 
     data_map = {d["date"]: d["result"] for d in dataset}
     sorted_dataset = sorted(dataset, key=lambda x: x["date"])
@@ -218,13 +223,13 @@ def handle_test(message):
     total_max_match = 0
     count_jackpot = 0
     count_high = 0
-    lines = [f"🧪 BACKTEST V34 ENTROPY SWARM {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
+    lines = [f"🧪 BACKTEST V35 SYNERGY CLUSTER {game} - DÀN 150 BỘ ({len(dates)} KỲ)"]
 
     for dt in dates:
         actual_result = data_map.get(dt, [])
         past_history = [d for d in sorted_dataset if d["date"] < dt]
         
-        predicted_combos, _ = generate_v34_entropy_swarm(past_history, game=game, num_combos=150)
+        predicted_combos, _ = generate_v35_synergy_cluster(past_history, game=game, num_combos=150)
         
         best_matched = []
         max_count = 0

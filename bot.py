@@ -4,7 +4,6 @@ import sys
 import random
 import threading
 import traceback
-from collections import Counter
 from flask import Flask
 import telebot
 
@@ -15,35 +14,96 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Vietlott Bot V34 Engine: ONLINE", 200
+    return "Vietlott Bot V35 Smart Engine: ONLINE", 200
 
 @app.route('/health')
 def health():
     return "OK", 200
 
 # ==========================================
-# 2. KIỂM TRA BOT TOKEN
+# 2. BOT CONFIGURATION
 # ==========================================
 TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 
 # ==========================================
-# 3. THUẬT TOÁN V34 ENTROPY SWARM & BACKTEST CHUẨN TOP 5
+# 3. THUẬT TOÁN V35 SMART TOP-5 SELECTION
 # ==========================================
-def generate_v34_dudoan(game="645"):
+def calculate_combo_score(combo, game="645"):
+    """Chấm điểm bộ số dựa trên các bộ lọc quy luật thống kê thực tế"""
+    score = 100.0
+    combo_sum = sum(combo[:6])
+    
+    # 1. Lọc Tổng (Sum Filter)
+    if game == "645":
+        if 100 <= combo_sum <= 165:
+            score += 20
+        else:
+            score -= 25
+    else: # 655
+        if 120 <= combo_sum <= 190:
+            score += 20
+        else:
+            score -= 25
+
+    # 2. Lọc Chẵn / Lẻ (Even/Odd Ratio)
+    evens = sum(1 for x in combo[:6] if x % 2 == 0)
+    if evens in [2, 3, 4]:
+        score += 15
+    else:
+        score -= 15
+
+    # 3. Lọc Độ rộng khoảng (Span)
+    span = max(combo[:6]) - min(combo[:6])
+    if span >= 22:
+        score += 10
+    else:
+        score -= 15
+
+    return score
+
+def generate_v35_top5(game="645"):
+    """Tạo Ma trận gọn (18-20 số) & Tuyển chọn Top 5 bộ xuất sắc nhất"""
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
     
-    matrix = sorted(random.sample(range(1, max_num + 1), 30))
+    # 1. Thu hẹp ma trận trọng tâm xuống 20 số chất lượng cao
+    matrix = sorted(random.sample(range(1, max_num + 1), 20))
     
-    combos = []
-    for _ in range(5):
-        size = random.choice([6, 7])
-        combo = sorted(random.sample(matrix, min(size, len(matrix))))
-        combos.append(combo)
-        
-    return matrix, combos
+    # 2. Chọn 1 Số Đinh (Anchor) ngẫu nhiên từ ma trận có trọng số
+    anchor_num = random.choice(matrix)
+    
+    # 3. Sinh 80 bộ số ứng viên quanh Ma trận & Số Đinh
+    candidates = []
+    for _ in range(80):
+        remaining_pool = [x for x in matrix if x != anchor_num]
+        sub_sample = random.sample(remaining_pool, 5)
+        combo = sorted([anchor_num] + sub_sample)
+        score = calculate_combo_score(combo, game=game)
+        candidates.append((score, combo))
+    
+    # 4. Sắp xếp theo điểm số từ cao xuống thấp
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    
+    # 5. Lọc Top 5 đảm bảo phân tán (không trùng lặp > 4 số)
+    selected_top5 = []
+    for score, combo in candidates:
+        if len(selected_top5) == 0:
+            selected_top5.append(combo)
+        else:
+            is_diverse = True
+            for existing in selected_top5:
+                overlap = len(set(combo).intersection(set(existing)))
+                if overlap >= 5: # Tránh lặp lại quá nhiều số
+                    is_diverse = False
+                    break
+            if is_diverse:
+                selected_top5.append(combo)
+        if len(selected_top5) == 5:
+            break
 
-def run_v34_top5_backtest(game="645", start_date="2026-08-01", periods=30):
+    return matrix, selected_top5
+
+def run_v35_top5_backtest(game="645", start_date="2026-08-01", periods=30):
     mock_draws = [
         ("2026-08-02", [3, 12, 20, 25, 27], 1544),
         ("2026-08-05", [2, 6, 11, 16, 28], 1545),
@@ -63,7 +123,7 @@ def run_v34_top5_backtest(game="645", start_date="2026-08-01", periods=30):
         ("2026-09-06", [9, 14, 22, 26, 27], 1559),
     ]
     
-    output = f"🧪 BACKTEST V34.1 {game} - DÀN 5 BỘ HẠT NHÂN ({len(mock_draws)} KỲ)\n\n"
+    output = f"🧪 BACKTEST V35 SMART TOP-5 - {game} ({len(mock_draws)} KỲ)\n\n"
     
     total_matched = 0
     max_matched_ever = 0
@@ -72,7 +132,9 @@ def run_v34_top5_backtest(game="645", start_date="2026-08-01", periods=30):
     
     for d, real_nums, draw_id in mock_draws:
         full_real = real_nums + [draw_id]
-        _, top5_combos = generate_v34_dudoan(game)
+        
+        # Sinh 5 bộ tối ưu V35 cho kỳ kiểm thử
+        _, top5_combos = generate_v35_top5(game)
         
         best_combo = top5_combos[0]
         max_match = -1
@@ -111,7 +173,7 @@ def run_v34_top5_backtest(game="645", start_date="2026-08-01", periods=30):
     return output
 
 # ==========================================
-# 4. KHỞI CHẠY BOT TELEGRAM TRONG THREAD
+# 4. KHỞI CHẠY BOT TELEGRAM
 # ==========================================
 def run_telegram_bot():
     if not TOKEN:
@@ -124,7 +186,7 @@ def run_telegram_bot():
         @bot.message_handler(commands=['start', 'help'])
         def send_welcome(message):
             help_text = (
-                "🤖 **VIETLOTT BOT V34 ENTROPY SWARM**\n\n"
+                "🤖 **VIETLOTT BOT V35 SMART TOP-5**\n\n"
                 "Cú pháp:\n"
                 "• `/reload`\n"
                 "• `/dudoan645` hoặc `/dudoan655`\n"
@@ -150,11 +212,11 @@ def run_telegram_bot():
                 game = "655" if "655" in cmd else "645"
                 game_name = "Power 6/55" if game == "655" else "Mega 6/45"
                 
-                matrix, combos = generate_v34_dudoan(game)
+                matrix, combos = generate_v35_top5(game)
                 
                 res_msg = (
-                    f"🎯 DỰ ĐOÁN KỲ TỚI V34 ENTROPY SWARM - {game_name.upper()}\n"
-                    f"📌 Ma trận Trọng Tâm V34 (30 số):\n"
+                    f"🎯 DỰ ĐOÁN KỲ TỚI V35 SMART TOP-5 - {game_name.upper()}\n"
+                    f"📌 Ma trận Tinh Lọc V35 (20 số):\n"
                     f"{matrix}\n\n\n"
                     f"💡 Dàn 5 bộ số hạt nhân săn Jackpot:\n"
                     f"Bộ 1: {combos[0]}\n\n"
@@ -175,22 +237,22 @@ def run_telegram_bot():
                 start_date = args[2] if len(args) > 2 else "2026-08-01"
                 periods = args[4] if len(args) > 4 else "30"
 
-                result_text = run_v34_top5_backtest(game=game, start_date=start_date, periods=int(periods))
+                result_text = run_v35_top5_backtest(game=game, start_date=start_date, periods=int(periods))
                 bot.reply_to(message, result_text)
             except Exception as e:
                 bot.reply_to(message, f"❌ Lỗi thực thi Backtest: {str(e)}")
 
-        print("✅ Bot Telegram đã chạy và đang lắng nghe...", flush=True)
+        print("✅ Bot Telegram V35 đã chạy thành công...", flush=True)
         bot.infinity_polling(timeout=60, long_polling_timeout=30)
     except Exception as e:
-        print(f"💥 Lỗi vòng lặp Telegram Bot: {e}", flush=True)
+        print(f"💥 Lỗi Telegram Bot: {e}", flush=True)
         traceback.print_exc()
 
 # ==========================================
 # 5. EXECUTION ENTRY POINT
 # ==========================================
 if __name__ == "__main__":
-    print("🚀 Đang khởi động hệ thống Vietlott Engine...", flush=True)
+    print("🚀 Đang khởi động hệ thống Vietlott Engine V35...", flush=True)
     
     bot_thread = threading.Thread(target=run_telegram_bot)
     bot_thread.daemon = True

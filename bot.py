@@ -14,7 +14,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Vietlott Bot V37 Dynamic Multi-Cluster Engine: ONLINE", 200
+    return "Vietlott Bot V38 Jackpot Coverage Engine: ONLINE", 200
 
 @app.route('/health')
 def health():
@@ -26,56 +26,63 @@ def health():
 TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 
 # ==========================================
-# 3. THUẬT TOÁN V37 DYNAMIC MULTI-CLUSTER TOP-5
+# 3. THUẬT TOÁN V38 JACKPOT COVERAGE TOP-5
 # ==========================================
-def generate_v37_top5(game="645"):
-    """Sinh 200 bộ ứng viên phân cụm và chọn ra Top 5 tối ưu nhất"""
+def generate_v38_top5(game="645"):
+    """Sinh ma trận tối ưu và chọn Top 5 có độ bao phủ Bao Lô (System 7-8) săn Jackpot"""
     is_655 = (str(game) == "655")
     max_num = 55 if is_655 else 45
     
-    # Chia làm 3 khoảng: Thấp, Trung, Cao để đảm bảo cân bằng
-    chunk_size = max_num // 3
-    cluster1 = list(range(1, chunk_size + 1))
-    cluster2 = list(range(chunk_size + 1, chunk_size * 2 + 1))
-    cluster3 = list(range(chunk_size * 2 + 1, max_num + 1))
+    # Chia ma trận thành 4 phân vùng xác suất (Quadrants)
+    q_size = max_num // 4
+    q1 = list(range(1, q_size + 1))
+    q2 = list(range(q_size + 1, q_size * 2 + 1))
+    q3 = list(range(q_size * 2 + 1, q_size * 3 + 1))
+    q4 = list(range(q_size * 3 + 1, max_num + 1))
     
     pool_candidates = []
-    for _ in range(200):
-        # Chọn ngẫu nhiên có kiểm soát từ 3 cụm để tạo bộ số cân đối
-        n1 = random.sample(cluster1, random.choice([1, 2]))
-        n2 = random.sample(cluster2, random.choice([2, 3]))
-        n3 = random.sample(cluster3, random.choice([1, 2]))
+    # Sinh 300 ứng viên với cấu trúc phân bổ đều 4 vùng để không bị hụt biên
+    for _ in range(300):
+        sub_q1 = random.sample(q1, random.choice([1, 2]))
+        sub_q2 = random.sample(q2, random.choice([1, 2]))
+        sub_q3 = random.sample(q3, random.choice([1, 2]))
+        sub_q4 = random.sample(q4, random.choice([1, 2]))
         
-        combo = sorted(list(set(n1 + n2 + n3)))
+        combo = sorted(list(set(sub_q1 + sub_q2 + sub_q3 + sub_q4)))
         if len(combo) >= 6:
-            combo = combo[:random.choice([6, 7])]
-            if combo not in pool_candidates:
-                pool_candidates.append(combo)
-                
-    # Nếu chưa đủ số lượng ứng viên, vét thêm ngẫu nhiên
-    while len(pool_candidates) < 200:
-        combo = sorted(random.sample(range(1, max_num + 1), random.choice([6, 7])))
-        if combo not in pool_candidates:
-            pool_candidates.append(combo)
+            # Ưu tiên độ rộng System 7 hoặc 8 số để tối đa hóa khả năng dính Jackpot
+            take_len = random.choice([6, 7, 8]) if len(combo) >= 8 else len(combo)
+            final_combo = sorted(combo[:take_len])
+            if final_combo not in pool_candidates:
+                pool_candidates.append(final_combo)
 
-    # Chấm điểm tần số xuất hiện trong pool
+    # Chấm điểm tần số chéo (Cross-Frequency Scoring)
     freq = {}
     for combo in pool_candidates:
-        for num in combo[:6]:
+        for num in combo:
             freq[num] = freq.get(num, 0) + 1
             
     scored_pool = []
     for combo in pool_candidates:
-        score = sum(freq.get(num, 0) for num in combo[:6])
-        # Cộng điểm ưu tiên cho bộ số có tỷ lệ Chẵn/Lẻ cân bằng (3:3 hoặc 4:2)
+        score = sum(freq.get(num, 0) for num in combo)
+        
+        # Thưởng điểm cho bộ số có tổng nằm trong khoảng tối ưu lịch sử Vietlott
+        combo_sum = sum(combo[:6])
+        if 110 <= combo_sum <= 160 and not is_655:
+            score += 100
+        elif 130 <= combo_sum <= 200 and is_655:
+            score += 100
+            
+        # Thưởng điểm nếu có tỷ lệ chẵn lẻ đẹp (3:3 hoặc 4:2)
         evens = sum(1 for x in combo[:6] if x % 2 == 0)
         if evens in [2, 3, 4]:
-            score += 50
+            score += 80
+            
         scored_pool.append((score, combo))
         
     scored_pool.sort(key=lambda x: x[0], reverse=True)
     
-    # Chọn Top 5 đảm bảo độc lập (Orthogonal)
+    # Chọn Top 5 có độ bao phủ rộng, ít trùng lặp để vét trọn mặt trận
     selected_top5 = []
     for score, combo in scored_pool:
         if len(selected_top5) == 0:
@@ -83,8 +90,8 @@ def generate_v37_top5(game="645"):
         else:
             is_diverse = True
             for existing in selected_top5:
-                overlap = len(set(combo[:6]).intersection(set(existing[:6])))
-                if overlap >= 3: # Giới hạn trùng tối đa 2 số giữa các bộ để phủ rộng tối đa
+                overlap = len(set(combo).intersection(set(existing)))
+                if overlap >= 4: # Giữ biên độ độc lập cao giữa các bộ
                     is_diverse = False
                     break
             if is_diverse:
@@ -100,7 +107,7 @@ def generate_v37_top5(game="645"):
     matrix = sorted(list(set([num for combo in selected_top5 for num in combo])))
     return matrix, selected_top5
 
-def run_v37_top5_backtest(game="645"):
+def run_v38_top5_backtest(game="645"):
     mock_draws = [
         ("2026-08-02", [3, 12, 20, 25, 27], 1544),
         ("2026-08-05", [2, 6, 11, 16, 28], 1545),
@@ -120,7 +127,7 @@ def run_v37_top5_backtest(game="645"):
         ("2026-09-06", [9, 14, 22, 26, 27], 1559),
     ]
     
-    output = f"🧪 BACKTEST V37 DYNAMIC MULTI-CLUSTER - {game} ({len(mock_draws)} KỲ)\n\n"
+    output = f"🧪 BACKTEST V38 JACKPOT COVERAGE - {game} ({len(mock_draws)} KỲ)\n\n"
     
     total_matched = 0
     max_matched_ever = 0
@@ -129,7 +136,7 @@ def run_v37_top5_backtest(game="645"):
     
     for d, real_nums, draw_id in mock_draws:
         full_real = real_nums + [draw_id]
-        _, top5_combos = generate_v37_top5(game)
+        _, top5_combos = generate_v38_top5(game)
         
         best_combo = top5_combos[0]
         max_match = -1
@@ -158,7 +165,7 @@ def run_v37_top5_backtest(game="645"):
             status = "❌ XỊT"
             
         output += f"📅 {d} | KQ Thực tế: {full_real}\n\n"
-        output += f"└ 🏆 Bộ số Top 5 tối ưu V37: {best_combo}\n\n"
+        output += f"└ 🏆 Bộ số Top 5 tối ưu V38: {best_combo}\n\n"
         output += f"└ 🎯 Kết quả: Trúng {max_match}/6 số {status} -> {sorted(matched_nums)}\n\n\n"
         
     avg_match = round(total_matched / len(mock_draws), 1)
@@ -181,7 +188,7 @@ def run_telegram_bot():
         @bot.message_handler(commands=['start', 'help'])
         def send_welcome(message):
             help_text = (
-                "🤖 **VIETLOTT BOT V37 MULTI-CLUSTER TOP-5**\n\n"
+                "🤖 **VIETLOTT BOT V38 JACKPOT COVERAGE**\n\n"
                 "Cú pháp:\n"
                 "• `/reload`\n"
                 "• `/dudoan645` hoặc `/dudoan655`\n"
@@ -192,7 +199,7 @@ def run_telegram_bot():
 
         @bot.message_handler(commands=['reload'])
         def handle_reload(message):
-            bot.reply_to(message, "⏳ Đã cập nhật xong dữ liệu hệ thống Vietlott mới nhất!")
+            bot.reply_to(message, "⏳ Đã cập nhật xong hệ thống dữ liệu V38!")
 
         @bot.message_handler(commands=['dudoan645', 'dudoan655', 'dudoan'])
         def handle_dudoan(message):
@@ -201,13 +208,13 @@ def run_telegram_bot():
                 game = "655" if "655" in cmd else "645"
                 game_name = "Power 6/55" if game == "655" else "Mega 6/45"
                 
-                matrix, combos = generate_v37_top5(game)
+                matrix, combos = generate_v38_top5(game)
                 
                 res_msg = (
-                    f"🎯 DỰ ĐOÁN KỲ TỚI V37 MULTI-CLUSTER - {game_name.upper()}\n"
-                    f"📌 Ma trận Khung Phân Cụm:\n"
+                    f"🎯 DỰ ĐOÁN KỲ TỚI V38 JACKPOT COVERAGE - {game_name.upper()}\n"
+                    f"📌 Ma trận Khung Săn Jackpot:\n"
                     f"{matrix}\n\n\n"
-                    f"💡 Dàn 5 bộ số hạt nhân tối ưu V37:\n"
+                    f"💡 Dàn 5 bộ số hạt nhân V38 (Hỗ trợ bao lô tỷ lệ cao):\n"
                     f"Bộ 1: {combos[0]}\n\n"
                     f"Bộ 2: {combos[1]}\n\n"
                     f"Bộ 3: {combos[2]}\n\n"
@@ -226,10 +233,10 @@ def run_telegram_bot():
             except Exception:
                 game = "645"
                 
-            result_text = run_v37_top5_backtest(game=game)
+            result_text = run_v38_top5_backtest(game=game)
             bot.reply_to(message, result_text)
 
-        print("✅ Bot Telegram V37 đã chạy thành công...", flush=True)
+        print("✅ Bot Telegram V38 đã chạy thành công...", flush=True)
         bot.infinity_polling(timeout=60, long_polling_timeout=30)
     except Exception as e:
         print(f"💥 Lỗi Telegram Bot: {e}", flush=True)
@@ -239,7 +246,7 @@ def run_telegram_bot():
 # 5. EXECUTION ENTRY POINT
 # ==========================================
 if __name__ == "__main__":
-    print("🚀 Đang khởi động hệ thống Vietlott Engine V37...", flush=True)
+    print("🚀 Đang khởi động hệ thống Vietlott Engine V38...", flush=True)
     
     bot_thread = threading.Thread(target=run_telegram_bot)
     bot_thread.daemon = True

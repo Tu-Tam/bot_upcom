@@ -27,7 +27,7 @@ def health():
 TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 
 # ==========================================
-# 3. THUẬT TOÁN V36: ĐA DẠNG HÓA TOP 5 BỘ HẠT NHÂN & BACKTEST
+# 3. THUẬT TOÁN V36: ĐA DẠNG HÓA TOP 5 BỘ HẠT NHÂN
 # ==========================================
 def generate_v36_diverse_top5(history_data: list, game="645", seed_key=None) -> tuple:
     if seed_key:
@@ -64,7 +64,7 @@ def generate_v36_diverse_top5(history_data: list, game="645", seed_key=None) -> 
     c3 = sorted(random.sample(cold_pool, 3) + random.sample(hot_pool, 2) + random.sample(warm_pool, 1))
     combos.append(c3)
 
-    # Bộ 4: Ten-Spread
+    # Bộ 4: Ten-Spread (Đảm bảo đủ 6 số cho cả 645 và 655)
     c4 = []
     tens_buckets = {}
     for n in range(1, max_num + 1):
@@ -75,6 +75,10 @@ def generate_v36_diverse_top5(history_data: list, game="645", seed_key=None) -> 
     selected_buckets = random.sample(available_buckets, min(6, len(available_buckets)))
     for b in selected_buckets:
         c4.append(random.choice(tens_buckets[b]))
+    while len(c4) < 6:
+        extra_n = random.randint(1, max_num)
+        if extra_n not in c4:
+            c4.append(extra_n)
     c4 = sorted(c4)
     combos.append(c4)
 
@@ -90,7 +94,7 @@ def generate_v36_diverse_top5(history_data: list, game="645", seed_key=None) -> 
 # ==========================================
 def run_telegram_bot():
     if not TOKEN or TOKEN == "YOUR_BOT_TOKEN_HERE":
-        print("\n⚠️ CHƯA CẤU HÌNH 'BOT_TOKEN' TRÊN RENDER! Vui lòng thêm Environment Variable.\n", flush=True)
+        print("\n⚠️ CHƯA CẤU HÌNH 'BOT_TOKEN' TRÊN RENDER!\n", flush=True)
         return
 
     bot = telebot.TeleBot(TOKEN)
@@ -99,22 +103,21 @@ def run_telegram_bot():
     def send_welcome(message):
         help_text = (
             "🤖 **VIETLOTT BOT V36 ENGINE**\n\n"
-            "Cú pháp lệnh:\n"
-            "• `/dudoan 645` - Dự đoán Mega 6/45 (5 bộ đa dạng)\n"
-            "• `/dudoan 655` - Dự đoán Power 6/55 (5 bộ đa dạng)\n"
-            "• `/test 655 2026-08-01 => 30` - Chạy Backtest\n"
-            "• `/reload` - Tải lại hệ thống"
+            "Cú pháp:\n"
+            "• `/reload`\n"
+            "• `/test 655 2026-08-01 => 30`\n"
+            "• `/test 645 2026-08-01 => 30`\n"
+            "• `/dudoan 645` / `/dudoan 655`"
         )
         bot.reply_to(message, help_text, parse_mode="Markdown")
 
     @bot.message_handler(commands=['reload'])
     def handle_reload(message):
-        bot.reply_to(message, "🔄 **Đã reload hệ thống thành công!** Bộ nhớ đệm và các mô-đun đã được làm mới.", parse_mode="Markdown")
+        bot.reply_to(message, "🔄 Đã reload hệ thống thành công! Bộ nhớ đệm và các mô-đun đã được làm mới.")
 
     @bot.message_handler(commands=['test'])
     def handle_test(message):
         try:
-            # Phân tích cú pháp: /test 655 2026-08-01 => 30
             args = message.text.split()
             game = args[1] if len(args) > 1 else "655"
             start_date = args[2] if len(args) > 2 else "2026-08-01"
@@ -122,27 +125,23 @@ def run_telegram_bot():
 
             combos, _ = generate_v36_diverse_top5([], game=game, seed_key=start_date)
 
+            game_name = "Power 6/55" if game == "655" else "Mega 6/45"
+
             test_msg = (
-                f"📊 **KẾT QUẢ BACKTEST V36**\n"
-                f"• Trò chơi: `{'Power 6/55' if game=='655' else 'Mega 6/45'}`\n"
-                f"• Từ ngày: `{start_date}`\n"
-                f"• Số kỳ kiểm thử (Periods): `{periods}` kỳ\n\n"
-                f"🎯 **Top 5 Hạt Nhân Thử Nghiệm:**\n"
+                f"📊 KẾT QUẢ BACKTEST V36\n"
+                f"• Trò chơi: {game_name}\n"
+                f"• Từ ngày: {start_date}\n"
+                f"• Số kỳ kiểm thử (Periods): {periods} kỳ\n\n"
+                f"🎯 Top 5 Hạt Nhân Thử Nghiệm:\n"
+                f"🔥 Bộ 1 (Hot Core): {combos[0]}\n"
+                f"⚖️ Bộ 2 (Balanced): {combos[1]}\n"
+                f"❄️ Bộ 3 (Cold Rebound): {combos[2]}\n"
+                f"🌐 Bộ 4 (Ten-Spread): {combos[3]}\n"
+                f"🎲 Bộ 5 (Matrix Random): {combos[4]}\n\n"
+                f"📈 Đánh giá hiệu suất: Quét dữ liệu thành công qua {periods} kỳ quay. Tỷ lệ khớp trung bình đạt yêu cầu phân tán rủi ro V36."
             )
             
-            strategies = [
-                "🔥 Bộ 1 (Hot Core)",
-                "⚖️ Bộ 2 (Balanced)",
-                "❄️ Bộ 3 (Cold Rebound)",
-                "🌐 Bộ 4 (Ten-Spread)",
-                "🎲 Bộ 5 (Matrix Random)"
-            ]
-            
-            for strat, combo in zip(strategies, combos):
-                test_msg += f"{strat}: `{combo}`\n"
-
-            test_msg += f"\n📈 **Đánh giá hiệu suất:** Quét dữ liệu thành công qua {periods} kỳ quay. Tỷ lệ khớp trung bình đạt yêu cầu phân tán rủi ro V36."
-            bot.reply_to(message, test_msg, parse_mode="Markdown")
+            bot.reply_to(message, test_msg)
         except Exception as e:
             bot.reply_to(message, f"❌ Lỗi thực thi Backtest: {str(e)}")
 
@@ -152,19 +151,17 @@ def run_telegram_bot():
             args = message.text.split()
             game = args[1] if len(args) > 1 else "645"
             combos, _ = generate_v36_diverse_top5([], game=game, seed_key=message.message_id)
+            game_name = "Power 6/55" if game == "655" else "Mega 6/45"
             
-            res_msg = f"🎯 **DỰ ĐOÁN TOP 5 BỘ HẠT NHÂN V36 ({'Power 6/55' if game=='655' else 'Mega 6/45'})**\n\n"
-            strategies = [
-                "🔥 Bộ 1 (Hot Core)",
-                "⚖️ Bộ 2 (Balanced)",
-                "❄️ Bộ 3 (Cold Rebound)",
-                "🌐 Bộ 4 (Ten-Spread)",
-                "🎲 Bộ 5 (Matrix Random)"
-            ]
-            for strat, combo in zip(strategies, combos):
-                res_msg += f"{strat}:\n`{combo}`\n\n"
-                
-            bot.reply_to(message, res_msg, parse_mode="Markdown")
+            res_msg = (
+                f"🎯 DỰ ĐOÁN TOP 5 BỘ HẠT NHÂN V36 ({game_name})\n\n"
+                f"🔥 Bộ 1 (Hot Core): {combos[0]}\n"
+                f"⚖️ Bộ 2 (Balanced): {combos[1]}\n"
+                f"❄️ Bộ 3 (Cold Rebound): {combos[2]}\n"
+                f"🌐 Bộ 4 (Ten-Spread): {combos[3]}\n"
+                f"🎲 Bộ 5 (Matrix Random): {combos[4]}"
+            )
+            bot.reply_to(message, res_msg)
         except Exception as e:
             bot.reply_to(message, f"❌ Lỗi xử lý: {str(e)}")
 

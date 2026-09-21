@@ -1,7 +1,6 @@
 import os
 import re
 import sys
-import random
 import threading
 import traceback
 from datetime import datetime, timedelta
@@ -17,7 +16,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "XSMB - XSMN - XSMT Multi-Region Engine V52: ONLINE", 200
+    return "XSMB - XSMN - XSMT Multi-Region Engine V53: ONLINE", 200
 
 @app.route('/health')
 def health():
@@ -29,73 +28,79 @@ def health():
 TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 
 # ==========================================
-# 3. HỆ THỐNG CÀO DỮ LIỆU WEB THÔNG MINH V52
+# 3. HỆ THỐNG CÀO DỮ LIỆU THỰC TẾ CHUẨN XÁC V53
 # ==========================================
 def fetch_lottery_result(region, date_str):
-    """Cào kết quả tối ưu chống chặn, hỗ trợ đa nguồn dự phòng"""
+    """
+    Cào dữ liệu trực tiếp từ web. 
+    Tuyệt đối không sử dụng dữ liệu giả lập. Trả về None nếu không lấy được.
+    """
     dt = datetime.strptime(date_str, "%Y-%m-%d")
     d_str = dt.strftime("%d-%m-%Y")
     
+    # Sử dụng headers giả lập trình duyệt thật để hạn chế tối đa bị chặn
     headers = {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Referer': 'https://www.google.com/'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Connection': 'keep-alive'
     }
 
-    # Danh sách các nguồn web dự phòng
+    # Danh sách các nguồn cào uy tín
     urls = []
     if region == 'mb':
         urls = [
-            f"https://xoso.com.vn/xsmb-{d_str}.html",
-            f"https://xskt.com.vn/xsmb/ngay-{d_str}"
+            f"https://www.minhngoc.net.vn/ket-qua-xo-so/mien-bac/{d_str}.html",
+            f"https://xosodaiphat.com/xs-mb-{d_str}.html",
+            f"https://xoso.com.vn/xsmb-{d_str}.html"
         ]
     elif region == 'mn':
         urls = [
-            f"https://xoso.com.vn/xsmn-{d_str}.html",
-            f"https://xskt.com.vn/xsmn/ngay-{d_str}"
+            f"https://www.minhngoc.net.vn/ket-qua-xo-so/mien-nam/{d_str}.html",
+            f"https://xosodaiphat.com/xs-mn-{d_str}.html",
+            f"https://xoso.com.vn/xsmn-{d_str}.html"
         ]
     elif region == 'mt':
         urls = [
-            f"https://xoso.com.vn/xsmt-{d_str}.html",
-            f"https://xskt.com.vn/xsmt/ngay-{d_str}"
+            f"https://www.minhngoc.net.vn/ket-qua-xo-so/mien-trung/{d_str}.html",
+            f"https://xosodaiphat.com/xs-mt-{d_str}.html",
+            f"https://xoso.com.vn/xsmt-{d_str}.html"
         ]
 
     for url in urls:
         try:
-            res = requests.get(url, headers=headers, timeout=8)
+            res = requests.get(url, headers=headers, timeout=6)
             if res.status_code == 200:
                 soup = BeautifulSoup(res.text, 'html.parser')
                 
-                # Quét các ô chứa kết quả giải đặc biệt hoặc giải nhất/giải 8 tùy miền
-                # Tìm các chuỗi số có độ dài 2 chữ số cuối giải đặc biệt
-                for tag in soup.find_all(['td', 'span', 'div', 'b']):
+                # Tìm kiếm ô giải đặc biệt theo cấu trúc chuẩn của các trang kết quả
+                special_cell = (
+                    soup.find('div', {'id': 'gdb'}) or 
+                    soup.find('td', {'class': 'gdb'}) or 
+                    soup.find('div', {'class': 'special-prize'}) or
+                    soup.find('span', {'class': 'special-prize'})
+                )
+                
+                if special_cell:
+                    match = re.search(r'\d{5,6}', special_cell.text.strip())
+                    if match:
+                        return match.group(0)[-2:]
+                
+                # Quét tìm kiếm qua các thẻ chứa từ khóa đặc biệt
+                for tag in soup.find_all(['div', 'span', 'td', 'b']):
                     text = tag.text.strip()
-                    parent_class = str(tag.get('class', '')).lower()
                     parent_text = tag.parent.text.lower()
-                    
-                    # Nhận diện giải đặc biệt hoặc giải tám (đối với miền Nam/Trung)
-                    if ('dac-biet' in parent_class or 'special' in parent_class or 
-                        'đặc biệt' in parent_text or 'g.đb' in parent_text or 'gdb' in parent_class):
-                        match = re.search(r'\d{2,6}', text)
-                        if match:
-                            val = match.group(0)
-                            if len(val) >= 2:
-                                return val[-2:]
-                                
-                # Phương án dự phòng quét nhanh các số cuối xuất hiện ở bảng kết quả
-                for span in soup.find_all('span', class_=re.sub(r'[^a-zA-Z0-9]', '', 'special')):
-                    if span.text.strip().isdigit():
-                        val = span.text.strip()
-                        if len(val) >= 2:
-                            return val[-2:]
-                            
+                    if ('đặc biệt' in parent_text or 'gdb' in str(tag.get('class', '')).lower()) and text.isdigit():
+                        if len(text) in [5, 6]:
+                            return text[-2:]
         except Exception:
             continue
 
+    # Nếu hoàn toàn không cào được từ các nguồn web, trả về None để minh bạch lỗi
     return None
 
 # ==========================================
-# 4. THUẬT TOÁN SINH DÀN SỐ V52
+# 4. THUẬT TOÁN SINH DÀN SỐ V53
 # ==========================================
 def generate_dan_so(size_target=50):
     all_numbers = [f"{i:02d}" for i in range(100)]
@@ -125,49 +130,50 @@ def run_backtest_engine(region, start_date_str, total_days=10):
     total_days = max(1, min(100, total_days))
     region_name = "MIỀN BẮC" if region == 'mb' else ("MIỀN NAM" if region == 'mn' else "MIỀN TRUNG")
     
-    output = f"🧪 BACKTEST {region_name} V52 (CÀO WEB TRỰC TIẾP) - {total_days} KỲ TỪ: {start_date_str}\n\n"
+    output = f"🧪 BACKTEST {region_name} V53 (CÀO WEB THỰC TẾ) - {total_days} KỲ TỪ: {start_date_str}\n\n"
     
     win_30, win_40, win_50 = 0, 0, 0
+    valid_days_count = 0
     current_dt = start_dt
     
-    success_fetches = 0
     for i in range(total_days):
         date_str = current_dt.strftime("%Y-%m-%d")
         real_db = fetch_lottery_result(region, date_str)
         
-        if real_db:
-            success_fetches += 1
-        else:
-            real_db = "??(Lỗi Web)"
-
-        dan_30 = generate_dan_so(30)
-        dan_40 = generate_dan_so(40)
-        dan_50 = generate_dan_so(50)
-        
-        hit_30 = (real_db != "??(Lỗi Web)" and real_db in dan_30)
-        hit_40 = (real_db != "??(Lỗi Web)" and real_db in dan_40)
-        hit_50 = (real_db != "??(Lỗi Web)" and real_db in dan_50)
-        
-        if hit_30: win_30 += 1
-        if hit_40: win_40 += 1
-        if hit_50: win_50 += 1
-        
-        if total_days <= 15:
-            output += f"📅 {date_str} | ĐB Về: **{real_db}**\n"
-            if real_db != "??(Lỗi Web)":
+        if real_db is not None:
+            valid_days_count += 1
+            dan_30 = generate_dan_so(30)
+            dan_40 = generate_dan_so(40)
+            dan_50 = generate_dan_so(50)
+            
+            hit_30 = real_db in dan_30
+            hit_40 = real_db in dan_40
+            hit_50 = real_db in dan_50
+            
+            if hit_30: win_30 += 1
+            if hit_40: win_40 += 1
+            if hit_50: win_50 += 1
+            
+            if total_days <= 15:
+                output += f"📅 {date_str} | ĐB Về: **{real_db}** (Thực tế)\n"
                 output += f"├ Dàn 30 số: {'✅ NỔ' if hit_30 else '❌ XỊT'}\n"
                 output += f"├ Dàn 40 số: {'✅ NỔ' if hit_40 else '❌ XỊT'}\n"
                 output += f"└ Dàn 50 số: {'✅ NỔ' if hit_50 else '❌ XỊT'}\n\n"
-            else:
-                output += f"└ ⚠️ Không kết nối được dữ liệu web ngày này.\n\n"
+        else:
+            if total_days <= 15:
+                output += f"📅 {date_str} | ⚠️ Không cào được dữ liệu thực tế từ web\n\n"
         
         current_dt += timedelta(days=1)
         
-    output += f"📊 **THỐNG KÊ HIỆU SUẤT ({total_days} KỲ):**\n"
-    output += f"• Tỷ lệ kết nối web thành công: {success_fetches}/{total_days}\n"
-    output += f"• Dàn 30 số: {win_30}/{total_days} ({round(win_30*100/total_days, 1)}%)\n"
-    output += f"• Dàn 40 số: {win_40}/{total_days} ({round(win_40*100/total_days, 1)}%)\n"
-    output += f"• Dàn 50 số: {win_50}/{total_days} ({round(win_50*100/total_days, 1)}%)"
+    output += f"📊 **THỐNG KÊ HIỆU SUẤT (Dựa trên dữ liệu cào thật):**\n"
+    output += f"• Số kỳ lấy được dữ liệu: {valid_days_count}/{total_days}\n"
+    if valid_days_count > 0:
+        output += f"• Dàn 30 số: {win_30}/{valid_days_count} ({round(win_30*100/valid_days_count, 1)}%)\n"
+        output += f"• Dàn 40 số: {win_40}/{valid_days_count} ({round(win_40*100/valid_days_count, 1)}%)\n"
+        output += f"• Dàn 50 số: {win_50}/{valid_days_count} ({round(win_50*100/valid_days_count, 1)}%)"
+    else:
+        output += f"• Không có dữ liệu hợp lệ để tính toán hiệu suất."
+        
     return output
 
 # ==========================================
@@ -184,16 +190,16 @@ def run_telegram_bot():
         @bot.message_handler(commands=['start', 'help'])
         def send_welcome(message):
             help_text = (
-                "🤖 **XSMB - XSMN - XSMT MULTI-REGION BOT V52**\n\n"
+                "🤖 **XSMB - XSMN - XSMT MULTI-REGION BOT V53**\n\n"
                 "📌 **Lệnh Dự Đoán:** `/dudoanmb`, `/dudoanmn`, `/dudoanmt`\n"
-                "📌 **Lệnh Kiểm Thử (Cào web trực tiếp):** `/testmb 2026-08-01=>10`, `/testmn`, `/testmt`\n"
+                "📌 **Lệnh Kiểm Thử (Cào thật):** `/testmb 2026-08-01=>10`, `/testmn`, `/testmt`\n"
                 "📌 **Lệnh Hệ Thống:** `/reload`"
             )
             bot.reply_to(message, help_text, parse_mode="Markdown")
 
         @bot.message_handler(commands=['reload'])
         def handle_reload(message):
-            reload_text = "🔄 **TẢI LẠI HỆ THỐNG V52 THÀNH CÔNG!**\n\n🌐 Đã cập nhật cơ chế cào web thông minh chống chặn."
+            reload_text = "🔄 **TẢI LẠI HỆ THỐNG V53 THÀNH CÔNG!**\n\n🌐 Đã bật chế độ cào dữ liệu thực tế nghiêm ngặt (Không dùng dữ liệu ảo)."
             bot.reply_to(message, reload_text, parse_mode="Markdown")
 
         @bot.message_handler(commands=['dudoanmb', 'dudoanmn', 'dudoanmt'])
@@ -210,7 +216,7 @@ def run_telegram_bot():
             dan_50 = generate_dan_so(50)
             
             res_msg = (
-                f"🎯 **DỰ ĐOÁN GIẢI ĐẶC BIỆT {title} HÔM NAY** (V52)\n\n"
+                f"🎯 **DỰ ĐOÁN GIẢI ĐẶC BIỆT {title} HÔM NAY** (V53)\n\n"
                 f"📌 **Dàn 30 số:**\n`{', '.join(dan_30)}`\n\n"
                 f"📌 **Dàn 40 số:**\n`{', '.join(dan_40)}`\n\n"
                 f"📌 **Dàn 50 số:**\n`{', '.join(dan_50)}`"
@@ -240,14 +246,14 @@ def run_telegram_bot():
             result_text = run_backtest_engine(region, start_date_str=date_str, total_days=total_days)
             bot.reply_to(message, result_text, parse_mode="Markdown")
 
-        print("✅ Bot Telegram V52 đã chạy thành công...", flush=True)
+        print("✅ Bot Telegram V53 đã chạy thành công...", flush=True)
         bot.infinity_polling(timeout=60, long_polling_timeout=30)
     except Exception as e:
         print(f"💥 Lỗi Telegram Bot: {e}", flush=True)
         traceback.print_exc()
 
 if __name__ == "__main__":
-    print("🚀 Đang khởi động hệ thống Multi-Region Engine V52...", flush=True)
+    print("🚀 Đang khởi động hệ thống Multi-Region Engine V53...", flush=True)
     bot_thread = threading.Thread(target=run_telegram_bot)
     bot_thread.daemon = True
     bot_thread.start()

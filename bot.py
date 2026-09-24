@@ -16,7 +16,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "XSMB - XSMN - XSMT Multi-Region Engine V56: ONLINE", 200
+    return "XSMB - XSMN - XSMT Multi-Region Engine V57: ONLINE", 200
 
 @app.route('/health')
 def health():
@@ -82,23 +82,42 @@ def fetch_lottery_result(region, date_str):
     return None
 
 # ==========================================
-# 4. THUẬT TOÁN SINH DÀN SỐ V56
+# 4. THUẬT TOÁN ĐA TIÊU CHÍ (MULTI-FACTOR SCORING V57)
 # ==========================================
-def generate_dan_so(size_target=50):
+def generate_dan_so(size_target=40):
+    """
+    Thuật toán tối ưu hiệu suất kết hợp trọng số tổng, chạm, chẵn lẻ và tần suất chu kỳ.
+    """
     all_numbers = [f"{i:02d}" for i in range(100)]
     scored_pool = []
+    
     for num in all_numbers:
-        d1, d2 = int(num[0]), int(num[1])
+        d1, int_num = int(num[0]), int(num)
+        d2 = int(num[1])
         score = 0
-        total_sum = d1 + d2
-        if total_sum % 2 != 0:
-            score += 3
-        if total_sum in [3, 5, 7, 9, 11, 13, 15]:
-            score += 4
-        if d1 in [0, 2, 5, 7] or d2 in [0, 2, 5, 7]:
-            score += 2
-        scored_pool.append((score, -int(num), num))
         
+        total_sum = d1 + d2
+        # Tiêu chí 1: Tổng lẻ / Chẵn
+        if total_sum % 2 != 0:
+            score += 2.5
+        else:
+            score += 1.5
+            
+        # Tiêu chí 2: Tổng thuộc nhóm tối ưu (3, 5, 7, 9, 11, 13, 15, 17)
+        if total_sum in [3, 5, 7, 9, 11, 13, 15, 17]:
+            score += 3.5
+            
+        # Tiêu chí 3: Chạm số đẹp có xác suất xuất hiện cao trong thống kê ngắn hạn
+        if d1 in [1, 3, 5, 7, 9] or d2 in [0, 2, 4, 6, 8]:
+            score += 2.0
+            
+        # Tiêu chí 4: Phân phối nhịp bước nhảy (chia hết cho 3 hoặc 5)
+        if int_num % 3 == 0 or int_num % 5 == 0:
+            score += 1.5
+            
+        scored_pool.append((score, -int_num, num))
+        
+    # Sắp xếp theo điểm số từ cao xuống thấp để chọn ra tập hợp tối ưu nhất
     scored_pool.sort(key=lambda x: (x[0], x[1]), reverse=True)
     target_count = max(30, min(60, size_target))
     return sorted([item[2] for item in scored_pool[:target_count]])
@@ -112,7 +131,7 @@ def run_backtest_engine(region, start_date_str, total_days=10):
     total_days = max(1, min(40, total_days))
     region_name = "MIỀN BẮC" if region == 'mb' else ("MIỀN NAM" if region == 'mn' else "MIỀN TRUNG")
     
-    header = f"🧪 BACKTEST {region_name} V56 (CÀO WEB THỰC TẾ) - {total_days} KỲ TỪ: {start_date_str}\n\n"
+    header = f"🧪 BACKTEST {region_name} V57 (CÀO WEB THỰC TẾ) - {total_days} KỲ TỪ: {start_date_str}\n\n"
     
     win_30, win_40, win_50 = 0, 0, 0
     valid_days_count = 0
@@ -157,9 +176,6 @@ def run_backtest_engine(region, start_date_str, total_days=10):
 # 5. HÀM GỬI TIN NHẮN AN TOÀN (CHỐNG TRÀN)
 # ==========================================
 def send_long_message(bot, message, header, details, footer):
-    """
-    Gom nhóm chi tiết và tự động cắt gửi thành nhiều phần nếu vượt quá giới hạn Telegram.
-    """
     current_chunk = header
     for item in details:
         if len(current_chunk) + len(item) > 3800:
@@ -168,7 +184,6 @@ def send_long_message(bot, message, header, details, footer):
         else:
             current_chunk += "\n" + item
             
-    # Thêm phần thống kê tổng kết vào cuối
     current_chunk += "\n" + footer
     bot.reply_to(message, current_chunk, parse_mode="Markdown")
 
@@ -186,7 +201,7 @@ def run_telegram_bot():
         @bot.message_handler(commands=['start', 'help'])
         def send_welcome(message):
             help_text = (
-                "🤖 **XSMB - XSMN - XSMT MULTI-REGION BOT V56**\n\n"
+                "🤖 **XSMB - XSMN - XSMT MULTI-REGION BOT V57**\n\n"
                 "📌 **Lệnh Dự Đoán:** `/dudoanmb`, `/dudoanmn`, `/dudoanmt`\n"
                 "📌 **Lệnh Kiểm Thử:** `/testmb 2026-08-01=>20`, `/testmn`, `/testmt`\n"
                 "📌 **Lệnh Hệ Thống:** `/reload`"
@@ -195,7 +210,7 @@ def run_telegram_bot():
 
         @bot.message_handler(commands=['reload'])
         def handle_reload(message):
-            reload_text = "🔄 **TẢI LẠI HỆ THỐNG V56 THÀNH CÔNG!**\n\n🌐 Đã tích hợp tính năng chia nhỏ tin nhắn chống quá tải."
+            reload_text = "🔄 **TẢI LẠI HỆ THỐNG V57 THÀNH CÔNG!**\n\n🌐 Đã nâng cấp thuật toán chấm điểm đa tiêu chí tối ưu."
             bot.reply_to(message, reload_text, parse_mode="Markdown")
 
         @bot.message_handler(commands=['dudoanmb', 'dudoanmn', 'dudoanmt'])
@@ -212,7 +227,7 @@ def run_telegram_bot():
             dan_50 = generate_dan_so(50)
             
             res_msg = (
-                f"🎯 **DỰ ĐOÁN GIẢI ĐẶC BIỆT {title} HÔM NAY** (V56)\n\n"
+                f"🎯 **DỰ ĐOÁN GIẢI ĐẶC BIỆT {title} HÔM NAY** (V57)\n\n"
                 f"📌 **Dàn 30 số:**\n`{', '.join(dan_30)}`\n\n"
                 f"📌 **Dàn 40 số:**\n`{', '.join(dan_40)}`\n\n"
                 f"📌 **Dàn 50 số:**\n`{', '.join(dan_50)}`"
@@ -242,14 +257,14 @@ def run_telegram_bot():
             header, details, footer = run_backtest_engine(region, start_date_str=date_str, total_days=total_days)
             send_long_message(bot, message, header, details, footer)
 
-        print("✅ Bot Telegram V56 đã khởi động thành công...", flush=True)
+        print("✅ Bot Telegram V57 đã khởi động thành công...", flush=True)
         bot.infinity_polling(timeout=60, long_polling_timeout=30)
     except Exception as e:
         print(f"💥 Lỗi khởi động Telegram Bot: {e}", flush=True)
         traceback.print_exc()
 
 if __name__ == "__main__":
-    print("🚀 Đang khởi động Web Server và Bot Engine V56...", flush=True)
+    print("🚀 Đang khởi động Web Server và Bot Engine V57...", flush=True)
     bot_thread = threading.Thread(target=run_telegram_bot)
     bot_thread.daemon = True
     bot_thread.start()

@@ -17,7 +17,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "XSMB - XSMN - XSMT Multi-Region Engine V61: ONLINE", 200
+    return "XSMB - XSMN - XSMT Multi-Region Engine V62: ONLINE", 200
 
 @app.route('/health')
 def health():
@@ -49,12 +49,6 @@ def save_database(db_data):
 # 3. HỆ THỐNG KIỂM TRA GIỜ QUAY & CHẶN NGÀY CHƯA QUAY
 # ==========================================
 def is_date_already_drawn(date_str, region):
-    """
-    Khóa tuyệt đối không cho phép lấy dữ liệu ngày hôm nay nếu chưa qua khung giờ quay thực tế:
-    - Miền Nam: 16h35
-    - Miền Trung: 17h40
-    - Miền Bắc: 18h45
-    """
     try:
         target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
         now = datetime.now()
@@ -132,57 +126,50 @@ def get_db_result(region, date_str):
     return val
 
 # ==========================================
-# 4. THUẬT TOÁN ĐỘNG TỐI ƯU 90% (V61)
+# 4. THUẬT TOÁN ĐỘNG KÉP TỐI ƯU CAO (V62)
 # ==========================================
-def generate_dan_so_v61(size_target=40, region='mb', history_recent=None):
+def generate_dan_so_v62(size_target=40, region='mb', history_recent=None):
     """
-    Thuật toán V61 tính toán trọng số dựa trên tần suất xuất hiện thực tế 
-    của các con số trong lịch sử ngắn hạn (bắt nhịp cầu động chuẩn xác).
+    Thuật toán V62 sử dụng trọng số ma trận tần suất trượt sâu 15 kỳ 
+    kết hợp bù trừ biên độ nhằm tối ưu tỷ lệ trúng thực chiến.
     """
     all_numbers = [f"{i:02d}" for i in range(100)]
-    score_map = {num: 1.0 for num in all_numbers}
+    score_map = {num: 10.0 for num in all_numbers}
     
-    # Phân tích tần suất chạm từ các kỳ gần nhất để tăng điểm cực đại cho nhóm có khả năng nổ cao
-    if history_recent:
-        recent_pool = history_recent[-10:] # Lấy 10 kỳ gần nhất để chấm điểm tần suất
-        digit_frequency = {str(i): 0 for i in range(10)}
+    if history_recent and len(history_recent) > 0:
+        # Phân tích sâu 15 kỳ gần nhất
+        recent_pool = history_recent[-15:]
+        digit_count = {str(i): 0 for i in range(10)}
+        tail_count = {str(i): 0 for i in range(10)}
         
         for num in recent_pool:
             if len(num) == 2:
-                digit_frequency[num[0]] += 1
-                digit_frequency[num[1]] += 1
+                d, t = num[0], num[1]
+                digit_count[d] += 1
+                tail_count[t] += 1
                 
+        # Chấm điểm cực trị dựa trên tần suất xuất hiện thực tế (Hot/Cold matrix)
         for num in all_numbers:
-            d1, d2 = num[0], num[1]
-            # Điểm cộng dồn theo tần suất xuất hiện thực tế của đầu và đuôi
-            freq_score = (digit_frequency.get(d1, 0) + digit_frequency.get(d2, 0)) * 1.5
-            score_map[num] += freq_score
-
-    scored_pool = []
-    for num in all_numbers:
-        d1, d2 = int(num[0]), int(num[1])
-        total_sum = d1 + d2
-        base_score = score_map[num]
-        
-        # Bổ sung các quy luật xác suất cao theo vùng miền
-        if total_sum % 2 != 0:
-            base_score += 2.0
-        if total_sum in [3, 4, 7, 8, 11, 12, 15, 16]:
-            base_score += 3.0
+            d, t = num[0], num[1]
+            # Cộng điểm cho các con số có chạm tần suất cao hoặc bù nhịp
+            score_map[num] += (digit_count.get(d, 0) * 2.2) + (tail_count.get(t, 0) * 2.2)
             
-        if region == 'mb':
-            if d1 in [1, 2, 3, 7, 8] or d2 in [1, 3, 6, 8, 9]:
-                base_score += 2.5
-        elif region == 'mt':
-            if d1 in [0, 1, 2, 5, 6, 8] or d2 in [0, 3, 5, 6, 9]:
-                base_score += 2.8
-        else: # miền nam
-            if d1 in [1, 2, 4, 5, 8, 9] or d2 in [2, 3, 4, 7, 8]:
-                base_score += 3.0
+            # Thêm quy luật tổng linh hoạt
+            tong = (int(d) + int(t)) % 10
+            if tong in [0, 2, 4, 5, 7, 9]:
+                score_map[num] += 3.5
+                
+            # Phân tách ưu hóa theo vùng miền thực tế
+            if region == 'mb':
+                if int(d) in [1, 2, 4, 6, 8] or int(t) in [0, 3, 5, 7, 9]:
+                    score_map[num] += 4.0
+            else: # miền nam / trung
+                if int(d) in [0, 2, 3, 5, 7, 9] or int(t) in [1, 2, 4, 6, 8]:
+                    score_map[num] += 4.0
 
-        scored_pool.append((base_score, -int(num), num))
-        
+    scored_pool = [(score_map[num], -int(num), num) for num in all_numbers]
     scored_pool.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    
     target_count = max(30, min(60, size_target))
     return sorted([item[2] for item in scored_pool[:target_count]])
 
@@ -195,7 +182,7 @@ def run_backtest_engine(region, start_date_str, total_days=10):
     total_days = max(1, min(40, total_days))
     region_name = "MIỀN BẮC" if region == 'mb' else ("MIỀN NAM" if region == 'mn' else "MIỀN TRUNG")
     
-    header = f"🧪 BACKTEST {region_name} V61 (TỐC ĐỘ CAO & TỐI ƯU 90%) - {total_days} KỲ TỪ: {start_date_str}\n\n"
+    header = f"🧪 BACKTEST {region_name} V62 (ĐỘNG KÉP TỐI ƯU CAO) - {total_days} KỲ TỪ: {start_date_str}\n\n"
     
     win_30, win_40, win_50 = 0, 0, 0
     valid_days_count = 0
@@ -207,7 +194,6 @@ def run_backtest_engine(region, start_date_str, total_days=10):
     for i in range(total_days):
         date_str = current_dt.strftime("%Y-%m-%d")
         
-        # Dừng ngay nếu chưa đến giờ quay của ngày hiện tại
         if not is_date_already_drawn(date_str, region):
             break
             
@@ -216,9 +202,9 @@ def run_backtest_engine(region, start_date_str, total_days=10):
         if real_db is not None:
             valid_days_count += 1
             
-            dan_30 = generate_dan_so_v61(30, region, recent_history_buffer)
-            dan_40 = generate_dan_so_v61(40, region, recent_history_buffer)
-            dan_50 = generate_dan_so_v61(50, region, recent_history_buffer)
+            dan_30 = generate_dan_so_v62(30, region, recent_history_buffer)
+            dan_40 = generate_dan_so_v62(40, region, recent_history_buffer)
+            dan_50 = generate_dan_so_v62(50, region, recent_history_buffer)
             
             hit_30 = real_db in dan_30
             hit_40 = real_db in dan_40
@@ -236,7 +222,7 @@ def run_backtest_engine(region, start_date_str, total_days=10):
         
         current_dt += timedelta(days=1)
         
-    footer = f"\n📊 **THỐNG KÊ HIỆU SUẤT V61:**\n• Số kỳ lấy được dữ liệu chuẩn: {valid_days_count}\n"
+    footer = f"\n📊 **THỐNG KÊ HIỆU SUẤT V62:**\n• Số kỳ lấy được dữ liệu chuẩn: {valid_days_count}\n"
     if valid_days_count > 0:
         footer += f"• Dàn 30 số: {win_30}/{valid_days_count} ({round(win_30*100/valid_days_count, 1)}%)\n"
         footer += f"• Dàn 40 số: {win_40}/{valid_days_count} ({round(win_40*100/valid_days_count, 1)}%)\n"
@@ -275,7 +261,7 @@ def run_telegram_bot():
         @bot.message_handler(commands=['start', 'help'])
         def send_welcome(message):
             help_text = (
-                "🤖 **XSMB - XSMN - XSMT MULTI-REGION BOT V61**\n\n"
+                "🤖 **XSMB - XSMN - XSMT MULTI-REGION BOT V62**\n\n"
                 "📌 **Lệnh Dự Đoán:** `/dudoanmb`, `/dudoanmn`, `/dudoanmt`\n"
                 "📌 **Lệnh Kiểm Thử:** `/testmb 2026-09-01=>15`, `/testmn`, `/testmt`\n"
                 "📌 **Lệnh Hệ Thống:** `/reload`"
@@ -284,7 +270,7 @@ def run_telegram_bot():
 
         @bot.message_handler(commands=['reload'])
         def handle_reload(message):
-            reload_text = "🔄 **TẢI LẠI HỆ THỐNG V61 THÀNH CÔNG!**\n\n🚀 Đã nâng cấp thuật toán động tối ưu tỷ lệ trúng cao và khóa chặt thời gian thực."
+            reload_text = "🔄 **TẢI LẠI HỆ THỐNG V62 THÀNH CÔNG!**\n\n🚀 Đã kích hoạt thuật toán động kép, tối ưu hóa sâu chỉ số tần suất trượt."
             bot.reply_to(message, reload_text, parse_mode="Markdown")
 
         @bot.message_handler(commands=['dudoanmb', 'dudoanmn', 'dudoanmt'])
@@ -299,12 +285,12 @@ def run_telegram_bot():
                 region = 'mt'
                 title = "MIỀN TRUNG"
                 
-            dan_30 = generate_dan_so_v61(30, region)
-            dan_40 = generate_dan_so_v61(40, region)
-            dan_50 = generate_dan_so_v61(50, region)
+            dan_30 = generate_dan_so_v62(30, region)
+            dan_40 = generate_dan_so_v62(40, region)
+            dan_50 = generate_dan_so_v62(50, region)
             
             res_msg = (
-                f"🎯 **DỰ ĐOÁN GIẢI ĐẶC BIỆT {title} HÔM NAY** (V61)\n\n"
+                f"🎯 **DỰ ĐOÁN GIẢI ĐẶC BIỆT {title} HÔM NAY** (V62)\n\n"
                 f"📌 **Dàn 30 số:**\n`{', '.join(dan_30)}`\n\n"
                 f"📌 **Dàn 40 số:**\n`{', '.join(dan_40)}`\n\n"
                 f"📌 **Dàn 50 số:**\n`{', '.join(dan_50)}`"
@@ -334,14 +320,14 @@ def run_telegram_bot():
             header, details, footer = run_backtest_engine(region, start_date_str=date_str, total_days=total_days)
             send_long_message(bot, message, header, details, footer)
 
-        print("✅ Bot Telegram V61 đã khởi động thành công...", flush=True)
+        print("✅ Bot Telegram V62 đã khởi động thành công...", flush=True)
         bot.infinity_polling(timeout=60, long_polling_timeout=30)
     except Exception as e:
         print(f"💥 Lỗi khởi động Telegram Bot: {e}", flush=True)
         traceback.print_exc()
 
 if __name__ == "__main__":
-    print("🚀 Đang khởi động Web Server và Bot Engine V61...", flush=True)
+    print("🚀 Đang khởi động Web Server và Bot Engine V62...", flush=True)
     bot_thread = threading.Thread(target=run_telegram_bot)
     bot_thread.daemon = True
     bot_thread.start()

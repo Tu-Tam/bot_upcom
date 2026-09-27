@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, time
 from flask import Flask
 import telebot
 import requests
-from bs4သည်။
+from bs4 import BeautifulSoup
 
 # ==========================================
 # 1. KHỞI TẠO WEB SERVER (RENDER KEEP-ALIVE)
@@ -17,7 +17,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "XSMB - XSMN - XSMT Multi-Region Engine V64: ONLINE", 200
+    return "XSMB - XSMN - XSMT Multi-Region Engine V65: ONLINE", 200
 
 @app.route('/health')
 def health():
@@ -46,7 +46,7 @@ def save_database(db_data):
         print(f"⚠️ Lỗi lưu database: {e}", flush=True)
 
 # ==========================================
-# 3. HỆ THỐNG KIỂM TRA GIỜ QUAY & CHẶN NGÀY CHƯA QUAY
+# 3. HỆ THỐNG KIỂM TRA GIỜ QUAY & CÀO DỮ LIỆU
 # ==========================================
 def is_date_already_drawn(date_str, region):
     try:
@@ -138,8 +138,8 @@ def get_db_result(region, date_str):
         db[region]["all_lotes"][date_str] = all_lotes
         
         sorted_dates = sorted(db[region]["special"].keys())
-        if len(sorted_dates) > 100:
-            for old_date in sorted_dates[:-100]:
+        if len(sorted_dates) > 120:
+            for old_date in sorted_dates[:-120]:
                 db[region]["special"].pop(old_date, None)
                 db[region]["all_lotes"].pop(old_date, None)
         save_database(db)
@@ -147,59 +147,53 @@ def get_db_result(region, date_str):
     return special_val, all_lotes
 
 # ==========================================
-# 4. THUẬT TOÁN ĐA TẦNG CHUYÊN SÂU (V64)
+# 4. THUẬT TOÁN ĐA BIÊN ĐỘ MỞ RỘNG (V65)
 # ==========================================
-def get_bong_duong(digit_str):
-    mapping = {'0':'5', '1':'6', '2':'7', '3':'8', '4':'9', '5':'0', '6':'1', '7':'2', '8':'3', '9':'4'}
-    return mapping.get(digit_str, digit_str)
-
-def generate_dan_so_v64(size_target=40, region='mb', history_lotes=None):
+def generate_dan_so_v65(size_target=40, region='mb', history_lotes=None):
     """
-    Thuật toán V64 áp dụng phương pháp Đa Tầng: Tần suất lô tô kết hợp 
-    chiếu bóng số âm-dương và lọc biên độ nhịp tổng chuẩn.
+    Thuật toán V65 mở rộng vùng quét lên tới 10 kỳ gần nhất, 
+    áp dụng hệ số trọng số suy giảm theo thời gian và phân tích ma trận chạm đa tầng.
     """
     all_numbers = [f"{i:02d}" for i in range(100)]
-    score_map = {num: 1.0 for num in all_numbers}
+    score_map = {num: 2.0 for num in all_numbers}
     
     if history_lotes and len(history_lotes) > 0:
-        # Lấy kỳ lô tô ngay trước đó (hoặc tối đa 3 kỳ gần nhất)
-        recent_lotes = []
-        for lotes_list in history_lotes[-3:]:
-            recent_lotes.extend(lotes_list)
-            
-        digit_freq = {str(i): 0 for i in range(10)}
-        tail_freq = {str(i): 0 for i in range(10)}
+        # Lấy tối đa 10 kỳ gần nhất để tạo độ sâu dữ liệu
+        recent_windows = history_lotes[-10:]
+        total_windows = len(recent_windows)
         
-        for lt in recent_lotes:
-            if len(lt) == 2:
-                d, t = lt[0], lt[1]
-                digit_freq[d] += 1
-                tail_freq[t] += 1
-                
-        # Tìm các chạm có tần suất xuất hiện cao nhất trong bảng lô
-        top_digits = sorted(digit_freq.keys(), key=lambda x: digit_freq[x], reverse=True)[:4]
-        top_tails = sorted(tail_freq.keys(), key=lambda x: tail_freq[x], reverse=True)[:4]
+        digit_weights = {str(i): 0.0 for i in range(10)}
+        tail_weights = {str(i): 0.0 for i in range(10)}
+        exact_freq = {}
         
+        for idx, lotes_list in enumerate(recent_windows):
+            # Trọng số tăng dần cho các kỳ gần hiện tại hơn (Exponential Decay Weighting)
+            weight_factor = 1.0 + (idx / total_windows) * 2.5
+            for lt in lotes_list:
+                if len(lt) == 2:
+                    d, t = lt[0], lt[1]
+                    digit_weights[d] += weight_factor
+                    tail_weights[t] += weight_factor
+                    exact_freq[lt] = exact_freq.get(lt, 0.0) + weight_factor
+                    
+        # Chấm điểm toàn bộ 100 số dựa trên ma trận trọng số đa kỳ
         for num in all_numbers:
             d, t = num[0], num[1]
-            # Thưởng điểm mạnh nếu chạm đầu hoặc đuôi nằm trong top tần suất lô tô
-            if d in top_digits:
-                score_map[num] += 8.0
-            if t in top_tails:
-                score_map[num] += 8.0
+            score_map[num] += (digit_weights[d] * 1.5) + (tail_weights[t] * 1.5)
+            if num in exact_freq:
+                score_map[num] += exact_freq[num] * 3.0
                 
-            # Áp dụng quy luật bóng dương của đầu/đuôi
-            if get_bong_duong(d) in top_tails or get_bong_duong(t) in top_digits:
-                score_map[num] += 5.0
-                
-            # Phân tách quy luật tổng theo đặc thù vùng miền
+            # Thêm điểm đồng biến tổng theo đặc trưng vùng miền
             tong = (int(d) + int(t)) % 10
             if region == 'mb':
-                if tong in [1, 2, 4, 6, 7, 9]:
-                    score_map[num] += 4.0
-            else:
-                if tong in [0, 3, 5, 6, 8, 9]:
-                    score_map[num] += 4.0
+                if tong in [0, 2, 4, 5, 7, 9]:
+                    score_map[num] += 4.5
+            elif region == 'mn':
+                if tong in [1, 3, 5, 6, 8, 9]:
+                    score_map[num] += 4.5
+            else: # mt
+                if tong in [0, 1, 3, 4, 7, 8]:
+                    score_map[num] += 4.5
 
     scored_pool = [(score_map[num], -int(num), num) for num in all_numbers]
     scored_pool.sort(key=lambda x: (x[0], x[1]), reverse=True)
@@ -216,7 +210,7 @@ def run_backtest_engine(region, start_date_str, total_days=10):
     total_days = max(1, min(40, total_days))
     region_name = "MIỀN BẮC" if region == 'mb' else ("MIỀN NAM" if region == 'mn' else "MIỀN TRUNG")
     
-    header = f"🧪 BACKTEST {region_name} V64 (ĐA TẦNG CHUYÊN SÂU) - {total_days} KỲ TỪ: {start_date_str}\n\n"
+    header = f"🧪 BACKTEST {region_name} V65 (ĐA BIÊN ĐỘ MỞ RỘNG) - {total_days} KỲ TỪ: {start_date_str}\n\n"
     
     win_30, win_40, win_50 = 0, 0, 0
     valid_days_count = 0
@@ -225,6 +219,15 @@ def run_backtest_engine(region, start_date_str, total_days=10):
     history_lotes_buffer = []
     details = []
     
+    # Nạp trước một số ngày lịch sử trước ngày test để bộ đệm có đủ dữ liệu (tối thiểu 10 kỳ)
+    pre_fill_dt = start_dt - timedelta(days=15)
+    while pre_fill_dt < start_dt:
+        p_str = pre_fill_dt.strftime("%Y-%m-%d")
+        _, p_lotes = get_db_result(region, p_str)
+        if p_lotes:
+            history_lotes_buffer.append(p_lotes)
+        pre_fill_dt += timedelta(days=1)
+
     for i in range(total_days):
         date_str = current_dt.strftime("%Y-%m-%d")
         
@@ -236,9 +239,9 @@ def run_backtest_engine(region, start_date_str, total_days=10):
         if real_db is not None:
             valid_days_count += 1
             
-            dan_30 = generate_dan_so_v64(30, region, history_lotes_buffer)
-            dan_40 = generate_dan_so_v64(40, region, history_lotes_buffer)
-            dan_50 = generate_dan_so_v64(50, region, history_lotes_buffer)
+            dan_30 = generate_dan_so_v65(30, region, history_lotes_buffer)
+            dan_40 = generate_dan_so_v65(40, region, history_lotes_buffer)
+            dan_50 = generate_dan_so_v65(50, region, history_lotes_buffer)
             
             hit_30 = real_db in dan_30
             hit_40 = real_db in dan_40
@@ -257,7 +260,7 @@ def run_backtest_engine(region, start_date_str, total_days=10):
         
         current_dt += timedelta(days=1)
         
-    footer = f"\n📊 **THỐNG KÊ HIỆU SUẤT V64:**\n• Số kỳ lấy được dữ liệu chuẩn: {valid_days_count}\n"
+    footer = f"\n📊 **THỐNG KÊ HIỆU SUẤT V65:**\n• Số kỳ lấy được dữ liệu chuẩn: {valid_days_count}\n"
     if valid_days_count > 0:
         footer += f"• Dàn 30 số: {win_30}/{valid_days_count} ({round(win_30*100/valid_days_count, 1)}%)\n"
         footer += f"• Dàn 40 số: {win_40}/{valid_days_count} ({round(win_40*100/valid_days_count, 1)}%)\n"
@@ -296,7 +299,7 @@ def run_telegram_bot():
         @bot.message_handler(commands=['start', 'help'])
         def send_welcome(message):
             help_text = (
-                "🤖 **XSMB - XSMN - XSMT MULTI-REGION BOT V64**\n\n"
+                "🤖 **XSMB - XSMN - XSMT MULTI-REGION BOT V65**\n\n"
                 "📌 **Lệnh Dự Đoán:** `/dudoanmb`, `/dudoanmn`, `/dudoanmt`\n"
                 "📌 **Lệnh Kiểm Thử:** `/testmb 2026-09-01=>15`, `/testmn`, `/testmt`\n"
                 "📌 **Lệnh Hệ Thống:** `/reload`"
@@ -305,7 +308,7 @@ def run_telegram_bot():
 
         @bot.message_handler(commands=['reload'])
         def handle_reload(message):
-            reload_text = "🔄 **TẢI LẠI HỆ THỐNG V64 THÀNH CÔNG!**\n\n🚀 Đã kích hoạt thuật toán Đa Tầng chuyên sâu kết hợp quy luật bóng số âm dương và tần suất lô tô."
+            reload_text = "🔄 **TẢI LẠI HỆ THỐNG V65 THÀNH CÔNG!**\n\n🚀 Đã kích hoạt thuật toán Đa Biên Độ Mở Rộng 10 kỳ với Trọng số Động."
             bot.reply_to(message, reload_text, parse_mode="Markdown")
 
         @bot.message_handler(commands=['dudoanmb', 'dudoanmn', 'dudoanmt'])
@@ -320,12 +323,22 @@ def run_telegram_bot():
                 region = 'mt'
                 title = "MIỀN TRUNG"
                 
-            dan_30 = generate_dan_so_v64(30, region)
-            dan_40 = generate_dan_so_v64(40, region)
-            dan_50 = generate_dan_so_v64(50, region)
+            # Lấy sẵn lịch sử 10 ngày gần nhất để tính toán dự đoán hôm nay
+            history_buffer = []
+            check_dt = datetime.now() - timedelta(days=12)
+            while check_dt < datetime.now():
+                d_str = check_dt.strftime("%Y-%m-%d")
+                _, lotes = get_db_result(region, d_str)
+                if lotes:
+                    history_buffer.append(lotes)
+                check_dt += timedelta(days=1)
+                
+            dan_30 = generate_dan_so_v65(30, region, history_buffer)
+            dan_40 = generate_dan_so_v65(40, region, history_buffer)
+            dan_50 = generate_dan_so_v65(50, region, history_log:=history_buffer)
             
             res_msg = (
-                f"🎯 **DỰ ĐOÁN GIẢI ĐẶC BIỆT {title} HÔM NAY** (V64)\n\n"
+                f"🎯 **DỰ ĐOÁN GIẢI ĐẶC BIỆT {title} HÔM NAY** (V65)\n\n"
                 f"📌 **Dàn 30 số:**\n`{', '.join(dan_30)}`\n\n"
                 f"📌 **Dàn 40 số:**\n`{', '.join(dan_40)}`\n\n"
                 f"📌 **Dàn 50 số:**\n`{', '.join(dan_50)}`"
@@ -355,14 +368,14 @@ def run_telegram_bot():
             header, details, footer = run_backtest_engine(region, start_date_str=date_str, total_days=total_days)
             send_long_message(bot, message, header, details, footer)
 
-        print("✅ Bot Telegram V64 đã khởi động thành công...", flush=True)
+        print("✅ Bot Telegram V65 đã khởi động thành công...", flush=True)
         bot.infinity_polling(timeout=60, long_polling_timeout=30)
     except Exception as e:
         print(f"💥 Lỗi khởi động Telegram Bot: {e}", flush=True)
         traceback.print_exc()
 
 if __name__ == "__main__":
-    print("🚀 Đang khởi động Web Server và Bot Engine V64...", flush=True)
+    print("🚀 Đang khởi động Web Server và Bot Engine V65...", flush=True)
     bot_thread = threading.Thread(target=run_telegram_bot)
     bot_thread.daemon = True
     bot_thread.start()

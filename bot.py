@@ -17,7 +17,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "XSMB - XSMN - XSMT Multi-Region Engine V66: ONLINE", 200
+    return "XSMB - XSMN - XSMT Multi-Region Engine V67: ONLINE", 200
 
 @app.route('/health')
 def health():
@@ -147,66 +147,48 @@ def get_db_result(region, date_str):
     return special_val, all_lotes
 
 # ==========================================
-# 4. THUẬT TOÁN TỐI ƯU V66 (ADAPTIVE MATRIX)
+# 4. THUẬT TOÁN V67 (5 ĐẦU, 5 ĐUÔI & CHẴN/LẺ)
 # ==========================================
-def generate_dan_so_v66(size_target=40, region='mb', history_lotes=None, recent_specials=None):
+def analyze_heads_tails_parity(region='mb', history_lotes=None):
     """
-    Thuật toán V66 sử dụng bộ lọc Ma Trận Chạm Động kết hợp 
-    khoảng cách nhịp xuất hiện giải đặc biệt và tần số đảo chiều.
+    Phân tích và tính toán:
+    1. Top 5 Đầu đề tỷ lệ cao nhất
+    2. Top 5 Đuôi đề tỷ lệ cao nhất
+    3. Dự đoán Chẵn hoặc Lẻ (cả Đầu, Đuôi và Tổng)
     """
-    all_numbers = [f"{i:02d}" for i in range(100)]
-    score_map = {num: 1.0 for num in all_numbers}
+    digit_score = {str(i): 1.0 for i in range(10)}
+    tail_score = {str(i): 1.0 for i in range(10)}
     
-    # Phân tích dữ liệu lô tô của 5 kỳ gần nhất để bắt nhịp ngắn hạn cực kỳ nhạy bén
+    chan_count = 0
+    le_count = 0
+    
     if history_lotes and len(history_lotes) > 0:
-        recent_windows = history_lotes[-5:]
-        digit_count = {str(i): 0 for i in range(10)}
-        tail_count = {str(i): 0 for i in range(10)}
-        
-        for w_idx, lotes in enumerate(recent_windows):
-            factor = 1.0 + (w_idx * 0.4) # Tăng trọng số kỳ càng gần hiện tại
+        recent_windows = history_lotes[-10:] # Quét 10 kỳ gần nhất
+        for idx, lotes in enumerate(recent_windows):
+            weight = 1.0 + (idx * 0.25)
             for lt in lotes:
                 if len(lt) == 2:
                     d, t = lt[0], lt[1]
-                    digit_count[d] += factor
-                    tail_count[t] += factor
+                    digit_score[d] += weight
+                    tail_score[t] += weight
+                    
+                    # Thống kê chẵn lẻ từ dữ liệu thực tế
+                    if int(lt) % 2 == 0:
+                        chan_count += 1
+                    else:
+                        le_count += 1
 
-        # Lấy top các chạm xuất hiện mạnh nhất
-        hot_digits = sorted(digit_count.keys(), key=lambda x: digit_count[x], reverse=True)[:5]
-        hot_tails = sorted(tail_count.keys(), key=lambda x: tail_count[x], reverse=True)[:5]
-
-        for num in all_numbers:
-            d, t = num[0], num[1]
-            # Điểm cộng dựa trên chạm xuất hiện thực tế trong bảng lô
-            if d in hot_digits:
-                score_map[num] += 12.0
-            if t in hot_tails:
-                score_map[num] += 12.0
-                
-            # Cân đối tổng chạm đặc trưng theo vùng
-            tong = (int(d) + int(t)) % 10
-            if region == 'mb':
-                if tong in [1, 3, 5, 7, 9, 0]:
-                    score_map[num] += 6.0
-            else:
-                if tong in [0, 2, 4, 6, 8, 1]:
-                    score_map[num] += 6.0
-
-    # Nếu có danh sách giải đặc biệt gần đây, áp dụng chống trùng lặp và kích hoạt tổng bù
-    if recent_specials and len(recent_specials) > 0:
-        last_sp = recent_specials[-1]
-        if len(last_sp) == 2:
-            ld, lt = last_sp[0], last_sp[1]
-            # Thêm điểm cho các số có liên quan đến bóng hoặc chạm của giải ĐB ngày hôm trước
-            for num in all_numbers:
-                if num[0] == ld or num[1] == lt:
-                    score_map[num] += 8.0
-
-    scored_pool = [(score_map[num], -int(num), num) for num in all_numbers]
-    scored_pool.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    # Sắp xếp lấy Top 5 Đầu & Top 5 Đuôi
+    sorted_heads = sorted(digit_score.keys(), key=lambda x: digit_score[x], reverse=True)[:5]
+    sorted_tails = sorted(tail_score.keys(), key=lambda x: tail_score[x], reverse=True)[:5]
     
-    target_count = max(30, min(60, size_target))
-    return sorted([item[2] for item in scored_pool[:target_count]])
+    sorted_heads.sort()
+    sorted_tails.sort()
+
+    # Xác định xu hướng Chẵn hay Lẻ
+    parity_result = "CHẴN (Chẵn Đầu / Chẵn Đuôi)" if chan_count >= le_count else "LẺ (Lẻ Đầu / Lẻ Đuôi)"
+
+    return sorted_heads, sorted_tails, parity_result
 
 def run_backtest_engine(region, start_date_str, total_days=10):
     try:
@@ -217,25 +199,21 @@ def run_backtest_engine(region, start_date_str, total_days=10):
     total_days = max(1, min(40, total_days))
     region_name = "MIỀN BẮC" if region == 'mb' else ("MIỀN NAM" if region == 'mn' else "MIỀN TRUNG")
     
-    header = f"🧪 BACKTEST {region_name} V66 (ADAPTIVE MATRIX) - {total_days} KỲ TỪ: {start_date_str}\n\n"
+    header = f"🧪 BACKTEST {region_name} V67 (5 ĐẦU - 5 ĐUÔI - CHẴN/LẺ) - {total_days} KỲ TỪ: {start_date_str}\n\n"
     
-    win_30, win_40, win_50 = 0, 0, 0
+    win_dau, win_duoi, win_chanle = 0, 0, 0
     valid_days_count = 0
     current_dt = start_dt
     
     history_lotes_buffer = []
-    specials_buffer = []
     details = []
     
-    # Nạp dữ liệu nền trước ngày test
     pre_fill_dt = start_dt - timedelta(days=12)
     while pre_fill_dt < start_dt:
         p_str = pre_fill_dt.strftime("%Y-%m-%d")
-        p_sp, p_lotes = get_db_result(region, p_str)
+        _, p_lotes = get_db_result(region, p_str)
         if p_lotes:
             history_lotes_buffer.append(p_lotes)
-        if p_sp:
-            specials_buffer.append(p_sp)
         pre_fill_dt += timedelta(days=1)
 
     for i in range(total_days):
@@ -249,33 +227,40 @@ def run_backtest_engine(region, start_date_str, total_days=10):
         if real_db is not None:
             valid_days_count += 1
             
-            dan_30 = generate_dan_so_v66(30, region, history_lotes_buffer, specials_buffer)
-            dan_40 = generate_dan_so_v66(40, region, history_lotes_buffer, specials_buffer)
-            dan_50 = generate_dan_so_v66(50, region, history_lotes_buffer, specials_buffer)
+            top_heads, top_tails, predicted_parity = analyze_heads_tails_parity(region, history_lotes_buffer)
             
-            hit_30 = real_db in dan_30
-            hit_40 = real_db in dan_40
-            hit_50 = real_db in dan_50
+            real_dau = real_db[0]
+            real_duoi = real_db[1]
+            real_is_even = int(real_db) % 2 == 0
+            pred_is_even = "CHẴN" in predicted_parity
             
-            if hit_30: win_30 += 1
-            if hit_40: win_40 += 1
-            if hit_50: win_50 += 1
+            hit_dau = real_dau in top_heads
+            hit_duoi = real_duoi in top_tails
+            hit_chanle = (real_is_even == pred_is_even)
+            
+            if hit_dau: win_dau += 1
+            if hit_duoi: win_duoi += 1
+            if hit_chanle: win_chanle += 1
             
             if all_lotes:
                 history_lotes_buffer.append(all_lotes)
-            specials_buffer.append(real_db)
             
-            details.append(f"📅 {date_str} | ĐB Về: **{real_db}** (Thực tế)\n├ Dàn 30 số: {'✅ NỔ' if hit_30 else '❌ XỊT'}\n├ Dàn 40 số: {'✅ NỔ' if hit_40 else '❌ XỊT'}\n└ Dàn 50 số: {'✅ NỔ' if hit_50 else '❌ XỊT'}\n")
+            details.append(
+                f"📅 {date_str} | ĐB Về: **{real_db}** (Thực tế)\n"
+                f"├ Top 5 Đầu ({', '.join(top_heads)}): {'✅ NỔ' if hit_dau else '❌ XỊT'}\n"
+                f"├ Top 5 Đuôi ({', '.join(top_tails)}): {'✅ NỔ' if hit_duoi else '❌ XỊT'}\n"
+                f"└ Chẵn/Lẻ ({predicted_parity}): {'✅ NỔ' if hit_chanle else '❌ XỊT'}\n"
+            )
         else:
             break
         
         current_dt += timedelta(days=1)
         
-    footer = f"\n📊 **THỐNG KÊ HIỆU SUẤT V66:**\n• Số kỳ lấy được dữ liệu chuẩn: {valid_days_count}\n"
+    footer = f"\n📊 **THỐNG KÊ HIỆU SUẤT V67:**\n• Số kỳ lấy được dữ liệu chuẩn: {valid_days_count}\n"
     if valid_days_count > 0:
-        footer += f"• Dàn 30 số: {win_30}/{valid_days_count} ({round(win_30*100/valid_days_count, 1)}%)\n"
-        footer += f"• Dàn 40 số: {win_40}/{valid_days_count} ({round(win_40*100/valid_days_count, 1)}%)\n"
-        footer += f"• Dàn 50 số: {win_50}/{valid_days_count} ({round(win_50*100/valid_days_count, 1)}%)"
+        footer += f"• Top 5 Đầu: {win_dau}/{valid_days_count} ({round(win_dau*100/valid_days_count, 1)}%)\n"
+        footer += f"• Top 5 Đuôi: {win_duoi}/{valid_days_count} ({round(win_duoi*100/valid_days_count, 1)}%)\n"
+        footer += f"• Chẵn / Lẻ: {win_chanle}/{valid_days_count} ({round(win_chanle*100/valid_days_count, 1)}%)"
     else:
         footer += f"• Không có dữ liệu hợp lệ (hoặc chưa đến giờ quay hôm nay)."
         
@@ -310,7 +295,7 @@ def run_telegram_bot():
         @bot.message_handler(commands=['start', 'help'])
         def send_welcome(message):
             help_text = (
-                "🤖 **XSMB - XSMN - XSMT MULTI-REGION BOT V66**\n\n"
+                "🤖 **XSMB - XSMN - XSMT MULTI-REGION BOT V67**\n\n"
                 "📌 **Lệnh Dự Đoán:** `/dudoanmb`, `/dudoanmn`, `/dudoanmt`\n"
                 "📌 **Lệnh Kiểm Thử:** `/testmb 2026-09-01=>15`, `/testmn`, `/testmt`\n"
                 "📌 **Lệnh Hệ Thống:** `/reload`"
@@ -319,7 +304,7 @@ def run_telegram_bot():
 
         @bot.message_handler(commands=['reload'])
         def handle_reload(message):
-            reload_text = "🔄 **TẢI LẠI HỆ THỐNG V66 THÀNH CÔNG!**\n\n🚀 Đã kích hoạt thuật toán Adaptive Matrix tối ưu phân phối biên độ động."
+            reload_text = "🔄 **TẢI LẠI HỆ THỐNG V67 THÀNH CÔNG!**\n\n🚀 Đã chuyển đổi sang hệ thống phân tích Top 5 Đầu, Top 5 Đuôi & Cân bằng Chẵn/Lẻ."
             bot.reply_to(message, reload_text, parse_mode="Markdown")
 
         @bot.message_handler(commands=['dudoanmb', 'dudoanmn', 'dudoanmt'])
@@ -335,26 +320,21 @@ def run_telegram_bot():
                 title = "MIỀN TRUNG"
                 
             history_buffer = []
-            specials_buffer = []
-            check_dt = datetime.now() - timedelta(days=10)
+            check_dt = datetime.now() - timedelta(days=12)
             while check_dt < datetime.now():
                 d_str = check_dt.strftime("%Y-%m-%d")
-                sp, lotes = get_db_result(region, d_str)
+                _, lotes = get_db_result(region, d_str)
                 if lotes:
                     history_buffer.append(lotes)
-                if sp:
-                    specials_buffer.append(sp)
                 check_dt += timedelta(days=1)
                 
-            dan_30 = generate_dan_so_v66(30, region, history_buffer, specials_buffer)
-            dan_40 = generate_dan_so_v66(40, region, history_buffer, specials_buffer)
-            dan_50 = generate_dan_so_v66(50, region, history_buffer, specials_buffer)
+            top_heads, top_tails, parity = analyze_heads_tails_parity(region, history_buffer)
             
             res_msg = (
-                f"🎯 **DỰ ĐOÁN GIẢI ĐẶC BIỆT {title} HÔM NAY** (V66)\n\n"
-                f"📌 **Dàn 30 số:**\n`{', '.join(dan_30)}`\n\n"
-                f"📌 **Dàn 40 số:**\n`{', '.join(dan_40)}`\n\n"
-                f"📌 **Dàn 50 số:**\n`{', '.join(dan_50)}`"
+                f"🎯 **DỰ ĐOÁN GIẢI ĐẶC BIỆT {title} HÔM NAY** (V67)\n\n"
+                f"📌 **Top 5 Đầu đề sáng nhất:**\n`{', '.join(top_heads)}`\n\n"
+                f"📌 **Top 5 Đuôi đề sáng nhất:**\n`{', '.join(top_tails)}`\n\n"
+                f"📌 **Dự đoán Chẵn / Lẻ:**\n`{parity}`"
             )
             bot.reply_to(message, res_msg, parse_mode="Markdown")
 
@@ -381,14 +361,14 @@ def run_telegram_bot():
             header, details, footer = run_backtest_engine(region, start_date_str=date_str, total_days=total_days)
             send_long_message(bot, message, header, details, footer)
 
-        print("✅ Bot Telegram V66 đã khởi động thành công...", flush=True)
+        print("✅ Bot Telegram V67 đã khởi động thành công...", flush=True)
         bot.infinity_polling(timeout=60, long_polling_timeout=30)
     except Exception as e:
         print(f"💥 Lỗi khởi động Telegram Bot: {e}", flush=True)
         traceback.print_exc()
 
 if __name__ == "__main__":
-    print("🚀 Đang khởi động Web Server và Bot Engine V66...", flush=True)
+    print("🚀 Đang khởi động Web Server và Bot Engine V67...", flush=True)
     bot_thread = threading.Thread(target=run_telegram_bot)
     bot_thread.daemon = True
     bot_thread.start()

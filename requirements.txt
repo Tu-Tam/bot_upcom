@@ -1,3 +1,5 @@
+python-telegram-bot>=21.0
+yt-dlp
 pyTelegramBotAPI>=4.16.0
 Flask>=3.0.0
 requests>=2.31.0

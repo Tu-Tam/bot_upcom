@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
@@ -11,13 +12,17 @@ from telegram.ext import (
 )
 import yt_dlp
 
-BOT_TOKEN = "8520938638:AAG77o711ySPIMyRurakLMs1xtuASe5UQQU"
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+if not BOT_TOKEN:
+    raise RuntimeError("Thiếu biến môi trường BOT_TOKEN. Hãy cấu hình BOT_TOKEN trên Render.")
+
 DOWNLOAD_DIR = "downloads"
 MAX_FILE_SIZE_MB = 50
+HAS_FFMPEG = shutil.which("ffmpeg") is not None
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Lưu tạm link theo user_id khi người dùng bấm chọn định dạng
+# Lưu tạm link theo user_id khi bấm nút chọn định dạng
 USER_LINKS: dict[int, str] = {}
 
 logging.basicConfig(
@@ -28,8 +33,10 @@ logger = logging.getLogger(__name__)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
     await update.message.reply_text(
-        "Chào bạn! Hãy gửi link video (Facebook Reel, TikTok, YouTube...) vào đây.\n"
+        "Chào bạn! Gửi link video (Facebook Reel, TikTok, YouTube...) vào đây.\n"
         "Mình sẽ hiện nút để bạn chọn tải *Video (.mp4)* hoặc *Tách âm thanh (.mp3)*.",
         parse_mode="Markdown",
     )
@@ -49,13 +56,11 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     USER_LINKS[user_id] = url
 
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🎬 Tải Video (.mp4)", callback_data="mode_video"),
-            InlineKeyboardButton("🎵 Tách nhạc/tiếng (.mp3)", callback_data="mode_audio"),
-        ]
-    ])
+    buttons = [InlineKeyboardButton("🎬 Tải Video (.mp4)", callback_data="mode_video")]
+    if HAS_FFMPEG:
+        buttons.append(InlineKeyboardButton("🎵 Tách nhạc/tiếng (.mp3)", callback_data="mode_audio"))
 
+    keyboard = InlineKeyboardMarkup([buttons])
     await update.message.reply_text(
         "Đã nhận link! Bạn muốn tải định dạng nào?",
         reply_markup=keyboard,
@@ -70,7 +75,7 @@ def _cleanup_files(media_id: str | None, extra_paths: list[str]):
             except OSError:
                 pass
 
-    if media_id:
+    if media_id and os.path.isdir(DOWNLOAD_DIR):
         for fname in os.listdir(DOWNLOAD_DIR):
             if fname.startswith(media_id):
                 full_path = os.path.join(DOWNLOAD_DIR, fname)
@@ -97,6 +102,12 @@ async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     mode = query.data
+    if mode == "mode_audio" and not HAS_FFMPEG:
+        await query.edit_message_text(
+            "⚠️ Môi trường hiện tại chưa có `ffmpeg` để tách file `.mp3`."
+        )
+        return
+
     await query.edit_message_text("⏳ Đang xử lý và tải file, vui lòng đợi...")
 
     filepath: str | None = None
@@ -104,13 +115,20 @@ async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         if mode == "mode_video":
+            # Ưu tiên file mp4 đã gộp sẵn để chạy mượt khi môi trường không có ffmpeg
+            video_format = (
+                "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+                if HAS_FFMPEG
+                else "best[ext=mp4]/best"
+            )
             ydl_opts = {
-                "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                "format": video_format,
                 "outtmpl": os.path.join(DOWNLOAD_DIR, "%(id)s.%(ext)s"),
-                "merge_output_format": "mp4",
                 "noplaylist": True,
                 "quiet": True,
             }
+            if HAS_FFMPEG:
+                ydl_opts["merge_output_format"] = "mp4"
         else:
             ydl_opts = {
                 "format": "bestaudio/best",
